@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Electric Drive Assembly Visualizer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="dark-mode">
+  <div class="app-container">
+    <header class="app-header">
+      <div class="header-main">
+        <div class="logo-area">
+          <span class="logo-icon">⚙️</span>
+          <div>
+            <h1>Chassis Drive Visualizer</h1>
+            <p class="subtitle">Interactive 2D/3D Kinematic Layout & Stack-Up Explorer</p>
+          </div>
+        </div>
+        <div class="chassis-badge">
+          <span class="badge-label">Envelope</span>
+          <span class="badge-value">215 × 100 × 85 mm</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="app-layout">
+      <!-- Grid of Diagrams -->
+      <section class="diagrams-grid">
+        <!-- XY Side View -->
+        <div class="card diagram-card" id="card-xy">
+          <div class="card-header">
+            <h3>Side View <span class="coordinate-plane">(XY Plane - Profile)</span></h3>
+            <div class="card-actions">
+              <span class="axis-indicator x-axis">X (Length)</span>
+              <span class="axis-indicator y-axis">Y (Height)</span>
+            </div>
+          </div>
+          <div class="svg-container">
+            <svg id="svg-side-view" viewBox="-15 -15 250 135" xmlns="http://www.w3.org/2000/svg"></svg>
+          </div>
+        </div>
+
+        <!-- XZ Top View -->
+        <div class="card diagram-card" id="card-xz">
+          <div class="card-header">
+            <h3>Top View <span class="coordinate-plane">(XZ Plane - Sectional Stack-Up)</span></h3>
+            <div class="card-actions">
+              <span class="axis-indicator x-axis">X (Length)</span>
+              <span class="axis-indicator z-axis">Z (Width)</span>
+            </div>
+          </div>
+          <div class="svg-container">
+            <svg id="svg-top-view" viewBox="-15 -15 250 120" xmlns="http://www.w3.org/2000/svg"></svg>
+          </div>
+        </div>
+
+        <!-- YZ End View -->
+        <div class="card diagram-card" id="card-yz">
+          <div class="card-header">
+            <h3>End View <span class="coordinate-plane">(YZ Plane - Sectional)</span></h3>
+            <div class="card-actions">
+              <span class="axis-indicator z-axis">Z (Width)</span>
+              <span class="axis-indicator y-axis">Y (Height)</span>
+            </div>
+          </div>
+          <div class="svg-container">
+            <svg id="svg-end-view" viewBox="-15 -15 120 135" xmlns="http://www.w3.org/2000/svg"></svg>
+          </div>
+        </div>
+
+        <!-- Plate Machining -->
+        <div class="card diagram-card" id="card-machining">
+          <div class="card-header">
+            <h3>Birch Plate Machining Template <span class="coordinate-plane">(210 × 95 mm)</span></h3>
+            <div class="card-actions">
+              <span class="badge-machining">12 mm Baltic Birch</span>
+            </div>
+          </div>
+          <div class="svg-container">
+            <svg id="svg-machining-view" viewBox="-15 -15 240 125" xmlns="http://www.w3.org/2000/svg"></svg>
+          </div>
+        </div>
+      </section>
+
+      <!-- Sidebar Controls and Calculations -->
+      <aside class="app-sidebar">
+        <!-- Design Selector -->
+        <div class="card design-selector-card">
+          <div class="card-header">
+            <h3>Drive System Design</h3>
+          </div>
+          <div class="design-tabs">
+            <button class="design-tab" id="tab-design-a">Design A: Belts</button>
+            <button class="design-tab active" id="tab-design-b">Design B: Worm Drive</button>
+            <button class="design-tab" id="tab-design-c">Design C: Hub Motor</button>
+          </div>
+          <p class="design-summary-text" id="design-summary">
+            Space-Optimized Layout: Direct-drive 5840-31ZY Worm Gearmotor. Motor is rotated parallel to the wheels. Fits 100% inside Z=85 mm.
+          </p>
+        </div>
+
+        <!-- Interactive Options -->
+        <div class="card control-card">
+          <div class="card-header">
+            <h3>Display Options</h3>
+          </div>
+          <div class="control-group">
+            <label class="toggle-control">
+              <input type="checkbox" id="toggle-dimensions" checked>
+              <span class="toggle-slider"></span>
+              <span class="toggle-label">Show Dimensions & Grid</span>
+            </label>
+            <label class="toggle-control">
+              <input type="checkbox" id="toggle-clearances" checked>
+              <span class="toggle-slider"></span>
+              <span class="toggle-label">Show Clearances & Bounds</span>
+            </label>
+            <label class="toggle-control">
+              <input type="checkbox" id="toggle-belts" checked>
+              <span class="toggle-slider"></span>
+              <span class="toggle-label">Show Belt Centerlines</span>
+            </label>
+            <label class="toggle-control">
+              <input type="checkbox" id="toggle-labels" checked>
+              <span class="toggle-slider"></span>
+              <span class="toggle-label">Show Component Labels</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Dynamic Component Inspector -->
+        <div class="card inspector-card">
+          <div class="card-header">
+            <h3>Component Inspector</h3>
+          </div>
+          <div id="inspector-placeholder" class="inspector-empty">
+            <span class="inspector-icon">🔍</span>
+            <p>Hover over any component in the diagrams to inspect details.</p>
+          </div>
+          <div id="inspector-content" class="inspector-details hidden">
+            <h4 id="inspect-name">Component Name</h4>
+            <div class="details-grid">
+              <div class="detail-row">
+                <span class="detail-label">Location (X, Y):</span>
+                <span class="detail-value" id="inspect-coords">-</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Z Span:</span>
+                <span class="detail-value" id="inspect-z-span">-</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Main Dimensions:</span>
+                <span class="detail-value" id="inspect-dims">-</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Specification:</span>
+                <span class="detail-value" id="inspect-spec">-</span>
+              </div>
+              <div class="detail-row" id="inspect-machining-row">
+                <span class="detail-label">Machining:</span>
+                <span class="detail-value" id="inspect-machining">-</span>
+              </div>
+            </div>
+            <div class="inspect-desc-box">
+              <p id="inspect-desc">-</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Kinematics & Calculations -->
+        <div class="card calculator-card">
+          <div class="card-header">
+            <h3>Kinematic Calculator</h3>
+          </div>
+          <div class="calc-inputs">
+            <div class="input-row">
+              <label for="motor-rpm-input">Motor Rotor Speed (RPM):</label>
+              <div class="slider-val-container">
+                <input type="range" id="motor-rpm-input" min="1000" max="10000" step="250" value="6000">
+                <span class="mono-value" id="motor-rpm-val">6,000</span>
+              </div>
+            </div>
+            <div class="input-row hidden" id="design-a-stages-row">
+              <label for="design-a-stages-select">Design A Belts Stages:</label>
+              <select id="design-a-stages-select">
+                <option value="2">2-Stage (Jackshaft - 12.60:1)</option>
+                <option value="1" selected>1-Stage (Direct - 4.00:1)</option>
+              </select>
+            </div>
+            <div class="input-row hidden" id="design-a-motor-row">
+              <label for="design-a-motor-select">Design A Motor Type:</label>
+              <select id="design-a-motor-select">
+                <option value="550" selected>Standard 550 Brushed (Protrudes 54mm)</option>
+                <option value="3536">3536 Brushless Outrunner (Protrudes 33mm)</option>
+                <option value="3650">3650 Brushless Inrunner (Protrudes 47mm)</option>
+              </select>
+            </div>
+            <div class="input-row hidden" id="design-a-mount-row">
+              <label for="design-a-mount-select">Design A Mounting Style:</label>
+              <select id="design-a-mount-select">
+                <option value="inboard" selected>Inboard (Standard - Protrudes)</option>
+                <option value="between">Between-Plates (Reversed Bracket)</option>
+              </select>
+            </div>
+            <div class="input-row" id="ratio-selector-row">
+              <label for="worm-ratio-select">Worm Gearbox Ratio (Design B):</label>
+              <select id="worm-ratio-select">
+                <option value="17">17 : 1 (Speed - 6.6 kph max)</option>
+                <option value="31" selected>31 : 1 (Balanced - 3.6 kph max)</option>
+                <option value="50">50 : 1 (Torque - 2.3 kph max)</option>
+              </select>
+            </div>
+            <div class="input-row">
+              <label for="surface-select">Operating Surface:</label>
+              <select id="surface-select">
+                <option value="concrete" selected>Smooth Concrete/Tile (Flat)</option>
+                <option value="carpet">Low-Pile Carpet (Flat)</option>
+                <option value="ramp">Carpeted Ramp (1:12 Slope)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="calc-results">
+            <div class="result-box">
+              <span class="result-label">Stage 1 Reduction</span>
+              <span class="result-value" id="stage1-ratio">3.60 : 1 <span class="result-sub">(15T → 54T)</span></span>
+            </div>
+            <div class="result-box">
+              <span class="result-label">Stage 2 Reduction</span>
+              <span class="result-value" id="stage2-ratio">3.50 : 1 <span class="result-sub">(16T → 56T)</span></span>
+            </div>
+            <div class="result-box highlighted">
+              <span class="result-label">Total Reduction</span>
+              <span class="result-value" id="total-ratio">12.60 : 1</span>
+            </div>
+            <div class="result-box">
+              <span class="result-label">Wheel Output Speed</span>
+              <span class="result-value" id="wheel-rpm-val">1,190 RPM</span>
+            </div>
+            <div class="result-box speed-box">
+              <span class="result-label">Calculated Vehicle Speed</span>
+              <span class="result-value" id="speed-kph-val">13.5 km/h</span>
+              <span class="result-sub" id="speed-mph-val">(8.4 mph)</span>
+            </div>
+            <div class="result-box highlighted" id="torque-status-box">
+              <span class="result-label">Torque Demand per Motor</span>
+              <span class="result-value" id="torque-value">0.54 kg·cm</span>
+              <span class="result-sub" id="torque-status" style="color: #00ff66; font-weight: bold;">Safe (Continuous)</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

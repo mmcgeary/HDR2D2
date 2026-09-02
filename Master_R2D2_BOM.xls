@@ -1,0 +1,465 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Color="#000000"/>
+  </Style>
+  <Style ss:ID="Header">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Color="#FFFFFF" ss:Bold="1"/>
+   <Interior ss:Color="#1F4E78" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="Ordered">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Color="#274E13" ss:Bold="1"/>
+   <Interior ss:Color="#D9EAD3" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="Pending">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Color="#7F6000" ss:Bold="1"/>
+   <Interior ss:Color="#FFF2CC" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="Fabrication">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+   </Borders>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Color="#1F4E78" ss:Bold="1"/>
+   <Interior ss:Color="#CFE2F3" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="CellCenter">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="CellText">
+   <Alignment ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D9D9D9"/>
+   </Borders>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="R2-D2 Master BOM">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="50"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="200"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="50"/>
+   <Column ss:Width="280"/>
+   <Column ss:Width="340"/>
+   <Row ss:Height="24">
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Item #</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Subsystem</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Component Name</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Status</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Qty</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Manufacturer / Specification</Data></Cell>
+    <Cell ss:StyleID="Header"><Data ss:Type="String">Notes & Wiring Reference</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Chassis &amp; Shell</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Base Shell &amp; Body</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Home Depot Animated R2-D2 Body</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Base structural chassis with center post pivot frame</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Chassis &amp; Shell</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Shell &amp; Pivot</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Home Depot Animated R2-D2 Dome</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Rotating upper dome shell riding on center pivot post</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">3</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Foot Drive Subsystem</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Brushless Hub Motors</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Razor Party Pop / Tekno Sensored BLDC</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Sensored hub motors mounted in left &amp; right feet</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">4</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Foot Drive Subsystem</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dual Motor Controller</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dual VESC 4.20 Speed Controller</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Master/Slave CAN-Bus; Direct PPM from Receiver CH1/CH2</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">5</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Foot Drive Subsystem</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Axle Mounting Brackets</Data></Cell>
+    <Cell ss:StyleID="Fabrication"><Data ss:Type="String">Fabrication (Ready)</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Plywood Custom Foot Clamps</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Fabricated per chassis drive visualizer envelope</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">6</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Foot Drive Subsystem</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Hall Sensor Adapters</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">6-Pin JST-ZH to 5-wire Hall Pigtails</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Connects Razor 5-wire Hall sensors to VESC ports</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">7</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Foot Drive Subsystem</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Motor Phase Connectors</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2 sets</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">3.5mm or 4.0mm Gold Bullet Connectors</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Connects 3-phase motor wires into VESC outputs</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">8</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Drive Subsystem</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Continuous Servo</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">TIANKONGRC TD-8135MG-360 (35kg 360°)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Drives center post mechanism; Controlled via Slip Ring Ch 5 PWM</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">9</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Drive Subsystem</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Homing Sensor</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">KY-003 / 3144E Hall Effect Sensor</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Mounted inside dome hub; Plugs directly into ESP32 GPIO 5</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">10</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Drive Subsystem</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Homing Magnet</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Neodymium Disc Magnet (~6x2mm or 10x2mm)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Glued to stationary body center post base (Zero slip ring wires!)</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">11</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Drive Subsystem</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Center Post Drive Coupler</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">25T Servo Horn to Center Post Gear / Coupler</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Couples 35kg servo output directly to dome central pivot post</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">12</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Brain &amp; Lights</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">AstroPixels Main Board (Brain)</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">AstroPixels ESP32 30-Pin Module</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Main Droid Brain: Runs Lights, Servos, Sound &amp; Autodome</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">13</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Brain &amp; Lights</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Logic Displays (FLD &amp; RLD)</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">3</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">AstroPixels WS2812 FLD1/2 &amp; RLD</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Front &amp; Rear Logic displays (GPIO 15 &amp; 33)</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">14</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Brain &amp; Lights</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Process State Indicators (PSIs)</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">AstroPixels WS2812 FPSI &amp; RPSI</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Front &amp; Rear PSI displays (GPIO 32 &amp; 23)</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">15</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Brain &amp; Lights</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">HoloProjector LED Boards</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">3</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">AstroPixels WS2812 HP Light Rings</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Front, Rear, and Top Holo LED cores (GPIO 25, 26, 27)</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">16</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Brain &amp; Lights</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Holo Micro Servos</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">6</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">TowerPro MG90S Metal Gear Servos</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">2 servos per HP (Pan &amp; Tilt for 3 Holos)</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">17</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Brain &amp; Lights</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">HP 2-Axis Gimbal Brackets</Data></Cell>
+    <Cell ss:StyleID="Fabrication"><Data ss:Type="String">Fabrication (Ready)</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">3</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">3D-Printed Custom Pan/Tilt Mounts</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Gimbal brackets holding the 3 Holoprojector units</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">18</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Brain &amp; Lights</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">I2C PWM Servo Driver</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">PCA9685 16-Channel 12-bit PWM Module</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Plugs into AstroPixels I2C port (SDA/SCL) in dome</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">19</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Brain &amp; Lights</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Buffer Capacitor</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">1000uF - 2200uF 10V/16V Low-ESR Cap</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Buffers 5V rail at dome distro block next to servos</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">20</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Brain &amp; Lights</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome 5V Distribution Block</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dual-Row Screw Terminal / Lever Bus Block</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Distributes 5V &amp; GND from slip ring to board &amp; servos</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">21</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Slip Ring Interface</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Through-Bore Slip Ring</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Senring H3086 (30mm ID, 6-Channel 10A)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Slides over center post; Ch1/6=5V, Ch2=GND, Ch3=iBus, Ch4=Sound, Ch5=PWM</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">22</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Sound Subsystem (Body)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Sound Engine Module</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">DFPlayer Mini MP3 Player Board</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Lives in body; Triggered via Slip Ring Ch 4 serial</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">23</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Sound Subsystem (Body)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Sound MicroSD Card</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">16GB / 32GB MicroSD Card (FAT32)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Stores MarcDuino sound files (001_xxx.mp3)</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">24</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Sound Subsystem (Body)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Audio Series Resistor</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">1kΩ 1/4W Resistor</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">In-line on DFPlayer RX pin for clean 3.3V/5V TTL</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">25</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Sound Subsystem (Body)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Audio Amplifier</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">PAM8610 12V 2x10W Class-D Mini Amp</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Powers the speaker directly from 12V bus in body</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">26</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Sound Subsystem (Body)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Speaker</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Nobsound 2.5-inch 8Ω 15W Full-Range</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Mounted behind front acoustic vents in body</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">27</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Sound Subsystem (Body)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Audio Ground Loop Isolator</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">3.5mm Ground Loop Isolator / B0505S 5V</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Eliminates digital hum &amp; motor noise from audio line</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">28</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Sound Subsystem (Body)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Audio Volume Potentiometer</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">10kΩ Logarithmic Stereo Potentiometer</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Manual master volume adjustment knob for amp</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">29</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">10A 5V Buck Converter</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">12V-to-5V (10A max) Step-Down Buck Module</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Supplies regulated 5V to Receiver, Sound, and Slip Ring</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">30</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Main Battery Pack</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Renogy Core 12V 20Ah LiFePO4 (RBT1220LFP-TM)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">20A Continuous / 75A 5s Surge Peak; Grade-A IP65 pack (5.95 lbs)</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">31</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Main Battery Charger</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">NOCO Genius 5 (5A 12V Lithium Smart Charger)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dedicated 12V Lithium mode + 0V BMS Force Mode (Canadian Tire #011-1983-4)</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">32</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Main DC Fuse &amp; Holder</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">30A–40A Inline ATC / Mini-ANL Fuse Block</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Primary safety fuse right at battery positive lead</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">33</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Tier 1 Master Cutoff Switch</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Heavy-Duty 20A–30A Toggle / Key Switch</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Physical master disconnect for entire droid system</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">34</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Tier 2 VESC Drive Push Button</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">12mm / 16mm Latching Push Button w/ LED</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Plugs into VESC 3-pin anti-spark header (Drive Enable)</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">35</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Battery Voltage Monitor</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Mini 2-Wire LED Digital Voltmeter (0-30V)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Mounted inside body/door to monitor battery voltage</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">36</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Radio Control</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">2.4GHz RC Transmitter</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">FlySky FS-i6X 10-Channel 2.4GHz AFHDS 2A</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">D/R Speed Limiting on SwB; VrA Mood Dial; SwC Trigger</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">37</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Radio Control</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">iBus Digital Receiver</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">FlySky FS-iA6B 6/10-Ch iBus Receiver</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">CH1/CH2 to VESC; iBus single wire to Slip Ring Ch 3</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">38</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Wiring &amp; Hardware</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Power Connectors &amp; Wire</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 pack</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">XT60 / XT90 Connectors &amp; 14-16 AWG Silicone Wire</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">High-current battery and distribution power wiring</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">39</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Wiring &amp; Hardware</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Servo Patch Cables</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">6 pcs</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">3-Pin Male-to-Male Servo Patch Cables</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">For VESC PPM lines and PCA9685 connections</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">40</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Wiring &amp; Hardware</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Mounting Standoffs Kit</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 kit</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">M2.5 &amp; M3 Nylon / Brass Standoffs &amp; Screws</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Mounts VESC, Buck, Amp, PCA9685, and DFPlayer</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">41</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Wiring &amp; Hardware</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Programming Cable</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 set</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Micro-USB (VESC) &amp; USB-C (ESP32)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">For flashing firmware and tuning VESC Tool</Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>
+</Workbook>
