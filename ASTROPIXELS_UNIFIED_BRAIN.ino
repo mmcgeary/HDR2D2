@@ -12,7 +12,7 @@
  *   2. Hardware UART1 (9,600 baud / GPIO 17): Dedicated DFPlayer serial audio transmitter
  *   3. LEDC Hardware PWM (GPIO 4): 35kg 360° continuous dome servo with zero-creep sleep
  *   4. KY-003 Hall Effect Sensor (GPIO 5): Active 0° Home auto-alignment state machine
- *   5. PCA9685 I2C 16-Channel Controller: 6-servo HoloProjector posture & twitch engine
+ *   5. PCA9685 I2C 16-Channel Controller: 6-servo HoloProjector posture & manual tilt override
  *   6. FastLED WS2812 Controller: FLD1/2, RLD, FPSI, RPSI, and 3x HP LED cores
  *   7. Dual-Layer Personality Engine: 5 Persistent Moods + 5 Interruptible Macros
  *
@@ -154,8 +154,8 @@ bool rc_connected = false;
 unsigned long last_rc_packet_ms = 0;
 
 // Channel Mapping Definitions (FlySky FS-i6X)
-#define RC_CH_DOME_SPEED       2  // Left Stick Y (CH3): Autodome Speed & Chatter Frequency
-#define RC_CH_DOME_STEER       3  // Left Stick X (CH4): Manual Dome Rotation Override
+#define RC_CH_HOLO_TILT        2  // Left Stick Y (CH3): Manual Front Holo Tilt (Up/Down)
+#define RC_CH_DOME_STEER       3  // Left Stick X (CH4): Manual Dome Rotation (Left/Right)
 #define RC_CH_SPEED_MODE       4  // Switch SwB   (CH5): Transmitter Dual Rates
 #define RC_CH_DRIVE_ENABLE     5  // Switch SwA   (CH6): Drive Safety Lockout
 #define RC_CH_MOOD_SELECT      6  // Knob VrA     (CH7): Persistent Mood & Macro Selector (1-13)
@@ -176,6 +176,10 @@ ActiveMacro pending_macro_after_home = MACRO_NONE;
 unsigned long next_autodome_start_ms = 0;
 unsigned long autodome_stop_time_ms = 0;
 int autodome_active_speed = 0;
+
+// Manual Holo Tilt State
+unsigned long last_manual_holo_ms = 0;
+bool manual_holo_active = false;
 
 // Dome Servo Creep Prevention Timer
 unsigned long dome_stop_command_ms = 0;
@@ -544,7 +548,6 @@ void runAutodomeStateMachine() {
       if (current_mood == MOOD_SAD)   { base_speed = 20; min_dur = 600; max_dur = 1500; }
       if (current_mood == MOOD_HAPPY) { base_speed = 45; min_dur = 350; max_dur = 900; }
 
-      // Intelligent directional bias: If we are not at home, randomly bias toward home
       int direction = (random(2) == 0) ? 1 : -1;
 
       autodome_active_speed = (random(base_speed - 10, base_speed + 15)) * direction;
@@ -592,8 +595,32 @@ void centerAllHoloServos() {
 }
 
 void processHoloServos() {
-  if (current_macro != MACRO_NONE) return; // Servos managed by macro
+  if (current_macro != MACRO_NONE) return; // Servos managed by active macro
 
+  // 1. Manual Front Holo Tilt Override from Left Stick Y (CH3: 1000us - 2000us)
+  uint16_t stick_tilt_us = rc_channels[RC_CH_HOLO_TILT];
+
+  // Manual tilt deadband (1460us to 1540us)
+  if (stick_tilt_us < 1460 || stick_tilt_us > 1540) {
+    manual_holo_active = true;
+    last_manual_holo_ms = millis();
+
+    // Map stick Y directly to Front HP Tilt (PCA9685 Ch 1)
+    uint16_t tilt_pulse = map(stick_tilt_us, 1000, 2000, SERVO_MIN_PULSE + 40, SERVO_MAX_PULSE - 40);
+    pwm.setPWM(1, 0, tilt_pulse);
+    return;
+  }
+
+  // 2. If user recently used manual tilt, hold position for 3.0s before resuming random twitches
+  if (manual_holo_active) {
+    if (millis() - last_manual_holo_ms < 3000) {
+      return; // Hold manual angle for 3 seconds of inactivity
+    } else {
+      manual_holo_active = false; // Release back to autonomous mood engine
+    }
+  }
+
+  // 3. Autonomous Mood & Posture Engine
   static unsigned long next_twitch_ms = 0;
   if (millis() < next_twitch_ms) return;
 
@@ -618,7 +645,7 @@ void processHoloServos() {
     case MOOD_HAPPY:
     case MOOD_NORMAL:
     default: {
-      // Organic ambient wandering
+      // Organic ambient wandering across all 6 servos
       uint8_t target_servo = random(6);
       uint16_t pulse = random(SERVO_MIN_PULSE + 80, SERVO_MAX_PULSE - 80);
       pwm.setPWM(target_servo, 0, pulse);
