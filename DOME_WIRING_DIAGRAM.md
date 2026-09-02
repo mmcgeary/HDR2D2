@@ -1,5 +1,5 @@
 # R2-D2 Master System Architecture & Wiring Guide
-## (Single ESP32 Brain + Direct RC Dual VESC + Center Post Dome Drive)
+## (Single ESP32 Brain + Direct Dual PPM VESC + Center Post Dome Drive)
 
 This document establishes the official **MVP Architecture** for the R2-D2 build based on six core engineering principles.
 
@@ -7,16 +7,16 @@ This document establishes the official **MVP Architecture** for the R2-D2 build 
 
 ## 1. The Six Core Engineering Principles
 
-1. **Principle 1 — Direct RC Foot Drive (VESC Master/Slave CAN-Bus)**: 
-   The FlySky receiver directly controls the Dual VESC 4.20 in the body over PPM. The Dual VESC is configured with internal CAN-Bus (Master/Slave) for differential steering and traction control. No intermediate microcontroller in the drive loop.
+1. **Principle 1 — Direct RC Foot Drive (Transmitter Elevon Mixing + VESC CAN)**: 
+   The FlySky FS-i6X transmitter performs differential tank mixing, outputting separate PPM leads from Receiver CH1 (Left) and CH2 (Right) directly to the Dual VESC 4.20. Internal CAN-Bus provides single-plug USB programming and Traction Control.
 2. **Principle 2 — Transmitter-Side Speed Limiting**: 
    Speed and rate limiting are handled directly on the FlySky FS-i6X transmitter using Dual Rates (`SwB`), giving instant Slow / Medium / Fast modes without touching motor controller firmware.
-3. **Principle 3 — Body-Mounted Sound System**: 
-   The DFPlayer Mini, PAM8610 12V Class-D Amplifier, and Nobsound 2.5" Speaker live in the body firing out the front acoustic vents for maximum acoustic resonance and low center of gravity.
+3. **Principle 3 — Body-Mounted Sound System with Ground Isolation**: 
+   The DFPlayer Mini, PAM8610 12V Class-D Amplifier, and Nobsound 2.5" Speaker live in the body firing out the front acoustic vents. Audio signal ground is isolated to prevent digital noise.
 4. **Principle 4 — Unified Dome ESP32 Brain**: 
    The AstroPixels 30-pin ESP32 and PCA9685 I2C driver in the dome run all droid intelligence: logic lights, 6 holo servos, sound triggers, and autonomous random dome twitches.
 5. **Principle 5 — Center Post Dome Rotation & Homing**: 
-   The Home Depot droid uses a central pivot post driven directly by the 35kg continuous rotation servo. The 30mm through-bore slip ring slides concentric over this center post. The KY-003 Hall sensor inside the dome hub sweeps past a stationary magnet on the center post base to detect $0^\circ$ home with zero slip ring wires.
+   The Home Depot droid uses a central pivot post driven directly by the 35kg continuous rotation servo with zero-creep sleep. The 30mm through-bore slip ring slides concentric over this center post. The KY-003 Hall sensor inside the dome hub sweeps past a stationary magnet on the center post base to detect $0^\circ$ home with zero slip ring wires.
 6. **Principle 6 — 2-Tier Power Safety**: 
    Tier 1 is a physical 30A master battery disconnect switch. Tier 2 is an illuminated latching push-button plugged into the VESC's 3-pin anti-spark soft-switch header.
 
@@ -42,6 +42,7 @@ flowchart TB
         MOTOR_R[Right Razor Sensored Hub Motor]
         
         DFPLAYER[DFPlayer Mini MP3 Player]
+        ISO[Audio Ground Isolator / B0505S]
         AMP[PAM8610 12V Audio Amp]
         SPK[2.5 inch 15W Speaker in Vents]
         
@@ -53,6 +54,7 @@ flowchart TB
         BAT --> FUSE --> MASTER_SW
         MASTER_SW -->|12V Battery Bus| BUCK10A
         MASTER_SW -->|12V High-Power B+| VESC_M
+        MASTER_SW -->|12V High-Power B+| VESC_S
         MASTER_SW -->|12V Audio B+| AMP
         
         VESC_BTN ---|3-Pin Anti-Spark Header| VESC_M
@@ -62,9 +64,10 @@ flowchart TB
         BUCK10A -->|5.0V VCC| DFPLAYER
         BUCK10A -->|5.0V High-Current VCC| DOME_SERVO
 
-        %% Direct RC Drive (PPM + CAN)
-        RC_RX -->|CH1/CH2 PPM Drive Signal| VESC_M
-        VESC_M <==>|Internal CAN-Bus| VESC_S
+        %% Direct Dual PPM RC Drive
+        RC_RX -->|CH1 PPM Left Signal| VESC_M
+        RC_RX -->|CH2 PPM Right Signal| VESC_S
+        VESC_M <==>|Internal CAN-Bus (Traction Control)| VESC_S
         VESC_M ==>|3-Phase and Hall Sensors| MOTOR_L
         VESC_S ==>|3-Phase and Hall Sensors| MOTOR_R
 
@@ -72,14 +75,14 @@ flowchart TB
         DOME_SERVO -->|Direct Coupler / Gear| CENTER_POST
 
         %% Sound Output
-        DFPLAYER -->|DAC Audio Out| AMP -->|Speaker Out| SPK
+        DFPLAYER --> ISO -->|Clean Audio Out| AMP -->|Speaker Out| SPK
     end
 
     subgraph SLIPRING [6-CHANNEL 10A THROUGH-BORE SLIP RING - Senring H3086]
         CH1[Ch 1: +5.0V DC Primary Power Line]
         CH2[Ch 2: Common GND Ground Reference]
-        CH3[Ch 3: i-Bus Serial Data Stream - All 10 Channels to Dome]
-        CH4[Ch 4: Sound Serial Command Line - Dome to Body DFPlayer]
+        CH3[Ch 3: i-Bus Serial Stream - 115200 Baud to Dome]
+        CH4[Ch 4: Sound Serial Command Line - 9600 Baud to DFPlayer]
         CH5[Ch 5: Dome Servo PWM Signal - Dome ESP32 to Body Servo]
         CH6[Ch 6: +5.0V DC Secondary Power Line - Paralleled]
     end
@@ -129,10 +132,10 @@ flowchart TB
     DISTRO -->|High-Current 5V and GND| PCA9685
     DISTRO -->|5V and GND| HALL_SENS
 
-    CH3 -->|Serial2 RX GPIO 16| AP_ESP32
+    CH3 -->|Serial2 RX GPIO 16 (115200)| AP_ESP32
 
     %% Dome Controls and Returns
-    AP_ESP32 -->|Serial2 TX GPIO 17| CH4 -->|DFPlayer RX Pin| DFPLAYER
+    AP_ESP32 -->|Serial1 TX GPIO 17 (9600)| CH4 -->|DFPlayer RX Pin| DFPLAYER
     AP_ESP32 -->|LEDC PWM GPIO 4| CH5 -->|Signal Wire| DOME_SERVO
     
     HALL_SENS -.->|Spins past stationary magnet on post| MAGNET
@@ -165,17 +168,7 @@ flowchart TB
 | :---: | :--- | :---: | :--- | :--- | :--- |
 | **Ch 1** | `+5V_PWR_A` | Body $\rightarrow$ Dome | Body 10A Buck (+5V Out) | Dome 5V Distribution Block | **Primary 5V Power Rail (10A rated)** |
 | **Ch 2** | `GND_PWR` | Body $\leftrightarrow$ Dome | Body 10A Buck (GND) | Dome GND Distribution Block | **System Common Ground Reference** |
-| **Ch 3** | `IBUS_DATA` | Body $\rightarrow$ Dome | FlySky Receiver `i-BUS` Port | AstroPixels ESP32 `RX2` (GPIO 16) | **Single-wire digital stream with all 10 RC channels** |
-| **Ch 4** | `SOUND_CMD` | Dome $\rightarrow$ Body | AstroPixels ESP32 `TX2` (GPIO 17) | DFPlayer Mini `RX` (via $1\text{k}\Omega$ res) | **Sound triggering command line** |
+| **Ch 3** | `IBUS_DATA` | Body $\rightarrow$ Dome | FlySky Receiver `i-BUS` Port | AstroPixels ESP32 `RX2` (GPIO 16) | **Digital stream with all 10 RC channels (115,200 baud)** |
+| **Ch 4** | `SOUND_CMD` | Dome $\rightarrow$ Body | AstroPixels ESP32 `TX1` (GPIO 17) | DFPlayer Mini `RX` (via $1\text{k}\Omega$ res) | **Sound command line (Dedicated 9,600 baud)** |
 | **Ch 5** | `DOME_PWM` | Dome $\rightarrow$ Body | AstroPixels ESP32 PWM (GPIO 4) | 35kg 360° Continuous Servo Signal | **Manual rotation & autonomous autodome PWM** |
 | **Ch 6** | `+5V_PWR_B` | Body $\rightarrow$ Dome | Body 10A Buck (+5V Out) | Dome 5V Distribution Block | **Secondary 5V Power Rail (Paralleled)** |
-
----
-
-## 4. Mechanical & Electrical Placement Summary
-
-### A. The Center Post Rotation & Slip Ring Mechanization
-* **Central Pivot Post**: The Home Depot R2-D2 dome rotates on a central vertical pivot axle rising from the body frame.
-* **Senring H3086 Slip Ring (30mm Through-Bore)**: The hollow center bore slides concentric over the center post.
-* **35kg 360° Continuous Servo**: Mounted directly beneath or adjacent to the center post, coupled via a $25\text{T}$ horn coupling or gear to rotate the post/dome.
-* **KY-003 Hall Homing Sensor**: Mounted to the rotating dome center hub, spinning past a stationary disc magnet glued to the base of the center post frame.

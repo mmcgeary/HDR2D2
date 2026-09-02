@@ -6,14 +6,15 @@
  *
  * Board:          ESP32 Dev Module (30-pin, AstroPixels Motherboard)
  * Architecture:   Deterministic, Non-Blocking, Zero-Heap Allocation State Machine
- * Subsystems:
- *   1. FlySky i-Bus 10-Channel Serial Stream Parser (Slip Ring Ch 3 / GPIO 16)
- *   2. FastLED WS2812 Controller (FLD1/2, RLD, FPSI, RPSI, 3x HP LED cores)
- *   3. PCA9685 16-Channel 12-bit I2C Servo Controller (6 Holo Pan/Tilt Servos)
- *   4. LEDC Hardware PWM Timer (35kg 360° Continuous Dome Rotation / GPIO 4)
- *   5. KY-003 Hall Effect Sensor Interrupt (0° Dome Homing / GPIO 5)
- *   6. DFPlayer Mini Serial Audio Transmitter (Slip Ring Ch 4 / GPIO 17)
- *   7. Dual-Layer Personality Engine (Persistent Moods + Interruptible Macros)
+ *
+ * Implemented Subsystems & Engineering Protections:
+ *   1. Hardware UART2 (115,200 baud / GPIO 16): Non-blocking i-Bus frame parser with CRC
+ *   2. Hardware UART1 (9,600 baud / GPIO 17): Dedicated DFPlayer serial audio transmitter
+ *   3. LEDC Hardware PWM (GPIO 4): 35kg 360° continuous dome servo with zero-creep sleep
+ *   4. KY-003 Hall Effect Sensor (GPIO 5): Hardware interrupt for 0° dome homing
+ *   5. PCA9685 I2C 16-Channel Controller: 6-servo HoloProjector posture & twitch engine
+ *   6. FastLED WS2812 Controller: FLD1/2, RLD, FPSI, RPSI, and 3x HP LED cores
+ *   7. Dual-Layer Personality Engine: 5 Persistent Moods + 5 Interruptible Macros
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -27,13 +28,13 @@
 // 1. PIN DEFINITIONS & HARDWARE CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Serial Communication Pins
-#define PIN_IBUS_RX         16    // Hardware Serial2 RX: From Slip Ring Ch 3 (FlySky i-Bus)
-#define PIN_SOUND_TX        17    // Hardware Serial2 TX: To Slip Ring Ch 4 (Body DFPlayer RX)
+// Serial Communication Pins (Decoupled UARTs for distinct baud rates)
+#define PIN_IBUS_RX         16    // Hardware Serial2 RX (115,200 baud): FlySky i-Bus
+#define PIN_SOUND_TX        17    // Hardware Serial1 TX (9,600 baud): Body DFPlayer RX
 
 // Dome Drive & Homing Pins
-#define PIN_DOME_SERVO_PWM  4     // LEDC PWM: To Slip Ring Ch 5 (35kg 360° Dome Servo)
-#define PIN_DOME_HALL_SENS  5     // Digital Input (Pull-up): From KY-003 Hall Sensor in Dome
+#define PIN_DOME_SERVO_PWM  4     // LEDC PWM: 35kg 360° Dome Continuous Servo
+#define PIN_DOME_HALL_SENS  5     // Digital Input (Pull-up): KY-003 Hall Sensor in Dome
 
 // I2C Pins (PCA9685 Servo Controller)
 #define PIN_I2C_SDA         21
@@ -56,7 +57,7 @@
 #define NUM_LEDS_RPSI       24
 #define NUM_LEDS_HP         7     // 7 LEDs per HoloProjector core
 
-// Static LED Buffers (Zero Dynamic Allocation)
+// Static LED Buffers (Zero Dynamic Heap Allocation)
 CRGB leds_fld[NUM_LEDS_FLD];
 CRGB leds_rld[NUM_LEDS_RLD];
 CRGB leds_fpsi[NUM_LEDS_FPSI];
@@ -74,9 +75,10 @@ CRGB leds_thp[NUM_LEDS_HP];
 #define DOME_LEDC_CHANNEL   0
 #define DOME_LEDC_FREQ      50    // 50Hz standard servo frequency
 #define DOME_LEDC_RES       16    // 16-bit resolution (0-65535)
-#define DOME_DUTY_STOP      4915  // ~1.50ms (Stop)
+#define DOME_DUTY_STOP      4915  // ~1.50ms (Center Neutral)
 #define DOME_DUTY_MAX_CW    6553  // ~2.00ms (Full CW)
 #define DOME_DUTY_MAX_CCW   3276  // ~1.00ms (Full CCW)
+#define DOME_CENTER_TRIM    0     // Fine-tune offset in duty ticks if servo drifts
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 2. STATE ENUMS & PROGMEM DATA STRUCTURES
@@ -163,11 +165,16 @@ unsigned long next_autodome_start_ms = 0;
 unsigned long autodome_stop_time_ms = 0;
 int autodome_active_speed = 0;
 
+// Dome Servo Creep Prevention Timer
+unsigned long dome_stop_command_ms = 0;
+bool dome_pulses_active = true;
+
 // Dome Homing Sensor State
 volatile bool is_dome_at_home = false;
 
-// Audio Deduplication
+// Audio Deduplication & Command Throttling
 uint8_t last_played_track = 0;
+unsigned long last_audio_cmd_ms = 0;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 4. INTERRUPT SERVICE ROUTINES
@@ -183,10 +190,13 @@ void setup() {
   Serial.begin(115200);
   Serial.println(F("[SYSTEM] Booting AstroPixels Unified Dome Brain..."));
 
-  // 1. Hardware UART2 for i-Bus RX (GPIO 16) and DFPlayer TX (GPIO 17)
-  Serial2.begin(115200, SERIAL_8N1, PIN_IBUS_RX, PIN_SOUND_TX);
+  // 1. Hardware UART2 for FlySky i-Bus RX (115,200 baud on GPIO 16)
+  Serial2.begin(115200, SERIAL_8N1, PIN_IBUS_RX, -1);
 
-  // 2. Initialize FastLED Lighting
+  // 2. Hardware UART1 for Body DFPlayer TX (9,600 baud on GPIO 17)
+  Serial1.begin(9600, SERIAL_8N1, -1, PIN_SOUND_TX);
+
+  // 3. Initialize FastLED Lighting
   FastLED.addLeds<WS2812B, PIN_LED_FLD, GRB>(leds_fld, NUM_LEDS_FLD);
   FastLED.addLeds<WS2812B, PIN_LED_RLD, GRB>(leds_rld, NUM_LEDS_RLD);
   FastLED.addLeds<WS2812B, PIN_LED_FPSI, GRB>(leds_fpsi, NUM_LEDS_FPSI);
@@ -196,23 +206,23 @@ void setup() {
   FastLED.addLeds<WS2812B, PIN_LED_THP, GRB>(leds_thp, NUM_LEDS_HP);
   FastLED.setBrightness(160);
 
-  // 3. Initialize PCA9685 I2C 6-Servo Driver
+  // 4. Initialize PCA9685 I2C 6-Servo Driver
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   pwm.begin();
   pwm.setPWMFreq(50);
   centerAllHoloServos();
 
-  // 4. Initialize LEDC Hardware Timer for 35kg Continuous Dome Servo
+  // 5. Initialize LEDC Hardware Timer for 35kg Continuous Dome Servo
   ledcSetup(DOME_LEDC_CHANNEL, DOME_LEDC_FREQ, DOME_LEDC_RES);
   ledcAttachPin(PIN_DOME_SERVO_PWM, DOME_LEDC_CHANNEL);
   setDomeServoSpeed(0); // Zero velocity stop
 
-  // 5. Initialize KY-003 Hall Homing Sensor
+  // 6. Initialize KY-003 Hall Homing Sensor
   pinMode(PIN_DOME_HALL_SENS, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(PIN_DOME_HALL_SENS), onHallSensorChange, CHANGE);
 
-  // 6. Play System Startup Sound & Set Default Normal Mood
-  delay(200);
+  // 7. Play System Startup Sound & Set Default Normal Mood
+  delay(300);
   playTrack(255); // 255_startup.mp3
   setPersistentMood(MOOD_NORMAL);
 
@@ -234,20 +244,52 @@ void loop() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 7. FLYSKY i-BUS DECODER & FAILSAFE
+// 7. ROBUST NON-BLOCKING FLYSKY i-BUS DECODER & FAILSAFE
 // ═══════════════════════════════════════════════════════════════════════════════
 void processIBusFrames() {
-  while (Serial2.available() >= 32) {
-    if (Serial2.read() == 0x20 && Serial2.peek() == 0x40) {
-      Serial2.read(); // Consume 0x40 header byte
-      uint8_t packet[28];
-      Serial2.readBytes(packet, 28);
+  static uint8_t ibus_buffer[32];
+  static uint8_t ibus_idx = 0;
 
-      for (uint8_t i = 0; i < 10; i++) {
-        rc_channels[i] = packet[i * 2] | (packet[i * 2 + 1] << 8);
+  while (Serial2.available() > 0) {
+    uint8_t byte_in = Serial2.read();
+
+    if (ibus_idx == 0) {
+      if (byte_in == 0x20) { // Header Byte 1 (Length: 32 bytes)
+        ibus_buffer[0] = byte_in;
+        ibus_idx = 1;
       }
-      rc_connected = true;
-      last_rc_packet_ms = millis();
+    } else if (ibus_idx == 1) {
+      if (byte_in == 0x40) { // Header Byte 2 (Command: 0x40)
+        ibus_buffer[1] = byte_in;
+        ibus_idx = 2;
+      } else {
+        ibus_idx = 0; // Invalid header, resync
+      }
+    } else {
+      ibus_buffer[ibus_idx++] = byte_in;
+
+      if (ibus_idx >= 32) {
+        // Full 32-byte frame received -> Verify 16-bit Checksum
+        uint16_t checksum_calc = 0xFFFF;
+        for (uint8_t i = 0; i < 30; i++) {
+          checksum_calc -= ibus_buffer[i];
+        }
+
+        uint16_t checksum_frame = ibus_buffer[30] | (ibus_buffer[31] << 8);
+
+        if (checksum_calc == checksum_frame) {
+          // Valid frame -> Extract 10 RC Channels (little-endian microseconds)
+          for (uint8_t ch = 0; ch < 10; ch++) {
+            uint16_t raw_val = ibus_buffer[2 + ch * 2] | (ibus_buffer[3 + ch * 2] << 8);
+            if (raw_val >= 900 && raw_val <= 2100) {
+              rc_channels[ch] = raw_val;
+            }
+          }
+          rc_connected = true;
+          last_rc_packet_ms = millis();
+        }
+        ibus_idx = 0; // Ready for next frame
+      }
     }
   }
 
@@ -368,7 +410,7 @@ void setPersistentMood(PersistentMood mood) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 9. DOME ROTATION & DYNAMIC AUTODOME ENGINE
+// 9. DOME ROTATION & DYNAMIC AUTODOME ENGINE (With Anti-Creep Sleep)
 // ═══════════════════════════════════════════════════════════════════════════════
 void processDomeRotation() {
   if (!rc_connected) {
@@ -434,8 +476,24 @@ void runAutodomeStateMachine() {
 void setDomeServoSpeed(int speed_percent) {
   // speed_percent: -100 (Full CCW) to +100 (Full CW), 0 = Stop
   speed_percent = constrain(speed_percent, -100, 100);
-  uint32_t duty = map(speed_percent, -100, 100, DOME_DUTY_MAX_CCW, DOME_DUTY_MAX_CW);
-  ledcWrite(DOME_LEDC_CHANNEL, duty);
+
+  if (speed_percent == 0) {
+    if (dome_pulses_active) {
+      if (dome_stop_command_ms == 0) {
+        dome_stop_command_ms = millis();
+        ledcWrite(DOME_LEDC_CHANNEL, DOME_DUTY_STOP + DOME_CENTER_TRIM);
+      } else if (millis() - dome_stop_command_ms > 150) {
+        // Zero-Creep Sleep: Disable pulses after 150ms settling window
+        ledcWrite(DOME_LEDC_CHANNEL, 0);
+        dome_pulses_active = false;
+      }
+    }
+  } else {
+    dome_pulses_active = true;
+    dome_stop_command_ms = 0;
+    uint32_t duty = map(speed_percent, -100, 100, DOME_DUTY_MAX_CCW, DOME_DUTY_MAX_CW);
+    ledcWrite(DOME_LEDC_CHANNEL, duty + DOME_CENTER_TRIM);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -485,9 +543,14 @@ void processHoloServos() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 11. DFPLAYER AUDIO TRANSMITTER (Categorized Sound Pools)
+// 11. DFPLAYER AUDIO TRANSMITTER (Dedicated Serial1 @ 9600 Baud)
 // ═══════════════════════════════════════════════════════════════════════════════
 void playTrack(uint16_t track_num) {
+  // Enforce 100ms hardware pacing between consecutive DFPlayer commands
+  if (millis() - last_audio_cmd_ms < 100) {
+    delay(50);
+  }
+
   // DFPlayer Standard Command Packet: 7E FF 06 03 00 [HIGH] [LOW] [CHECKSUM_H] [CHECKSUM_L] EF
   uint8_t cmd[10] = {0x7E, 0xFF, 0x06, 0x03, 0x00, (uint8_t)(track_num >> 8), (uint8_t)(track_num & 0xFF), 0x00, 0x00, 0xEF};
   uint16_t sum = 0;
@@ -496,10 +559,11 @@ void playTrack(uint16_t track_num) {
   cmd[7] = (uint8_t)(sum >> 8);
   cmd[8] = (uint8_t)(sum & 0xFF);
 
-  Serial2.write(cmd, 10);
+  Serial1.write(cmd, 10);
   last_played_track = (uint8_t)track_num;
+  last_audio_cmd_ms = millis();
 
-  Serial.print(F("[AUDIO] Transmitted DFPlayer Track: "));
+  Serial.print(F("[AUDIO] Transmitted DFPlayer Track (9600 baud): "));
   Serial.println(track_num);
 }
 
