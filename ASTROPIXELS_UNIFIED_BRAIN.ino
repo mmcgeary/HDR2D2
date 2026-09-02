@@ -11,7 +11,7 @@
  *   1. Hardware UART2 (115,200 baud / GPIO 16): Non-blocking i-Bus frame parser with CRC
  *   2. Hardware UART1 (9,600 baud / GPIO 17): Dedicated DFPlayer serial audio transmitter
  *   3. LEDC Hardware PWM (GPIO 4): 35kg 360° continuous dome servo with zero-creep sleep
- *   4. KY-003 Hall Effect Sensor (GPIO 5): Hardware interrupt for 0° dome homing
+ *   4. KY-003 Hall Effect Sensor (GPIO 5): Active 0° Home auto-alignment state machine
  *   5. PCA9685 I2C 16-Channel Controller: 6-servo HoloProjector posture & twitch engine
  *   6. FastLED WS2812 Controller: FLD1/2, RLD, FPSI, RPSI, and 3x HP LED cores
  *   7. Dual-Layer Personality Engine: 5 Persistent Moods + 5 Interruptible Macros
@@ -105,6 +105,13 @@ enum ActiveMacro : uint8_t {
   MACRO_COUNT
 };
 
+// Layer 3: Dome Homing State Machine
+enum HomingState : uint8_t {
+  HOMING_INACTIVE = 0,
+  HOMING_SEEKING,
+  HOMING_ALIGNED
+};
+
 // Flash-Stored Sound Range Definition
 struct SoundRange {
   uint8_t startTrack;
@@ -160,6 +167,11 @@ PersistentMood current_mood = MOOD_NORMAL;
 ActiveMacro current_macro = MACRO_NONE;
 unsigned long macro_expire_time_ms = 0;
 
+// Active Homing State Machine
+HomingState homing_state = HOMING_INACTIVE;
+unsigned long homing_start_time_ms = 0;
+ActiveMacro pending_macro_after_home = MACRO_NONE;
+
 // Autodome Motion State
 unsigned long next_autodome_start_ms = 0;
 unsigned long autodome_stop_time_ms = 0;
@@ -175,6 +187,16 @@ volatile bool is_dome_at_home = false;
 // Audio Deduplication & Command Throttling
 uint8_t last_played_track = 0;
 unsigned long last_audio_cmd_ms = 0;
+
+// Forward Declarations
+void setDomeServoSpeed(int speed_percent);
+void centerAllHoloServos();
+void playTrack(uint16_t track_num);
+void playThemedChatter();
+void setPersistentMood(PersistentMood mood);
+void startMacro(ActiveMacro macro);
+void startDomeHoming(ActiveMacro chainMacro);
+void processDomeHoming();
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 4. INTERRUPT SERVICE ROUTINES
@@ -219,6 +241,7 @@ void setup() {
 
   // 6. Initialize KY-003 Hall Homing Sensor
   pinMode(PIN_DOME_HALL_SENS, INPUT_PULLUP);
+  is_dome_at_home = (digitalRead(PIN_DOME_HALL_SENS) == LOW);
   attachInterrupt(digitalPinToInterrupt(PIN_DOME_HALL_SENS), onHallSensorChange, CHANGE);
 
   // 7. Play System Startup Sound & Set Default Normal Mood
@@ -235,6 +258,7 @@ void setup() {
 void loop() {
   processIBusFrames();
   processTransmitterInputs();
+  processDomeHoming();
   processMacroTimers();
   processDomeRotation();
   processHoloServos();
@@ -296,12 +320,66 @@ void processIBusFrames() {
   // Failsafe: Stop all motion if transmitter signal lost for >500ms
   if (millis() - last_rc_packet_ms > 500) {
     rc_connected = false;
+    homing_state = HOMING_INACTIVE;
     setDomeServoSpeed(0);
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 8. TRANSMITTER INPUT PROCESSING & MACRO TRIGGERING
+// 8. ACTIVE AUTO-CENTER DOME HOMING ROUTINE
+// ═══════════════════════════════════════════════════════════════════════════════
+void startDomeHoming(ActiveMacro chainMacro = MACRO_NONE) {
+  pending_macro_after_home = chainMacro;
+
+  if (is_dome_at_home) {
+    // Already facing center forward
+    Serial.println(F("[HOMING] Dome already aligned at 0° Home."));
+    setDomeServoSpeed(0);
+    homing_state = HOMING_ALIGNED;
+    if (pending_macro_after_home != MACRO_NONE) {
+      startMacro(pending_macro_after_home);
+      pending_macro_after_home = MACRO_NONE;
+    }
+  } else {
+    Serial.println(F("[HOMING] Seeking 0° Home alignment magnet..."));
+    homing_state = HOMING_SEEKING;
+    homing_start_time_ms = millis();
+    setDomeServoSpeed(30); // Rotate smoothly at 30% CW to seek magnet
+  }
+}
+
+void processDomeHoming() {
+  if (homing_state != HOMING_SEEKING) return;
+
+  // 1. Check if Hall sensor triggered active LOW at magnet
+  if (is_dome_at_home) {
+    setDomeServoSpeed(0);
+    homing_state = HOMING_ALIGNED;
+    Serial.println(F("[HOMING] >> 0° HOME LOCKED << (Magnet Detected)"));
+
+    // Execute chained macro if queued (e.g. Princess Leia hologram)
+    if (pending_macro_after_home != MACRO_NONE) {
+      startMacro(pending_macro_after_home);
+      pending_macro_after_home = MACRO_NONE;
+    }
+    return;
+  }
+
+  // 2. Safety Timeout: Abort after 6 seconds if magnet was not detected
+  if (millis() - homing_start_time_ms > 6000) {
+    setDomeServoSpeed(0);
+    homing_state = HOMING_INACTIVE;
+    Serial.println(F("[HOMING] Warning: Homing timed out (Magnet not detected)."));
+
+    if (pending_macro_after_home != MACRO_NONE) {
+      startMacro(pending_macro_after_home);
+      pending_macro_after_home = MACRO_NONE;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 9. TRANSMITTER INPUT PROCESSING & MACRO TRIGGERING
 // ═══════════════════════════════════════════════════════════════════════════════
 void processTransmitterInputs() {
   if (!rc_connected) return;
@@ -340,11 +418,12 @@ void processTransmitterInputs() {
 
 void triggerMacroFromDial(uint8_t dial_index) {
   switch (dial_index) {
-    case 1:  // Force quiet reset
+    case 1:  // One-Touch Auto-Center Home + Quiet Reset
       current_macro = MACRO_NONE;
       setPersistentMood(MOOD_NORMAL);
       playTrack(11); // 011_quiet.mp3
       centerAllHoloServos();
+      startDomeHoming(MACRO_NONE); // Snap dome to 0° forward
       break;
 
     case 4:  // Alarm / Scream Macro
@@ -355,8 +434,8 @@ void triggerMacroFromDial(uint8_t dial_index) {
       startMacro(MACRO_CANTINA);
       break;
 
-    case 6:  // Princess Leia Hologram Macro
-      startMacro(MACRO_LEIA);
+    case 6:  // Princess Leia Hologram (Auto-aligns head forward first!)
+      startDomeHoming(MACRO_LEIA);
       break;
 
     case 7:  // Star Wars Disco Macro
@@ -410,7 +489,7 @@ void setPersistentMood(PersistentMood mood) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 9. DOME ROTATION & DYNAMIC AUTODOME ENGINE (With Anti-Creep Sleep)
+// 10. DOME ROTATION & DYNAMIC AUTODOME ENGINE (With Anti-Creep Sleep)
 // ═══════════════════════════════════════════════════════════════════════════════
 void processDomeRotation() {
   if (!rc_connected) {
@@ -418,11 +497,15 @@ void processDomeRotation() {
     return;
   }
 
+  // If currently executing active auto-homing seek, homing controls the servo
+  if (homing_state == HOMING_SEEKING) return;
+
   int16_t stick_steer = rc_channels[RC_CH_DOME_STEER]; // 1000us - 2000us
 
   // Manual Override Deadband (1460us to 1540us)
   if (stick_steer < 1460 || stick_steer > 1540) {
-    // Manual stick drive overrides autodome
+    // Manual stick drive cancels homing & overrides autodome
+    homing_state = HOMING_INACTIVE;
     autodome_active_speed = 0;
     int speed_percent = map(stick_steer, 1000, 2000, -100, 100);
     setDomeServoSpeed(speed_percent);
@@ -461,7 +544,10 @@ void runAutodomeStateMachine() {
       if (current_mood == MOOD_SAD)   { base_speed = 20; min_dur = 600; max_dur = 1500; }
       if (current_mood == MOOD_HAPPY) { base_speed = 45; min_dur = 350; max_dur = 900; }
 
-      autodome_active_speed = (random(base_speed - 10, base_speed + 15)) * (random(2) == 0 ? 1 : -1);
+      // Intelligent directional bias: If we are not at home, randomly bias toward home
+      int direction = (random(2) == 0) ? 1 : -1;
+
+      autodome_active_speed = (random(base_speed - 10, base_speed + 15)) * direction;
       setDomeServoSpeed(autodome_active_speed);
       autodome_stop_time_ms = now + random(min_dur, max_dur);
 
@@ -497,7 +583,7 @@ void setDomeServoSpeed(int speed_percent) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 10. 6-CHANNEL HOLOPROJECTOR SERVO POSTURE CONTROLLER (PCA9685)
+// 11. 6-CHANNEL HOLOPROJECTOR SERVO POSTURE CONTROLLER (PCA9685)
 // ═══════════════════════════════════════════════════════════════════════════════
 void centerAllHoloServos() {
   for (uint8_t ch = 0; ch < 6; ch++) {
@@ -543,7 +629,7 @@ void processHoloServos() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 11. DFPLAYER AUDIO TRANSMITTER (Dedicated Serial1 @ 9600 Baud)
+// 12. DFPLAYER AUDIO TRANSMITTER (Dedicated Serial1 @ 9600 Baud)
 // ═══════════════════════════════════════════════════════════════════════════════
 void playTrack(uint16_t track_num) {
   // Enforce 100ms hardware pacing between consecutive DFPlayer commands
@@ -582,7 +668,7 @@ void playThemedChatter() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 12. ASTROPIXELS LIGHTING ENGINE (FastLED)
+// 13. ASTROPIXELS LIGHTING ENGINE (FastLED)
 // ═══════════════════════════════════════════════════════════════════════════════
 void processAstroPixelsLighting() {
   static uint8_t hue = 0;
