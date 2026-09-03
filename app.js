@@ -228,25 +228,25 @@ const COMPONENTS = {
   },
   hub_motor: {
     id: "hub_motor",
-    name: "Razor 80W Brushless Hub Motor",
+    name: "Razor 100W Sensored Brushless Hub Motor",
     category: "motor",
-    coords: "Center: (175.0, 30.0) mm",
-    zSpan: "22.5 to 62.5 mm",
-    dims: "Ø 98 mm Wheel / Ø 80 mm Motor can × 40 mm Wide",
-    spec: "Razor Part No: W13111701048. 12V 80W, integrated solid rubber tire.",
-    machining: "Axle clamped on both sides by the suspended U-bracket",
-    desc: "An integrated brushless hub motor inside the wheel. Simple, silent, and maintenance-free. Sitting centered in the foot shell, it requires no gears or belts.",
+    coords: "Center: (107.5, 38.0) mm | Ground Clearance: 12.0 mm",
+    zSpan: "22.5 to 60.5 mm (38mm Wheel) | 12.5 to 70.5 mm (Mounting Ears)",
+    dims: "Ø 100 mm Wheel / Ø 80 mm Motor can × 38 mm Wide (+10mm ears each side)",
+    spec: "12V 100W Sensored BLDC, integrated solid polyurethane tire, 12mm ground clearance.",
+    machining: "Axle clamped onto 10mm mounting ears on each side by custom brackets",
+    desc: "A direct-drive brushless hub motor with an integrated 100mm × 38mm wheel, 10mm mounting ears on each side, and 12mm ground clearance below the foot skirt.",
   },
   u_bracket: {
     id: "u_bracket",
-    name: "Suspended U-Bracket Mount",
+    name: "Suspended Axle Mount Brackets",
     category: "chassis",
-    coords: "Center: X=175 mm | Y: 30 to 95 mm",
-    zSpan: "20.0 to 65.0 mm",
-    dims: "75 mm W × 65 mm H × 3 mm Thick",
-    spec: "3mm steel or heavy-gauge aluminum channel",
-    machining: "Bolted to the top plate of the foot shell via M5 fasteners",
-    desc: "A U-shaped bracket that drops down from the foot shell ceiling to suspend the hub motor axle on both sides. This isolates the structural wood side plates from driving forces.",
+    coords: "Center: X=107.5 mm | Y: 38 to 85 mm",
+    zSpan: "12.5 to 70.5 mm (58mm Span)",
+    dims: "58 mm W × 47 mm H × 2 mm Thick",
+    spec: "Plywood / Aluminum / 3D-Printed custom foot clamps",
+    machining: "Bolted to the foot chassis / top plate to clamp hub motor axle ears",
+    desc: "Mounting brackets that clamp the 10mm axle ears on both sides of the 100mm hub motor at centerline X=107.5, Y=38, giving 12mm ground clearance.",
   }
 };
 
@@ -922,12 +922,12 @@ function drawSideView() {
     // DESIGN C: RAZOR HUB MOTOR & U-BRACKET (Single Centered Wheel)
     // ---------------------------------
 
-    // Suspended U-Bracket Mount (from Y=30 to Y=80, width 35mm centered at X=107.5)
+    // Suspended Axle Mount Bracket (from Y=38 to Y=85, width 35mm centered at X=107.5)
     const uBrack = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     uBrack.setAttribute("x", 90);
-    uBrack.setAttribute("y", toSvgY(80));
+    uBrack.setAttribute("y", toSvgY(85));
     uBrack.setAttribute("width", 35);
-    uBrack.setAttribute("height", 50);
+    uBrack.setAttribute("height", 47);
     uBrack.setAttribute("rx", 3);
     uBrack.setAttribute("class", "interactive-element chassis-plate");
     uBrack.setAttribute("fill", "rgba(180, 139, 101, 0.1)");
@@ -937,11 +937,11 @@ function drawSideView() {
     bindHoverEvents(uBrack, "u_bracket");
     mainG.appendChild(uBrack);
 
-    // Razor Hub Motor Assembly (Solid Outer Tyre Ø98 mm, centered at X=107.5, Y=30)
+    // Razor Hub Motor Assembly (Solid Outer Tyre Ø100 mm, centered at X=107.5, Y=38)
     const rWheel = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     rWheel.setAttribute("cx", 107.5);
-    rWheel.setAttribute("cy", toSvgY(30));
-    rWheel.setAttribute("r", 49); // Ø98
+    rWheel.setAttribute("cy", toSvgY(38));
+    rWheel.setAttribute("r", 50); // Ø100 mm (12mm ground clearance below Y=0)
     rWheel.setAttribute("class", "pulley-body interactive-element wheel");
     rWheel.setAttribute("data-component-id", "hub_motor");
     bindHoverEvents(rWheel, "hub_motor");
@@ -950,27 +950,27 @@ function drawSideView() {
     // Motor Hub Inner Casing (Ø80 mm)
     const rMotor = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     rMotor.setAttribute("cx", 107.5);
-    rMotor.setAttribute("cy", toSvgY(30));
+    rMotor.setAttribute("cy", toSvgY(38));
     rMotor.setAttribute("r", 40); // Ø80
     rMotor.setAttribute("class", "interactive-element motor");
     rMotor.setAttribute("data-component-id", "hub_motor");
     bindHoverEvents(rMotor, "hub_motor");
     mainG.appendChild(rMotor);
 
-    // Axle Nut Center (Ø8 mm)
+    // Axle Nut Center (Ø8 mm at X=107.5, Y=38)
     const axleNut = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     axleNut.setAttribute("cx", 107.5);
-    axleNut.setAttribute("cy", toSvgY(30));
+    axleNut.setAttribute("cy", toSvgY(38));
     axleNut.setAttribute("r", 4);
     axleNut.setAttribute("fill", "#666");
     axleNut.setAttribute("stroke", "#999");
     mainG.appendChild(axleNut);
 
     if (state.showDimensions) {
-      mainG.appendChild(createDimLine(0, 30, 107.5, 30, -25, "107.5 mm Centerline", "horizontal"));
-      mainG.appendChild(createDimLine(107.5, 30, 215, 30, -25, "107.5 mm Centerline", "horizontal"));
-      mainG.appendChild(createDimLine(107.5, 0, 107.5, -19, 25, "19.0 mm Wheel Protrusion", "vertical"));
-      mainG.appendChild(createDimLine(90, 30, 90, 80, -10, "50.0 mm Bracket Drop", "vertical"));
+      mainG.appendChild(createDimLine(0, 38, 107.5, 38, -25, "107.5 mm Centerline", "horizontal"));
+      mainG.appendChild(createDimLine(107.5, 38, 215, 38, -25, "107.5 mm Centerline", "horizontal"));
+      mainG.appendChild(createDimLine(107.5, 0, 107.5, -12, 25, "12.0 mm Ground Clearance", "vertical"));
+      mainG.appendChild(createDimLine(90, 38, 90, 85, -10, "47.0 mm Bracket Height", "vertical"));
     }
 
     if (state.showLabels) {
@@ -986,8 +986,8 @@ function drawSideView() {
         d.textContent = text; tg.appendChild(d);
         mainG.appendChild(tg);
       };
-      addLabel(107.5, -28, "Razor Hub Motor", "Ø98 Wheel (80W)");
-      addLabel(107.5, 110, "Suspended Mount", "U-Bracket");
+      addLabel(107.5, -20, "Razor Hub Motor", "Ø100 × 38mm Wheel (100W)");
+      addLabel(107.5, 100, "Centerline Mount", "10mm Ears (12mm Clearance)");
     }
   }
 
@@ -1334,21 +1334,21 @@ function drawTopView() {
     // Inner Plate (Z=71..83)
     drawBlock(2.5, 71, 212.5, 83, "chassis-plate", "inner_plate");
 
-    // Razor Hub Wheel (Z=20.0..65.0 (45mm wide), X=107.5 - 49 to 107.5 + 49 (Ø98))
-    drawBlock(107.5 - 49, 20.0, 107.5 + 49, 65.0, "wheel", "hub_motor");
+    // Razor Hub Wheel (Z=22.5..60.5 (38mm wide), X=107.5 - 50 to 107.5 + 50 (Ø100))
+    drawBlock(107.5 - 50, 22.5, 107.5 + 50, 60.5, "wheel", "hub_motor");
 
-    // Motor Hub Inner Casing (Z=16.5..68.5 (52mm wide), X=107.5 - 40 to 107.5 + 40 (Ø80))
-    drawBlock(107.5 - 40, 16.5, 107.5 + 40, 68.5, "motor", "hub_motor");
+    // Motor Hub Inner Casing (Z=20.0..63.0, X=107.5 - 40 to 107.5 + 40 (Ø80))
+    drawBlock(107.5 - 40, 20.0, 107.5 + 40, 63.0, "motor", "hub_motor");
 
-    // Suspended U-Bracket Mount legs (centered at 107.5, width 35mm from 90 to 125)
-    // Left arm: Z = 14.5..16.5, X = 90..125
-    drawBlock(90, 14.5, 125, 16.5, "chassis-plate", "u_bracket");
-    // Right arm: Z = 68.5..70.5, X = 90..125
+    // Axle Mounting Ears (10mm each side: Left ear Z=12.5..22.5, Right ear Z=60.5..70.5)
+    // Left bracket arm: Z = 12.5..14.5, X = 90..125
+    drawBlock(90, 12.5, 125, 14.5, "chassis-plate", "u_bracket");
+    // Right bracket arm: Z = 68.5..70.5, X = 90..125
     drawBlock(90, 68.5, 125, 70.5, "chassis-plate", "u_bracket");
 
-    // Axle shaft passing through the center (X=107.5, Z=14.5..70.5)
+    // Axle shaft centerline passing through the center (X=107.5, Z=12.5..70.5 -> 58mm span)
     const hubAxle = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    hubAxle.setAttribute("x1", 107.5); hubAxle.setAttribute("y1", 14.5);
+    hubAxle.setAttribute("x1", 107.5); hubAxle.setAttribute("y1", 12.5);
     hubAxle.setAttribute("x2", 107.5); hubAxle.setAttribute("y2", 70.5);
     hubAxle.setAttribute("class", "interactive-element shaft-rod");
     hubAxle.setAttribute("data-component-id", "hub_motor");
@@ -1358,8 +1358,10 @@ function drawTopView() {
 
     if (state.showDimensions) {
       mainG.appendChild(createDimLine(2.5, 0, 2.5, 12, 10, "12 mm Outer Plate", "z-width"));
-      mainG.appendChild(createDimLine(107.5, 20.0, 107.5, 65.0, 15, "45 mm Hub Wheel Width", "z-width"));
-      mainG.appendChild(createDimLine(107.5, 14.5, 107.5, 70.5, 25, "56 mm U-Bracket Spacing", "z-width"));
+      mainG.appendChild(createDimLine(107.5, 22.5, 107.5, 60.5, 15, "38 mm Wheel Width", "z-width"));
+      mainG.appendChild(createDimLine(107.5, 12.5, 107.5, 22.5, 25, "10 mm Ear", "z-width"));
+      mainG.appendChild(createDimLine(107.5, 60.5, 107.5, 70.5, 25, "10 mm Ear", "z-width"));
+      mainG.appendChild(createDimLine(107.5, 12.5, 107.5, 70.5, 35, "58 mm Total Axle Span", "z-width"));
       mainG.appendChild(createDimLine(2.5, 71, 2.5, 83, 10, "12 mm Inner Plate", "z-width"));
       mainG.appendChild(createDimLine(212.5, 0, 212.5, 85, -15, "85 mm Envelope", "z-width"));
     }
@@ -1543,20 +1545,20 @@ function drawEndView() {
     // Inner Plate (Z=71..83)
     drawYZBlock(71, 10, 83, 80, "chassis-plate", "inner_plate");
 
-    // Razor Hub Wheel (Z=20.0..65.0, Y=-19..79)
-    drawYZBlock(20.0, -19, 65.0, 79, "wheel", "hub_motor");
+    // Razor Hub Wheel (Z=22.5..60.5 (38mm wide), Y=-12..88 (Ø100mm, 12mm ground clearance below Y=0))
+    drawYZBlock(22.5, -12, 60.5, 88, "wheel", "hub_motor");
 
-    // Motor Hub Inner Casing (Z=16.5..68.5, Y=-10..70)
-    drawYZBlock(16.5, -10, 68.5, 70, "motor", "hub_motor");
+    // Motor Hub Inner Casing (Z=20.0..63.0, Y=-2..78 (Ø80mm))
+    drawYZBlock(20.0, -2, 63.0, 78, "motor", "hub_motor");
 
-    // Suspended U-Bracket Mount legs
-    // Left leg: Z=14.5..16.5, Y=30..80
-    drawYZBlock(14.5, 30, 16.5, 80, "chassis-plate", "u_bracket");
-    // Right leg: Z=68.5..70.5, Y=30..80
-    drawYZBlock(68.5, 30, 70.5, 80, "chassis-plate", "u_bracket");
+    // Axle Mounting Ears (Z=12.5..70.5, 10mm ears each side, Y=34..42)
+    drawYZBlock(12.5, 34, 70.5, 42, "shaft-rod", "hub_motor");
 
-    // Axle shaft center bolt (Ø8 mm)
-    drawYZBlock(14.5, 26, 70.5, 34, "shaft-rod", "hub_motor");
+    // Suspended Axle Mount Bracket legs
+    // Left leg: Z=12.5..14.5, Y=38..85
+    drawYZBlock(12.5, 38, 14.5, 85, "chassis-plate", "u_bracket");
+    // Right leg: Z=68.5..70.5, Y=38..85
+    drawYZBlock(68.5, 38, 70.5, 85, "chassis-plate", "u_bracket");
 
     if (state.showClearances) {
       const greenZone = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -1857,7 +1859,7 @@ function updateCalculations() {
   document.getElementById("wheel-rpm-val").textContent = Math.round(wheelRpm).toLocaleString() + " RPM";
 
   // Speed calculation (Ø98mm for C, Ø60mm for A/B)
-  const wheelCircumference = Math.PI * (state.currentDesign === "C" ? 0.098 : 0.06);
+  const wheelCircumference = Math.PI * (state.currentDesign === "C" ? 0.100 : 0.06);
   const speedMetersPerMinute = wheelRpm * wheelCircumference;
   const speedKph = (speedMetersPerMinute * 60) / 1000;
   const speedMph = speedKph * 0.621371;
@@ -1874,7 +1876,7 @@ function updateCalculations() {
   }
 
   if (state.currentDesign === "C") {
-    tReq *= 1.633; // 98mm wheel vs 60mm base wheel
+    tReq *= 1.667; // 100mm wheel vs 60mm base wheel
   }
 
   let rated = 5.0;
@@ -2015,7 +2017,7 @@ function selectDesign(design) {
     tabA.classList.remove("active");
     tabB.classList.remove("active");
     tabC.classList.add("active");
-    summary.textContent = "Design C (Razor Hub Motor): A direct-drive brushless hub motor (Razor P/N W13111701048) with an integrated 98mm solid rubber wheel, suspended by a U-bracket from the top plate.";
+    summary.textContent = "Design C (Razor Hub Motor): A direct-drive sensored brushless hub motor with an integrated 100mm × 38mm wheel, 10mm mounting ears on each side (58mm total span), and 12mm ground clearance below the foot skirt.";
     calcInputs.textContent = "Hub Motor Speed (RPM):";
     ratioRow.classList.add("hidden");
     stagesRow.classList.add("hidden");
