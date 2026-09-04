@@ -1328,40 +1328,33 @@ function drawTopView() {
     }
   } else if (state.currentDesign === "C") {
     // ---------------------------------
-    // DESIGN C: RAZOR HUB MOTOR & U-BRACKET (Single Centered Wheel)
+    // DESIGN C: RAZOR HUB MOTOR & U-BRACKET (Single Unified Wheel Unit)
     // ---------------------------------
 
     // Inner Plate (Z=71..83)
     drawBlock(2.5, 71, 212.5, 83, "chassis-plate", "inner_plate");
 
-    // Razor Hub Wheel (Z=22.5..60.5 (38mm wide), X=107.5 - 50 to 107.5 + 50 (Ø100))
+    // Single Unified Hub Motor Wheel (100mm dia x 38mm wide: X=57.5..157.5, Z=22.5..60.5)
     drawBlock(107.5 - 50, 22.5, 107.5 + 50, 60.5, "wheel", "hub_motor");
 
-    // Motor Hub Inner Casing (Z=20.0..63.0, X=107.5 - 40 to 107.5 + 40 (Ø80))
-    drawBlock(107.5 - 40, 20.0, 107.5 + 40, 63.0, "motor", "hub_motor");
+    // Axle Mounting Ears (10mm solid metal tabs on each side at centerline X=107.5)
+    // Left Mounting Ear (Z=12.5..22.5, width 16mm in X from 99.5 to 115.5)
+    drawBlock(99.5, 12.5, 115.5, 22.5, "shaft-rod", "hub_motor");
+    // Right Mounting Ear (Z=60.5..70.5, width 16mm in X from 99.5 to 115.5)
+    drawBlock(99.5, 60.5, 115.5, 70.5, "shaft-rod", "hub_motor");
 
-    // Axle Mounting Ears (10mm each side: Left ear Z=12.5..22.5, Right ear Z=60.5..70.5)
-    // Left bracket arm: Z = 12.5..14.5, X = 90..125
+    // Suspended Axle Mount Brackets (Clamping the 10mm ears)
+    // Left bracket clamp: Z = 12.5..14.5, X = 90..125
     drawBlock(90, 12.5, 125, 14.5, "chassis-plate", "u_bracket");
-    // Right bracket arm: Z = 68.5..70.5, X = 90..125
+    // Right bracket clamp: Z = 68.5..70.5, X = 90..125
     drawBlock(90, 68.5, 125, 70.5, "chassis-plate", "u_bracket");
-
-    // Axle shaft centerline passing through the center (X=107.5, Z=12.5..70.5 -> 58mm span)
-    const hubAxle = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    hubAxle.setAttribute("x1", 107.5); hubAxle.setAttribute("y1", 12.5);
-    hubAxle.setAttribute("x2", 107.5); hubAxle.setAttribute("y2", 70.5);
-    hubAxle.setAttribute("class", "interactive-element shaft-rod");
-    hubAxle.setAttribute("data-component-id", "hub_motor");
-    hubAxle.setAttribute("stroke-width", "2.5");
-    bindHoverEvents(hubAxle, "hub_motor");
-    mainG.appendChild(hubAxle);
 
     if (state.showDimensions) {
       mainG.appendChild(createDimLine(2.5, 0, 2.5, 12, 10, "12 mm Outer Plate", "z-width"));
-      mainG.appendChild(createDimLine(107.5, 22.5, 107.5, 60.5, 15, "38 mm Wheel Width", "z-width"));
+      mainG.appendChild(createDimLine(107.5, 22.5, 107.5, 60.5, 15, "38 mm Wheel Width (Ø100)", "z-width"));
       mainG.appendChild(createDimLine(107.5, 12.5, 107.5, 22.5, 25, "10 mm Ear", "z-width"));
       mainG.appendChild(createDimLine(107.5, 60.5, 107.5, 70.5, 25, "10 mm Ear", "z-width"));
-      mainG.appendChild(createDimLine(107.5, 12.5, 107.5, 70.5, 35, "58 mm Total Axle Span", "z-width"));
+      mainG.appendChild(createDimLine(107.5, 12.5, 107.5, 70.5, 35, "58 mm Total Mount Span", "z-width"));
       mainG.appendChild(createDimLine(2.5, 71, 2.5, 83, 10, "12 mm Inner Plate", "z-width"));
       mainG.appendChild(createDimLine(212.5, 0, 212.5, 85, -15, "85 mm Envelope", "z-width"));
     }
@@ -1539,22 +1532,20 @@ function drawEndView() {
     }
   } else if (state.currentDesign === "C") {
     // ---------------------------------
-    // DESIGN C: RAZOR HUB MOTOR & U-BRACKET
+    // DESIGN C: RAZOR HUB MOTOR & U-BRACKET (Single Unified Wheel Unit)
     // ---------------------------------
 
     // Inner Plate (Z=71..83)
     drawYZBlock(71, 10, 83, 80, "chassis-plate", "inner_plate");
 
-    // Razor Hub Wheel (Z=22.5..60.5 (38mm wide), Y=-12..88 (Ø100mm, 12mm ground clearance below Y=0))
+    // Single Unified Hub Motor Wheel (Z=22.5..60.5 (38mm wide), Y=-12..88 (Ø100mm, 12mm ground clearance))
     drawYZBlock(22.5, -12, 60.5, 88, "wheel", "hub_motor");
 
-    // Motor Hub Inner Casing (Z=20.0..63.0, Y=-2..78 (Ø80mm))
-    drawYZBlock(20.0, -2, 63.0, 78, "motor", "hub_motor");
+    // Axle Mounting Ears (10mm ears on each side at axle height Y=34..42: Left Z=12.5..22.5, Right Z=60.5..70.5)
+    drawYZBlock(12.5, 34, 22.5, 42, "shaft-rod", "hub_motor");
+    drawYZBlock(60.5, 34, 70.5, 42, "shaft-rod", "hub_motor");
 
-    // Axle Mounting Ears (Z=12.5..70.5, 10mm ears each side, Y=34..42)
-    drawYZBlock(12.5, 34, 70.5, 42, "shaft-rod", "hub_motor");
-
-    // Suspended Axle Mount Bracket legs
+    // Suspended Axle Mount Bracket legs (Clamping the 10mm ears from Y=38 up to top plate Y=85)
     // Left leg: Z=12.5..14.5, Y=38..85
     drawYZBlock(12.5, 38, 14.5, 85, "chassis-plate", "u_bracket");
     // Right leg: Z=68.5..70.5, Y=38..85
