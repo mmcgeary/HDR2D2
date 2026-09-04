@@ -115,8 +115,8 @@
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Brushless Hub Motors</Data></Cell>
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Razor Party Pop / Tekno Sensored BLDC</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Sensored hub motors mounted in left &amp; right feet</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Razor 100mm Sensored BLDC Hubs</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">16mm x 11mm Double-D Axles mounted in left &amp; right feet</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">4</Data></Cell>
@@ -125,16 +125,16 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Dual VESC 4.20 Speed Controller</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Master/Slave CAN-Bus; Direct PPM from Receiver CH1/CH2</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dual PPM from Receiver CH1/CH2 with CAN-Bus Traction Control</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">5</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Foot Drive Subsystem</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Axle Mounting Brackets</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Axle Clamping Mounts</Data></Cell>
     <Cell ss:StyleID="Fabrication"><Data ss:Type="String">Fabrication (Ready)</Data></Cell>
-    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Plywood Custom Foot Clamps</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Fabricated per chassis drive visualizer envelope</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2 pairs</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">3D Printed / Plywood 16x11mm Axle Clamps</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">STL models generated (Razor_Hub_Motor_Axle_Clamp_Top/Bottom.stl)</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">6</Data></Cell>
@@ -161,7 +161,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">TIANKONGRC TD-8135MG-360 (35kg 360°)</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Drives center post mechanism; Controlled via Slip Ring Ch 5 PWM</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Drives center post mechanism; Zero-Creep Sleep in firmware</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">9</Data></Cell>
@@ -170,7 +170,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">KY-003 / 3144E Hall Effect Sensor</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Mounted inside dome hub; Plugs directly into ESP32 GPIO 5</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Mounted inside dome hub; Hardware Interrupt on ESP32 GPIO 5</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">10</Data></Cell>
@@ -179,7 +179,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Neodymium Disc Magnet (~6x2mm or 10x2mm)</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Glued to stationary body center post base (Zero slip ring wires!)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Glued to stationary center post base for 0° Home alignment</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">11</Data></Cell>
@@ -187,7 +187,7 @@
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Center Post Drive Coupler</Data></Cell>
     <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">25T Servo Horn to Center Post Gear / Coupler</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">25T Servo Horn to Center Post Coupler</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Couples 35kg servo output directly to dome central pivot post</Data></Cell>
    </Row>
    <Row>
@@ -197,7 +197,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">AstroPixels ESP32 30-Pin Module</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Main Droid Brain: Runs Lights, Servos, Sound &amp; Autodome</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Main Droid Brain: Decoupled UARTs, FastLED, PCA9685, Moods &amp; Macros</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">13</Data></Cell>
@@ -233,7 +233,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">6</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">TowerPro MG90S Metal Gear Servos</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">2 servos per HP (Pan &amp; Tilt for 3 Holos)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">2 servos per HP (Pan &amp; Tilt for 3 Holos) on PCA9685</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">17</Data></Cell>
@@ -251,7 +251,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">PCA9685 16-Channel 12-bit PWM Module</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Plugs into AstroPixels I2C port (SDA/SCL) in dome</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Plugs into AstroPixels I2C port (SDA 21 / SCL 22) in dome</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">19</Data></Cell>
@@ -268,7 +268,7 @@
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome 5V Distribution Block</Data></Cell>
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dual-Row Screw Terminal / Lever Bus Block</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">uxcell 6-Position Dual Row Terminal Block</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Distributes 5V &amp; GND from slip ring to board &amp; servos</Data></Cell>
    </Row>
    <Row>
@@ -278,7 +278,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Senring H3086 (30mm ID, 6-Channel 10A)</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Slides over center post; Ch1/6=5V, Ch2=GND, Ch3=iBus, Ch4=Sound, Ch5=PWM</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Slides over center post; Ch1/6=5V, Ch2=GND, Ch3=iBus(115k), Ch4=Sound(9.6k), Ch5=PWM</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">22</Data></Cell>
@@ -287,7 +287,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">DFPlayer Mini MP3 Player Board</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Lives in body; Triggered via Slip Ring Ch 4 serial</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Lives in body; Dedicated 9600 baud serial on Slip Ring Ch 4</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">23</Data></Cell>
@@ -296,7 +296,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">16GB / 32GB MicroSD Card (FAT32)</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Stores MarcDuino sound files (001_xxx.mp3)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Stores Categorized Mood Sound Pools (001-080) &amp; Macros (101-255)</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">24</Data></Cell>
@@ -413,7 +413,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">FlySky FS-i6X 10-Channel 2.4GHz AFHDS 2A</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">D/R Speed Limiting on SwB; VrA Mood Dial; SwC Trigger</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Elevon Tank Mixing; D/R Speed Limiting on SwB; VrA Mood Dial</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">37</Data></Cell>
@@ -422,7 +422,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">FlySky FS-iA6B 6/10-Ch iBus Receiver</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">CH1/CH2 to VESC; iBus single wire to Slip Ring Ch 3</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">CH1/CH2 PPM to VESC; iBus single wire to Slip Ring Ch 3</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">38</Data></Cell>
