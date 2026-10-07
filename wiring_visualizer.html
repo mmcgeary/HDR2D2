@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>R2-D2 Power Harness and Pin-to-Pin Inspector</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #070a12; color: #e2e8f0; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    header { padding: 16px 20px; border-bottom: 1px solid #334155; background: #0f172a; }
+    h1 { font-size: 21px; margin: 0 0 8px; }
+    p { line-height: 1.5; }
+    .notice { margin: 0; color: #fbbf24; font-size: 13px; }
+    a { color: #7dd3fc; }
+    .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+    button, input, select { font: inherit; padding: 8px 10px; border: 1px solid #475569; border-radius: 6px; background: #1e293b; color: #f8fafc; }
+    button { cursor: pointer; }
+    button:focus-visible, a:focus-visible, .wire:focus-visible, .component:focus-visible { outline: 3px solid #38bdf8; }
+    .layout { display: grid; grid-template-columns: minmax(0,1fr) 340px; }
+    #viewport { height: 70vh; min-height: 420px; overflow: hidden; background: #080f1d; cursor: grab; touch-action: none; }
+    #schematic { width: 100%; height: 100%; display: block; }
+    aside { background: #0f172a; padding: 16px; border-left: 1px solid #334155; overflow: auto; max-height: 70vh; }
+    aside h2 { font-size: 18px; margin-top: 0; }
+    aside p { font-size: 14px; overflow-wrap: anywhere; }
+    .component rect { fill: #111c30; stroke: #64748b; stroke-width: 2; }
+    .component text { fill: #e2e8f0; font-size: 14px; }
+    .component .title { font-size: 14px; font-weight: bold; }
+    .component circle { fill: #070a12; stroke: #cbd5e1; stroke-width: 2; }
+    .wire { cursor: pointer; }
+    .wire .hit { fill: none; stroke: transparent; stroke-width: 18; }
+    .wire .line { fill: none; stroke-width: 3; }
+    .wire.selected .line { stroke-width: 7; filter: drop-shadow(0 0 4px #fff); }
+    .wire.trace-muted .line { opacity: .15; }
+    .dimmed { display: none; }
+    #schedule { padding: 16px 20px; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    th, td { padding: 10px; text-align: left; border: 1px solid #334155; vertical-align: top; }
+    th { background: #1e293b; }
+    .small { font-size: 13px; color: #94a3b8; }
+    @media (max-width: 800px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { max-height: none; border-left: 0; border-top: 1px solid #334155; }
+      #viewport { height: 60vh; }
+    }
+    @media print {
+      :root { color-scheme: light; background: white; color: black; }
+      .layout, .controls { display: none; }
+      header, th { background: white; color: black; }
+      .notice, a, .small { color: black; }
+      table { font-size: 10px; }
+      tr { break-inside: avoid; }
+      #schedule { overflow: visible; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>R2-D2 Power Harness and Pin-to-Pin Inspector</h1>
+    <p class="notice">Approved wiring plan, not a measured/commissioned installation. Terminal positions are schematic, NOT physical connector pin order. Confirm device labels and factory-lead ratings before connecting.</p>
+    <p class="notice"><strong>Level shifting:</strong> receiver iBUS and dome Hall enter the 5V side and leave at 3.3V for ESP32 inputs. Dome PWM and audio TX go directly from the ESP32 through the slip ring at 3.3V; neither passes through the shifter.</p>
+    <div class="controls">
+      <label for="filter">Circuit</label>
+      <select id="filter">
+        <option value="all">All circuits</option>
+        <option value="power12" selected>Battery power and fuses</option>
+        <option value="body5">Body 5V</option>
+        <option value="dome5">Dome 5V</option>
+        <option value="ring">Slip-ring contacts</option>
+        <option value="logic">Logic / receiver / I2C</option>
+        <option value="phase">Motor phases (2m)</option>
+        <option value="hall">Motor Halls (2m)</option>
+        <option value="servos">Holo PWM</option>
+        <option value="leds">Factory light cables</option>
+        <option value="audio">Audio signals</option>
+        <option value="charge">Charging lead</option>
+      </select>
+      <label for="search">Search</label>
+      <input id="search" type="search" placeholder="Part, terminal, wire or fuse">
+      <button id="fit" type="button">Fit circuit</button>
+      <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+      <button id="zoom-out" type="button" aria-label="Zoom out">-</button>
+      <button id="print" type="button">Print wire schedule</button>
+      <a href="POWER_HARNESS_GUIDE.md">Assembly / shopping / acceptance guide</a>
+    </div>
+  </header>
+  <main>
+    <div class="layout">
+      <div id="viewport">
+        <svg id="schematic" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Interactive electrical schematic. Equivalent terminal schedule follows below."></svg>
+      </div>
+      <aside id="inspector" aria-live="polite">
+        <h2>Harness inspector</h2>
+        <p>Click a wire or component to inspect its terminals, gauge, protection and assembly notes. A selected wire is isolated visually; change the filter or search to clear it. Drag blank space to pan; use the zoom buttons or mouse wheel.</p>
+        <p>Red: battery positive. Purple: body 5V. Pink: dome 5V. Dashed grey: ground return. I2C SDA/SCL: blue/green. Drive left/right PPM: orange/violet. Motor phases U/V/W: orange/violet/blue. Hall H1/H2/H3: yellow/blue/green. Holo CH0-5: yellow/blue/green/violet/orange/pink. Cyan: internal slip-ring paths. Colors identify diagram circuits, not required physical wire colors. Unrelated wires have separate parallel lanes; perpendicular crossings are not connections. Wires sharing a named terminal can share an exit.</p>
+        <p><strong>Do not join the two 5V positive rails. Do not fuse ground. Leave ring CH6, VESC PPM +5V and motor temperature leads unused.</strong></p>
+      </aside>
+    </div>
+    <section id="schedule">
+      <h2>Terminal-by-terminal wire schedule</h2>
+      <p class="small" id="count"></p>
+      <p class="small">Filter and search also apply to this table. Wire gauges describe added extensions, not an assertion about factory pigtails. Only the 12V fuse box has fused outputs. Body/dome 5V strips are screw-terminal distribution: FEED and the named positive outputs share a bus; GND terminals share a separate negative bus. No 5V output/device fuses by user decision; reliance on advertised converter protection does not verify downstream fault protection. This is a residual limitation, not a fuse commissioning hold. NOMINAL 12V includes charge voltage.</p>
+      <table>
+        <thead><tr><th>ID</th><th>From</th><th>To</th><th>Wire / protection</th><th>Assembly and verification</th></tr></thead>
+        <tbody id="wire-table"></tbody>
+      </table>
+    </section>
+  </main>
+  <script id="harness-data" type="application/json">
+{
+  "components": {
+    "battery": {"name":"Renogy RBT1220LFP-TM battery","area":"Body lower frame","x":50,"y":70,"ports":["+","-"],"note":"Secure battery mechanically; cover terminals. 20A continuous system budget is not enforced by the 25A main fuse."},
+    "mainFuse": {"name":"Main fuse: 25A","area":"At battery positive","x":430,"y":70,"ports":["IN","OUT"],"amps":25,"note":"DC-rated >=32V fuse/holder, >=30A holder, 10AWG pigtails. Fit as close to battery as practical, target <=150mm; protect the short unfused section."},
+    "cutoff": {"name":"Master battery disconnect","area":"Accessible body hatch/exterior","x":810,"y":70,"ports":["IN","OUT"],"note":"DC load-break rated >=30A at >=16V, not an AC-only toggle. Mount for immediate access without reaching past wheels. Does not disconnect an attached charging lead."},
+    "fuseBlock": {"name":"12V fuse box: + and - buses","area":"One physical box, body electronics plate","x":1190,"y":70,"ports":["+ FEED","- FEED","F1 15A","F2 UNUSED","F3 7.5A","F4 7.5A","F5 5A","F6 1A","NEGATIVE BUS"],"fuses":{"F1":15,"F3":7.5,"F4":7.5,"F5":5,"F6":1},"note":"Integrated negative bus. + FEED receives battery+ through main fuse/cutoff; - FEED receives battery- directly. F1 supplies ONE shared dual-VESC input; F2 empty/unused, not paralleled. Other positive outputs individually fused. NEGATIVE BUS tied internally to - FEED, never to+. Verify >=32V DC, >=30A total, F1 holder/circuit >=15A and other circuits >=their selected fuses; negative bus >=30A. No negative fuses."},
+    "driveSupply": {"name":"Dual FSESC4.20 shared power","area":"ONE bare-wire input; both channels internal","x":50,"y":470,"ports":["B+","B-"],"note":"User confirms one bare-wire battery input pair, no connector. F1 15A feeds factory positive via12AWG extension and gauge-matched rated crimp splice; shared negative to bus. Verify lead polarity/gauge and inrush. No external split/parallel fuse outputs. Logical motor channels powered internally; each has own microUSB for configuration. Both start at5A battery-current max each; phase-current ceiling unresolved."},
+    "charger": {"name":"ECO-WORTHY LiFePO4 charger","area":"Purchased; external14.4V / 9A","x":50,"y":800,"ports":["FUSED+","-"],"note":"AmazonB09SYNQNC1 nominal10A model; user-provided listing specifiesLiFePO4 output14.4V9A. Supplied SAE ring lead has10A fuse. Verify actual label/polarity on arrival; useLiFePO4 mode. Charge with masterOFF; unplug before drive; do not charge below0C. BMS activation not routine."},
+    "bodyBuck": {"name":"Body fixed 5V / 10A buck","area":"Body electronics plate","x":430,"y":650,"ports":["IN+","IN-","OUT+","OUT-"],"note":"Amazon B09T954ZV1: listing 10-35V input, fixed5V/10A, non-isolated. Confirm actual unit markings. Mount for airflow; do not trim to5.05V or assume lead colors."},
+    "body5": {"name":"Body 5V terminal distribution","area":"Beside body buck","x":810,"y":650,"ports":["FEED","GND","SERVO +","DFPLAYER +","RECEIVER +"],"note":"User-selected screw-terminal strip, NOT a fused block. FEED and named+outputs share5V; GND is a separate common negative bus. Verify >=15A total rating/wire range. Body5V positive never joins dome5V. No5V output fuses by user decision; relies on advertised converter protection. Input fuse alone does not establish thin-wire protection; fault performance unverified, not a fuse commissioning hold."},
+    "ringBody": {"name":"Slip ring: BODY ends","area":"Fixed body side","x":1190,"y":650,"ports":["CH1","CH2","CH3","CH4","CH5","CH6 UNUSED"],"note":"6contacts, user-reported10A/contact and17AWG leads. Continuity-identify pairs; do not infer colors. CH1 battery+, CH2 ground; CH6 individually insulated."},
+    "ringDome": {"name":"Slip ring: DOME ends","area":"Rotating dome side","x":1570,"y":650,"ports":["CH1","CH2","CH3","CH4","CH5","CH6 UNUSED"],"note":"Single contact each for power and return. Signal contacts do not carry servo power. Support fixed/rotating leads separately; never parallel CH1/CH6."},
+    "domeBuck": {"name":"Dome fixed 5V / 10A buck","area":"Dome mounting plate","x":1950,"y":650,"ports":["IN+","IN-","OUT+","OUT-"],"note":"Existing converter assigned to dome; second matching converter for body. Battery voltage enters here, not AstroPixels. Non-isolated grounds remain common."},
+    "dome5": {"name":"Dome 5V terminal distribution","area":"Beside dome buck","x":2330,"y":650,"ports":["FEED","GND","PCA +","LIGHTS +","LOGIC +"],"note":"User-selected screw-terminal strip, NOT a fused block. All+outputs share dome5V; GND is a separate common negative bus. Verify >=15A total rating/wire range; combined load <=10A converter capacity, with continuous-load capability checked. No5V output fuses by user decision; advertised converter protection of thin wires/headers is unverified, not a fuse commissioning hold. Capacitor optional subject to buck specification/load checks."},
+    "receiver": {"name":"FlySky FS-iA6B","area":"Body, away from motor wiring","x":430,"y":1150,"ports":["5V","GND","LEFT SIG","RIGHT SIG","iBUS SIG","SENS 5V","SENS GND","SENS DATA"],"note":"Body buck powers receiver and FS-CVT01 via its separate SENS telemetry port. SENS is NOT servo-iBUS output: dome uses iBUS SIG. Confirm physical connector markings/polarity. Map mixed left/right outputs in transmitter. VESC PPM leads signal+ground ONLY; insulate red+5V."},
+    "domeServo": {"name":"TD-8135MG-360 dome servo","area":"Body center-post mount","x":810,"y":1150,"ports":["5V","GND","PWM"],"note":"16AWG supply extension from body terminal distribution; no5V output fuse by user decision. Verify factory lead normal-load rating and measured load; fault protection unverified. No servo current through receiver."},
+    "dfplayer": {"name":"DFPlayer Mini","area":"Body sound plate","x":50,"y":1250,"ports":["5V","GND","RX","DAC_L","DAC_GND"],"note":"FAT32 /01 numbered files. DAC line output feeds amplifier, not SPK1/SPK2. Simplex RX through1k resistor; no TX/BUSY wiring."},
+    "amp": {"name":"HF82 / TPA3110 amplifier","area":"Body sound plate; solder-pad connections","x":430,"y":1450,"ports":["12V","POWER GND","LINE L","LINE GND","L+","L-"],"note":"Selected AmazonB09F2XR9MN lists8-26V DC,4-10ohm speakers,2x15W; nominal12V battery including14.6V full charge is within listed range. All connections solder-style: verify pad markings, anchor wires and insulate joints. Current drawing uses left speaker; optional right speaker uses separateR+/R- and DAC_R via isolator ring/R, never join channel negatives. WiFi sets DFPlayer volume; default10/30 unless saved preference exists. Confirm actual board markings before power."},
+    "telemetry": {"name":"FS-CVT01 voltage telemetry","area":"Body plate, near receiver","x":810,"y":1450,"ports":["SENSE+","SENSE-","SUPPLY 5V","GND","DATA"],"note":"User-selected AmazonB0DQXT337L. Battery-voltage sense pair is separate from receiver-powered SENS cable. Receiver5V powers sensor; never feed battery12V into SENS/supply pins. Reports voltage to FS-i6X, not measured charge percentage; LiFePO4 voltage is a poor midrange state-of-charge indicator. Confirm exact unit/pinout; verify remote reading against meter."},
+    "isolator": {"name":"BESIGN 3.5mm audio isolator","area":"TRS screw adapters at source/amp ends","x":50,"y":1650,"ports":["IN L","IN GND","OUT L","OUT GND"],"note":"User-selected AmazonB06XQYN77L; passive analog signal isolator, no power supply. Semantic IN/OUT ports include external3.5mm TRS adapters: tip=L, sleeve=audio ground, ring=R unused. Confirm adapter mapping by continuity. Do not externally bridge input/output sleeves. Not a B0505S power converter."},
+    "speaker": {"name":"8ohm speaker","area":"Body acoustic vents","x":810,"y":1850,"ports":["+","-"],"note":"Connect across selected amplifier channel L+/L-. Neither speaker lead to chassis/common ground; do not parallel stereo amplifier outputs."},
+    "leftVesc": {"name":"Left VESC (slave mode OFF)","area":"Logical channel; shared dual-controller supply","x":50,"y":2050,"ports":["PPM SIG","PPM GND","PPM +5V UNUSED","PHASE U","PHASE V","PHASE W","HALL 5V","HALL GND","H1","H2","H3","TEMP UNUSED"],"note":"Actual Hall order user-reported top-to-bottom: GND,H3,H2,H1,TMP,5V in their observed orientation; initial motor mapping black,green,blue,yellow,unused,red. NOT the schematic port order or a mating-face view; mark orientation. Shared internal power;5A battery max,2.5A regen magnitude. Phase-current ceiling unresolved before detection. Own microUSB; retain factory firmware."},
+    "rightVesc": {"name":"Right VESC (independent)","area":"Logical channel; same physical dual board","x":430,"y":2050,"ports":["PPM SIG","PPM GND","PPM +5V UNUSED","PHASE U","PHASE V","PHASE W","HALL 5V","HALL GND","H1","H2","H3","TEMP UNUSED"],"note":"Actual Hall order user-reported top-to-bottom: GND,H3,H2,H1,TMP,5V in their observed orientation; initial motor mapping black,green,blue,yellow,unused,red. Mark viewing orientation; do not mirror connector. Shared internal power, independent receiver input; own microUSB.5A battery max; own failsafe, no CAN mirroring."},
+    "leftMotor": {"name":"Left Razor hub/wheel motor","area":"Left foot via shoulder","x":50,"y":2600,"ports":["PHASE A","PHASE B","PHASE C","RED HALL+","BLACK HALL-","YELLOW HALL","BLUE HALL","GREEN HALL"],"note":"2m phase/Hall extension route. Hall red/black supply polarity must match actual motor. Hall signal permutation learned by detection; re-detect after phase/signal rewiring."},
+    "rightMotor": {"name":"Right Razor hub/wheel motor","area":"Right foot via shoulder","x":430,"y":2600,"ports":["PHASE A","PHASE B","PHASE C","RED HALL+","BLACK HALL-","YELLOW HALL","BLUE HALL","GREEN HALL"],"note":"Support both ends and make shoulder service loop. No tensile load on axle-exit wires. Separate Hall bundle from phases where practical."},
+    "hall": {"name":"KY-003 dome home sensor","area":"Rotating dome hub","x":1570,"y":1150,"ports":["5V","GND","SIGNAL"],"note":"Magnet stays stationary; sensor output level-shifted toGPIO19. Confirm module terminal markings; rotate by hand to test."},
+    "shifter": {"name":"Owned level shifter: 2ch used","area":"Dome electronics plate","x":1570,"y":1450,"ports":["HV 5V","LV 3.3V","GND","HV1 iBUS IN 5V","LV1 iBUS OUT 3.3V","HV2 Hall IN 5V","LV2 Hall OUT 3.3V"],"note":"Actual labels: LV1,LV2,LV,GND,LV3,LV4 and HV1,HV2,HV,GND,HV3,HV4. Two bidirectional pairs used as incoming paths: HV1->LV1->GPIO16 for iBUS; HV2->LV2->GPIO19 for dome home Hall. Seven external wires: four signal wires plus HV5V,LV3.3V and one common ground. Verify both GND pins have continuity with board unpowered; then one ground connection suffices. HV/LV are references, not a regulator. Confirm clean115200baud translation. PWM/audio bypass it; channels3/4 unused. Never directly short HV to LV."},
+    "esp": {"name":"AstroPixels ESP32: PLUS firmware","area":"Motherboard headers; not bare ESP32 pins","x":1950,"y":1150,"ports":["5V TERMINAL","GND","3.3V","GPIO16 RX","GPIO19 HALL","GPIO4 PWM","GPIO17 TX","GPIO21 SDA","GPIO22 SCL","I2C G","I2C V UNUSED","FLD","RLD","FPSI","RPSI","FHP","RHP","THP"],"portLabels":{"3.3V":"3V3 header supply","GPIO21 SDA":"I2C D / GPIO21 SDA","GPIO22 SCL":"I2C C / GPIO22 SCL","I2C G":"I2C G / ground","I2C V UNUSED":"I2C V: LEAVE UNCONNECTED"},"note":"Use motherboard I2C G/C/D for PCA ground/clock/data; leave I2C V unconnected. Separate3V3 header supplies PCA VCC and shifter LV; measure3.3V againstG before connecting. Factory AUX V pins are5V. Connector locations here are schematic, not physical pin order."},
+    "pca": {"name":"PCA9685 at default0x40","area":"Green power terminal + separate logic header","x":2330,"y":1250,"ports":["V+ 5V","GND","VCC 3.3V","SDA","SCL","LOGIC GND","CH0 S","CH1 S","CH2 S","CH3 S","CH4 S","CH5 S"],"portLabels":{"V+ 5V":"Green terminal V+ / 5V","GND":"Green unlabeled: VERIFY GND","VCC 3.3V":"Logic header VCC / 3.3V","LOGIC GND":"Logic header GND"},"note":"With board disconnected/unpowered, confirm unlabeled green screw terminal has near-zero resistance to markedGND pin; confirmV+ terminal connects to servoV+ row. Only then connect dome5V toV+ and domeground to confirmed terminal. Logic headerVCC gets3V3, NOT5V. SDA/SCL pull-ups must use3.3V. Servo header ground rail and logicGND share ground; verify PCB/header aggregate current and individual lead protection."},
+    "lights": {"name":"Factory AstroPixels light boards","area":"Dome bezels and holos","x":1950,"y":2050,"ports":["FLD S/V/G","RLD S/V/G","FPSI S/V/G","RPSI S/V/G","FHP S/V/G","RHP S/V/G","THP S/V/G"],"note":"Factory3wire cables, verifyS/V/G orientation. Two front logic boards daisy-chain onFLD. Keep supplied display cables rather than extending high-current5V through tiny signal wiring."},
+    "frontPan": {"name":"Front holo pan MG90S","area":"Dome front gimbal","x":2330,"y":1850,"ports":["5V","GND","PWM"],"note":"PCA CH0; center before fitting horn; verify no binding."},
+    "frontTilt": {"name":"Front holo tilt MG90S","area":"Dome front gimbal","x":2330,"y":2100,"ports":["5V","GND","PWM"],"note":"PCA CH1; manual1200-1800us; check installed limits."},
+    "rearPan": {"name":"Rear holo pan MG90S","area":"Dome rear gimbal","x":2330,"y":2350,"ports":["5V","GND","PWM"],"note":"PCA CH2; conservative1000-2000us configured bounds."},
+    "rearTilt": {"name":"Rear holo tilt MG90S","area":"Dome rear gimbal","x":2330,"y":2600,"ports":["5V","GND","PWM"],"note":"PCA CH3; check mechanical clearance individually."},
+    "topPan": {"name":"Top holo pan MG90S","area":"Dome top gimbal","x":1950,"y":2600,"ports":["5V","GND","PWM"],"note":"PCA CH4; do not stall against dome shell."},
+    "topTilt": {"name":"Top holo tilt MG90S","area":"Dome top gimbal","x":1570,"y":2600,"ports":["5V","GND","PWM"],"note":"PCA CH5; secure factory cable with movement allowance."},
+    "capacitor": {"name":"Dome buffer capacitor","area":"Dome5V distribution","x":2330,"y":70,"ports":["+","-"],"note":"1000-2200uF lowESR, >=10V. Stripe usually marks negative: confirm label. Shrouded terminals, not a replacement for sound wiring/fusing."}
+  },
+  "wires": [
+    {"id":"battery-positive","from":"battery:+","to":"mainFuse:IN","cat":"power12","spec":"10AWG red; short unfused section <=150mm target","note":"Crimp battery-size ring lug, cover and strain-relieve. Install main fuse last."},
+    {"id":"main-to-cutoff","from":"mainFuse:OUT","to":"cutoff:IN","cat":"power12","spec":"10AWG red; protected by25A main","note":"No unprotected bypass around main fuse; follow fuse-holder terminal instructions."},
+    {"id":"cutoff-to-block","from":"cutoff:OUT","to":"fuseBlock:+ FEED","cat":"power12","spec":"10AWG red; protected by25A main","note":"Fuse box positive input after main fuse and cutoff; accessible disconnect opens all operating-load positive feeds."},
+    {"id":"battery-negative","from":"battery:-","to":"fuseBlock:- FEED","cat":"power12","spec":"10AWG black; unfused negative return","note":"Direct to negative input stud on same fuse box. Its integrated negative bus provides all branch returns; no separate bus to buy."},
+    {"id":"drive-input","from":"fuseBlock:F1 15A","to":"driveSupply:B+","cat":"power12","spec":"12AWG red;15A shared branch; <=1m one-way","note":"Bare factory positive lead: verify polarity/gauge, join with rated gauge-matched crimp splice; fuse-box terminal matches actual stud. One feed to whole dual controller, F2 unused. Starting fuse requires inrush check;5A-per-motor settings separate."},
+    {"id":"drive-return","from":"driveSupply:B-","to":"fuseBlock:NEGATIVE BUS","cat":"power12","spec":"12AWG black; <=1m one-way","note":"One shared negative return for both controller channels. No negative fuse; no external split."},
+    {"id":"body-input","from":"fuseBlock:F3 7.5A","to":"bodyBuck:IN+","cat":"power12","spec":"16AWG red;7.5A branch; <=1m one-way","note":"Check converter factory input lead rating and polarity. GenuineXT30 removable input connector if needed."},
+    {"id":"body-input-return","from":"bodyBuck:IN-","to":"fuseBlock:NEGATIVE BUS","cat":"power12","spec":"16AWG black; <=1m one-way","note":"Converter IN- andOUT- are common internally on specified non-isolated model."},
+    {"id":"dome-feed","from":"fuseBlock:F4 7.5A","to":"ringBody:CH1","cat":"power12","spec":"16AWG red extension to17AWG factory lead;7.5A fuse","note":"Fuse BEFORE ring. Battery voltage, not5V. Approved run <=1m excluding internal contact; verify inrush/temperature."},
+    {"id":"dome-feed-return","from":"ringBody:CH2","to":"fuseBlock:NEGATIVE BUS","cat":"power12","spec":"16AWG black extension to17AWG factory lead","note":"Full dome input-current return plus signal reference; unfused and never disconnected while signal wires remain live."},
+    {"id":"ring1","from":"ringBody:CH1","to":"ringDome:CH1","cat":"ring","spec":"Internal10A-rated contact;17AWG factory leads","note":"Single positive power contact,7.5A upstream protection; contact continuity verified through rotation."},
+    {"id":"ring2","from":"ringBody:CH2","to":"ringDome:CH2","cat":"ring","spec":"Internal10A-rated contact;17AWG factory leads","note":"Common ground return. No parallel spare-ground path."},
+    {"id":"ring3","from":"ringBody:CH3","to":"ringDome:CH3","cat":"ring","spec":"Internal contact:115200-baud iBUS","note":"Scope or functional test through rotation; baud is not guaranteed by10A power rating."},
+    {"id":"ring4","from":"ringBody:CH4","to":"ringDome:CH4","cat":"ring","spec":"Internal contact:9600-baud audioTX","note":"Dome-to-body command signal only."},
+    {"id":"ring5","from":"ringBody:CH5","to":"ringDome:CH5","cat":"ring","spec":"Internal contact:50Hz domePWM","note":"Dome-to-body signal only; servo power stays in body. CH6unused and insulated at both ends."},
+    {"id":"dome-input","from":"ringDome:CH1","to":"domeBuck:IN+","cat":"power12","spec":"16AWG red extension to17AWG factory lead","note":"Confirm battery voltage at converter input; do NOT connect here to dome5V terminal."},
+    {"id":"dome-input-return","from":"ringDome:CH2","to":"domeBuck:IN-","cat":"power12","spec":"16AWG black extension to17AWG factory lead","note":"Non-isolated buck keeps input/output grounds common."},
+    {"id":"amp-input","from":"fuseBlock:F5 5A","to":"amp:12V","cat":"power12","spec":"18AWG red;5A branch; <=1m one-way","note":"HF82 listed8-26V input covers battery voltage; verify actual board. Solder to markedDC+pad with strain relief; suitably rated short pigtail if pad cannot accept18AWG. Fuse does not prevent overvoltage."},
+    {"id":"amp-return","from":"amp:POWER GND","to":"fuseBlock:NEGATIVE BUS","cat":"power12","spec":"18AWG black","note":"Power return to integrated negative bus, separate from audio-isolator input/output wiring."},
+    {"id":"telemetry-sense-positive","from":"fuseBlock:F6 1A","to":"telemetry:SENSE+","cat":"power12","spec":"22AWG red sense extension;1A branch","note":"Measures switched battery-bus voltage; sense input only, NOT sensor operating power. Fuse protects positive sense lead. Main cutoff removes sense voltage; no always-live battery tap."},
+    {"id":"telemetry-sense-return","from":"telemetry:SENSE-","to":"fuseBlock:NEGATIVE BUS","cat":"power12","spec":"22AWG black sense extension","note":"Negative sensing lead to integrated fuse-box negative bus. Confirm actual sensor sense polarity before connection."},
+    {"id":"telemetry-supply","from":"receiver:SENS 5V","to":"telemetry:SUPPLY 5V","cat":"body5","spec":"Factory3-wire SENS cable:5V conductor","note":"Receiver-powered sensor electronics, ultimately from body5V distribution. Do NOT connect this pin to12V sense feed."},
+    {"id":"telemetry-ground","from":"receiver:SENS GND","to":"telemetry:GND","cat":"body5","spec":"Factory3-wire SENS cable:ground conductor","note":"Keep ground/data/supply in supplied connector; verify marked orientation."},
+    {"id":"telemetry-data","from":"telemetry:DATA","to":"receiver:SENS DATA","cat":"logic","spec":"Factory3-wire SENS cable:data conductor","note":"Telemetry goes via receiver to remote; SENS is distinct from servo-iBUS stream to ESP32. No dome/slip-ring/level-shifter connection."},
+    {"id":"body-5-positive","from":"bodyBuck:OUT+","to":"body5:FEED","cat":"body5","spec":"12AWG red extension;10A rated output","note":"Short as possible; converter factory lead remains bottleneck. No5V output fuses by user decision; downstream fault protection unverified."},
+    {"id":"body-5-return","from":"bodyBuck:OUT-","to":"body5:GND","cat":"body5","spec":"12AWG black extension","note":"No link to dome5V positive; negative already common through non-isolated converters."},
+    {"id":"body-servo-power","from":"body5:SERVO +","to":"domeServo:5V","cat":"body5","spec":"16AWG red extension;no output branch fuse shown","note":"Power bypasses receiver. Confirm factory servo pigtail normal-load suitability and peak current. No5V output fuse by user decision; fault protection unverified."},
+    {"id":"body-servo-return","from":"domeServo:GND","to":"body5:GND","cat":"body5","spec":"16AWG black extension","note":"Matched supply/return route; strain relief at rotating-drive mechanism."},
+    {"id":"receiver-power","from":"body5:RECEIVER +","to":"receiver:5V","cat":"body5","spec":"22AWG red;no output branch fuse shown","note":"Receiver powered ONLY here, not VESC BEC+pins. No5V output fuse by user decision; fault protection unverified."},
+    {"id":"receiver-return","from":"receiver:GND","to":"body5:GND","cat":"body5","spec":"22AWG black","note":"Ground reference for both PPM outputs and iBUS."},
+    {"id":"dfplayer-power","from":"body5:DFPLAYER +","to":"dfplayer:5V","cat":"body5","spec":"20AWG red;no output branch fuse shown","note":"Stable regulated5V; verify module pins; do not feed raw battery. No5V output fuse by user decision; fault protection unverified."},
+    {"id":"dfplayer-return","from":"dfplayer:GND","to":"body5:GND","cat":"body5","spec":"20AWG black","note":"Keep power wiring separate from low-level audio path."},
+    {"id":"dome-5-positive","from":"domeBuck:OUT+","to":"dome5:FEED","cat":"dome5","spec":"12AWG red extension;10A rated output","note":"Fixed5V measured before loads. No5V output fuses by user decision; downstream fault protection unverified."},
+    {"id":"dome-5-return","from":"domeBuck:OUT-","to":"dome5:GND","cat":"dome5","spec":"12AWG black extension","note":"Local return; all signal grounds reference this common node."},
+    {"id":"esp-power","from":"dome5:LIGHTS +","to":"esp:5V TERMINAL","cat":"dome5","spec":"18AWG red;no output branch fuse shown","note":"Board's labeled5V screw terminal, NOT ESP32 3.3V pin. Factory lights draw through this branch; inspect terminal/cable normal-load rating. No5V output fuse by user decision; fault protection unverified."},
+    {"id":"esp-return","from":"esp:GND","to":"dome5:GND","cat":"dome5","spec":"18AWG black","note":"USB/external5V backfeed behavior unknown; unplug buck feed before connecting USB for programming."},
+    {"id":"pca-power","from":"dome5:PCA +","to":"pca:V+ 5V","cat":"dome5","spec":"16AWG red;no output branch fuse shown","note":"Verify PCA terminal/PCB and individual servo-lead normal-load ratings; use rated external servo distribution if PCB cannot carry aggregate load. No5V output fuses by user decision; fault protection unverified."},
+    {"id":"pca-return","from":"pca:GND","to":"dome5:GND","cat":"dome5","spec":"16AWG black","note":"Green unlabeled terminal ONLY after unpowered continuity confirms it isGND. Servo supply return; same ground as logic."},
+    {"id":"shifter-hv","from":"dome5:LOGIC +","to":"shifter:HV 5V","cat":"dome5","spec":"22AWG red;no output branch fuse shown","note":"HV means regulated5V, never12V. No5V output fuse by user decision; fault protection unverified."},
+    {"id":"shifter-return","from":"shifter:GND","to":"dome5:GND","cat":"dome5","spec":"22AWG black","note":"Tie both HV/LV ground pins to this ground if board has separate labeled pins."},
+    {"id":"hall-power","from":"dome5:LOGIC +","to":"hall:5V","cat":"dome5","spec":"22AWG red;no output branch fuse shown","note":"Dome homing Hall module, not foot-motor Hall sensors. No5V output fuse by user decision; fault protection unverified."},
+    {"id":"hall-return","from":"hall:GND","to":"dome5:GND","cat":"dome5","spec":"22AWG black","note":"Module common ground."},
+    {"id":"capacitor-positive","from":"dome5:FEED","to":"capacitor:+","cat":"dome5","spec":"Short18AWG red;shrouded terminals","note":"Fit only after confirming5V polarity; uncharged capacitor may increase inrush."},
+    {"id":"capacitor-negative","from":"capacitor:-","to":"dome5:GND","cat":"dome5","spec":"Short18AWG black","note":"Observe polarity; disconnect battery and allow discharge before service."},
+    {"id":"charge-positive","from":"charger:FUSED+","to":"battery:+","cat":"charge","spec":"Supplied ECO-WORTHY SAE ring lead with10A fuse","note":"Independent charge path remains live when master isOFF. Verify polarity; do not substitute unfused extensions or increase supplied fuse."},
+    {"id":"charge-negative","from":"charger:-","to":"battery:-","cat":"charge","spec":"Manufacturer-supplied ECO-WORTHY negative lead","note":"Unplug charging connector before driving; no assumed onboard charger."},
+    {"id":"left-ppm","from":"receiver:LEFT SIG","to":"leftVesc:PPM SIG","cat":"logic","spec":"22AWG signal+ground pair","note":"PPM red+5V wire disconnected/insulated; verify signal pin by exact connector diagram."},
+    {"id":"left-ppm-ground","from":"receiver:GND","to":"leftVesc:PPM GND","cat":"logic","spec":"22AWG ground","note":"No positive BEC connection; dedicated local signal reference."},
+    {"id":"right-ppm","from":"receiver:RIGHT SIG","to":"rightVesc:PPM SIG","cat":"logic","spec":"22AWG signal+ground pair","note":"Independent mixed right command; no addedCAN command mirroring."},
+    {"id":"right-ppm-ground","from":"receiver:GND","to":"rightVesc:PPM GND","cat":"logic","spec":"22AWG ground","note":"Same receiver ground, not asecond5V supply."},
+    {"id":"ibus-body","from":"receiver:iBUS SIG","to":"ringBody:CH3","cat":"logic","spec":"22AWG signal extension","note":"Use receiver servo-iBUS signal port, not sensor telemetry port; confirm exact labeling."},
+    {"id":"ibus-dome","from":"ringDome:CH3","to":"shifter:HV1 iBUS IN 5V","cat":"logic","spec":"22AWG receiver-level signal intoHV1","note":"HV1 is an INPUT here, not an output toESP32. Receiver ->ringCH3->HV1; translated3.3V leavesLV1."},
+    {"id":"ibus-low","from":"shifter:LV1 iBUS OUT 3.3V","to":"esp:GPIO16 RX","cat":"logic","spec":"22AWG short3.3V signal fromLV1","note":"ESP32iBUS input is3.3V at115200baud. Never connect HV1/rawreceiver5V toGPIO16."},
+    {"id":"home-high","from":"hall:SIGNAL","to":"shifter:HV2 Hall IN 5V","cat":"logic","spec":"22AWG5V-side Hall input","note":"Hall active-low home detection entersHV2 and is translated down."},
+    {"id":"home-low","from":"shifter:LV2 Hall OUT 3.3V","to":"esp:GPIO19 HALL","cat":"logic","spec":"22AWG short3.3V Hall output","note":"PreferredPlus usesGPIO19, not legacyGPIO5. ESP32-side signal is3.3V."},
+    {"id":"dome-pwm-direct","from":"esp:GPIO4 PWM","to":"ringDome:CH5","cat":"logic","spec":"22AWG direct3.3V control signal","note":"No level shifter. Servo accepts3.3V control per selected specification; verify exact unit and operation through rotating ring. Servo5V power stays local tobody."},
+    {"id":"dome-pwm-body","from":"ringBody:CH5","to":"domeServo:PWM","cat":"logic","spec":"22AWG signal extension","note":"Servo power and ground local tobody; signal-only contact."},
+    {"id":"audio-tx-direct","from":"esp:GPIO17 TX","to":"ringDome:CH4","cat":"logic","spec":"22AWG direct3.3V serial command","note":"No level shifter. DFPlayer RX accepts3.3V UART at9600baud; verify actual module. Commands only, not analog audio. DFPlayer TX remains unused."},
+    {"id":"audio-rx-body","from":"ringBody:CH4","to":"dfplayer:RX","cat":"logic","spec":"22AWG3.3V signal with1kohm series resistor atRX","note":"Direct ESP32 command throughCH4. Series resistor is not a voltage converter; no5V upshift is used."},
+    {"id":"shifter-lv","from":"esp:3.3V","to":"shifter:LV 3.3V","cat":"logic","spec":"22AWG short verified3.3V supply","note":"Do not use AUX headerV pin as3.3V: AstroPixels AUX voltage row is5V."},
+    {"id":"pca-logic","from":"esp:3.3V","to":"pca:VCC 3.3V","cat":"logic","spec":"22AWG from separate motherboard3V3 header","note":"Measure3.3V againstGND first. PCA logicVCC, NOT green servoV+ terminal. Leave motherboard I2C V unconnected."},
+    {"id":"pca-sda","from":"esp:GPIO21 SDA","to":"pca:SDA","cat":"logic","spec":"22AWG:motherboard I2C D to PCA SDA","note":"D=data=GPIO21. Pull-ups terminate at3.3V; inspect both boards."},
+    {"id":"pca-scl","from":"esp:GPIO22 SCL","to":"pca:SCL","cat":"logic","spec":"22AWG:motherboard I2C C to PCA SCL","note":"C=clock=GPIO22. Default address0x40; leave address jumpers unbridged."},
+    {"id":"pca-logic-ground","from":"esp:I2C G","to":"pca:LOGIC GND","cat":"logic","spec":"22AWG:motherboard I2C G to PCA headerGND","note":"Common logic reference. PCA servo supply ground also connects to dome negative distribution; both grounds common, never positive-to-ground."},
+    {"id":"left-u","from":"leftVesc:PHASE U","to":"leftMotor:PHASE A","cat":"phase","awg":12,"length_m":2,"spec":"12AWG flexible copper;2m one-way;3phase wires","note":"Genuine rated3.5/4mm bullet connectors matching actual motor/controller; insulate separately. Resolve phase-current limit before detection."},
+    {"id":"left-v","from":"leftVesc:PHASE V","to":"leftMotor:PHASE B","cat":"phase","awg":12,"length_m":2,"spec":"12AWG flexible copper;2m one-way","note":"Route with other phases, apart from Hall/audio where practical; do not infer Hall pairing from color."},
+    {"id":"left-w","from":"leftVesc:PHASE W","to":"leftMotor:PHASE C","cat":"phase","awg":12,"length_m":2,"spec":"12AWG flexible copper;2m one-way","note":"Re-run detection after phase swaps; cable-loss heating depends on phase RMS current, not just5A battery limit."},
+    {"id":"right-u","from":"rightVesc:PHASE U","to":"rightMotor:PHASE A","cat":"phase","awg":12,"length_m":2,"spec":"12AWG flexible copper;2m one-way","note":"Secure shoulder service loop and axle lead exit. No pulling on connector pins."},
+    {"id":"right-v","from":"rightVesc:PHASE V","to":"rightMotor:PHASE B","cat":"phase","awg":12,"length_m":2,"spec":"12AWG flexible copper;2m one-way","note":"Controller phase leads are bare: add rated insulated splices or mating phase connectors; no existing factory bullets assumed."},
+    {"id":"right-w","from":"rightVesc:PHASE W","to":"rightMotor:PHASE C","cat":"phase","awg":12,"length_m":2,"spec":"12AWG flexible copper;2m one-way","note":"Bench detection with wheel raised, mechanically secured; check current and temperatures."},
+    {"id":"left-hall-power","from":"leftVesc:HALL 5V","to":"leftMotor:RED HALL+","cat":"hall","length_m":2,"spec":"22AWG5conductor flexible cable;2m run","note":"Confirm red=Hall5V on actual motor. VESC Hall supply, not battery12V."},
+    {"id":"left-hall-ground","from":"leftVesc:HALL GND","to":"leftMotor:BLACK HALL-","cat":"hall","length_m":2,"spec":"22AWG Hall cable ground;2m run","note":"Keep all5Hall conductors together; black polarity must be correct."},
+    {"id":"left-h1","from":"leftVesc:H1","to":"leftMotor:YELLOW HALL","cat":"hall","length_m":2,"spec":"22AWG Hall signal;2m run","note":"Starting signal assignment learned by VESC Hall detection."},
+    {"id":"left-h2","from":"leftVesc:H2","to":"leftMotor:BLUE HALL","cat":"hall","length_m":2,"spec":"22AWG Hall signal;2m run","note":"No need to color-match phase wires; repeat detection after changing assignment."},
+    {"id":"left-h3","from":"leftVesc:H3","to":"leftMotor:GREEN HALL","cat":"hall","length_m":2,"spec":"22AWG Hall signal;2m run","note":"VESC TEMPunused, insulated; no motor-temperature feedback available."},
+    {"id":"right-hall-power","from":"rightVesc:HALL 5V","to":"rightMotor:RED HALL+","cat":"hall","length_m":2,"spec":"22AWG5conductor flexible cable;2m run","note":"Verify actual Hall-adapter connector cavities, not wire colors alone."},
+    {"id":"right-hall-ground","from":"rightVesc:HALL GND","to":"rightMotor:BLACK HALL-","cat":"hall","length_m":2,"spec":"22AWG Hall ground;2m run","note":"Dedicated Hall return in same bundle."},
+    {"id":"right-h1","from":"rightVesc:H1","to":"rightMotor:YELLOW HALL","cat":"hall","length_m":2,"spec":"22AWG Hall signal;2m run","note":"Detect each motor independently."},
+    {"id":"right-h2","from":"rightVesc:H2","to":"rightMotor:BLUE HALL","cat":"hall","length_m":2,"spec":"22AWG Hall signal;2m run","note":"Separation from phase bundle reduces coupled switching noise."},
+    {"id":"right-h3","from":"rightVesc:H3","to":"rightMotor:GREEN HALL","cat":"hall","length_m":2,"spec":"22AWG Hall signal;2m run","note":"TEMPunconnected/insulated. Connector and cable strain relief atshoulder."},
+    {"id":"fld","from":"esp:FLD","to":"lights:FLD S/V/G","cat":"leds","spec":"Factory3wireS/V/G lead","note":"FLD1 toFLD2 daisy-chain per manufacturer; supplied cables and matching header."},
+    {"id":"rld","from":"esp:RLD","to":"lights:RLD S/V/G","cat":"leds","spec":"Factory3wireS/V/G lead","note":"SignalGPIO33;5V/GND already in factory cable."},
+    {"id":"fpsi","from":"esp:FPSI","to":"lights:FPSI S/V/G","cat":"leds","spec":"Factory3wireS/V/G lead","note":"SignalGPIO32; confirm orientation."},
+    {"id":"rpsi","from":"esp:RPSI","to":"lights:RPSI S/V/G","cat":"leds","spec":"Factory3wireS/V/G lead","note":"SignalGPIO23; confirm orientation."},
+    {"id":"fhp","from":"esp:FHP","to":"lights:FHP S/V/G","cat":"leds","spec":"Factory3wireS/V/G lead","note":"SignalGPIO25; not servoPWM."},
+    {"id":"rhp","from":"esp:RHP","to":"lights:RHP S/V/G","cat":"leds","spec":"Factory3wireS/V/G lead","note":"SignalGPIO26; keep cable away from gimbal pinch points."},
+    {"id":"thp","from":"esp:THP","to":"lights:THP S/V/G","cat":"leds","spec":"Factory3wireS/V/G lead","note":"SignalGPIO27; supplied board connectors."},
+    {"id":"front-pan-pwm","from":"pca:CH0 S","to":"frontPan:PWM","cat":"servos","spec":"Factoryservo signal lead","note":"PCA9685CH0."},
+    {"id":"front-pan-power","from":"pca:V+ 5V","to":"frontPan:5V","cat":"servos","spec":"Factoryservo supply lead via channelV+ rail","note":"No5V output fuse by user decision; verify normal-load pigtail/PCB ratings. Fault protection unverified."},
+    {"id":"front-pan-ground","from":"frontPan:GND","to":"pca:GND","cat":"servos","spec":"Factoryservo ground lead","note":"All six servo leads useS/V/G orientation."},
+    {"id":"front-tilt-pwm","from":"pca:CH1 S","to":"frontTilt:PWM","cat":"servos","spec":"Factoryservo signal lead","note":"PCA9685CH1; manual tilt."},
+    {"id":"front-tilt-power","from":"pca:V+ 5V","to":"frontTilt:5V","cat":"servos","spec":"Factoryservo supply lead","note":"Buck input fuse does not establish individual tiny-lead short protection; no output branch fuse installed."},
+    {"id":"front-tilt-ground","from":"frontTilt:GND","to":"pca:GND","cat":"servos","spec":"Factoryservo ground lead","note":"Check connector orientation before energizing."},
+    {"id":"rear-pan-pwm","from":"pca:CH2 S","to":"rearPan:PWM","cat":"servos","spec":"Factoryservo signal lead","note":"PCA9685CH2."},
+    {"id":"rear-pan-power","from":"pca:V+ 5V","to":"rearPan:5V","cat":"servos","spec":"Factoryservo supply lead","note":"Verify board aggregate current and individual lead suitability."},
+    {"id":"rear-pan-ground","from":"rearPan:GND","to":"pca:GND","cat":"servos","spec":"Factoryservo ground lead","note":"Localdome return."},
+    {"id":"rear-tilt-pwm","from":"pca:CH3 S","to":"rearTilt:PWM","cat":"servos","spec":"Factoryservo signal lead","note":"PCA9685CH3."},
+    {"id":"rear-tilt-power","from":"pca:V+ 5V","to":"rearTilt:5V","cat":"servos","spec":"Factoryservo supply lead","note":"Keep horns clear before first movement."},
+    {"id":"rear-tilt-ground","from":"rearTilt:GND","to":"pca:GND","cat":"servos","spec":"Factoryservo ground lead","note":"Do not use mechanism as ground."},
+    {"id":"top-pan-pwm","from":"pca:CH4 S","to":"topPan:PWM","cat":"servos","spec":"Factoryservo signal lead","note":"PCA9685CH4."},
+    {"id":"top-pan-power","from":"pca:V+ 5V","to":"topPan:5V","cat":"servos","spec":"Factoryservo supply lead","note":"Factory3pin servo cable, not arbitrary male-to-male power jumper."},
+    {"id":"top-pan-ground","from":"topPan:GND","to":"pca:GND","cat":"servos","spec":"Factoryservo ground lead","note":"Ground/positive rows must match module markings."},
+    {"id":"top-tilt-pwm","from":"pca:CH5 S","to":"topTilt:PWM","cat":"servos","spec":"Factoryservo signal lead","note":"PCA9685CH5."},
+    {"id":"top-tilt-power","from":"pca:V+ 5V","to":"topTilt:5V","cat":"servos","spec":"Factoryservo supply lead","note":"Localdome5V only."},
+    {"id":"top-tilt-ground","from":"topTilt:GND","to":"pca:GND","cat":"servos","spec":"Factoryservo ground lead","note":"Leave movement allowance and strain-relieve."},
+    {"id":"dac-audio","from":"dfplayer:DAC_L","to":"isolator:IN L","cat":"audio","spec":"DAC_L to source TRS adapter tip/L","note":"Low-levelDAC output, NOT SPK1/SPK2. Adapter connects to BESIGN isolator. Ring/R unused; do not join DAC_L/DAC_R."},
+    {"id":"dac-return","from":"dfplayer:DAC_GND","to":"isolator:IN GND","cat":"audio","spec":"DFPlayerGND to source TRS sleeve/GND","note":"DAC_GND represents actual DFPlayerGND pin, not a separate pin. Verify adapter mapping by continuity."},
+    {"id":"amp-audio","from":"isolator:OUT L","to":"amp:LINE L","cat":"audio","spec":"Amplifier-end TRS tip/L to amp LINE L","note":"BESIGN line-level output via screw adapter. Ring/R unused; leave right speaker channel open."},
+    {"id":"amp-signal-return","from":"isolator:OUT GND","to":"amp:LINE GND","cat":"audio","spec":"Amplifier-end TRS sleeve/GND to LINE GND","note":"Do not externally bridge isolator IN/OUT sleeves. Amp power ground remains normally connected; speakerL- is NOT this ground."},
+    {"id":"speaker-positive","from":"amp:L+","to":"speaker:+","cat":"audio","spec":"20AWG paired speaker cable","note":"One amplifier channel only; polarity marked for speaker."},
+    {"id":"speaker-negative","from":"amp:L-","to":"speaker:-","cat":"audio","spec":"20AWG paired speaker cable","note":"Bridge-tied amplifier output: L- must not connect to battery/audio ground."}
+  ]
+}
+  </script>
+  <script id="routing-engine">
+    "use strict";
+    function isGroundWire(wire) {
+      return [wire.from,wire.to].some(endpoint=>/^ring(?:Body|Dome):CH2$/.test(endpoint)) ||
+        /(:B-|:IN-|:OUT-|:-|GND|GROUND|RETURN|BLACK HALL-|NEGATIVE BUS|SENSE-)/i.test(wire.from+" "+wire.to);
+    }
+    function isPowerWire(wire) {
+      return ["power12","body5","dome5","charge"].includes(wire.cat) ||
+        (wire.cat==="ring" && /:CH[12]$/.test(wire.from)) ||
+        (wire.cat==="hall" && /HALL 5V|HALL GND/.test(wire.from)) ||
+        wire.from==="esp:3.3V";
+    }
+    function isI2cWire(wire) {
+      return wire.id==="pca-sda" || wire.id==="pca-scl";
+    }
+    function signalColor(wire) {
+      if(wire.id==="pca-sda") return "#38bdf8";
+      if(wire.id==="pca-scl") return "#4ade80";
+      if(wire.id==="left-ppm") return "#fb923c";
+      if(wire.id==="right-ppm") return "#c084fc";
+      const holo=wire.from.match(/:CH(\d) S$/);
+      if(holo) return ["#facc15","#38bdf8","#4ade80","#c084fc","#fb923c","#f472b6"][Number(holo[1])];
+      const hall=wire.from.match(/:H([123])$/);
+      if(hall) return ["#facc15","#38bdf8","#4ade80"][Number(hall[1])-1];
+      const phase=wire.from.match(/:PHASE ([UVW])$/);
+      if(phase) return {U:"#fb923c",V:"#c084fc",W:"#38bdf8"}[phase[1]];
+      if(wire.cat==="hall" && wire.from.endsWith("HALL 5V")) return "#ef4444";
+      return null;
+    }
+    function wiresNeedSeparateLanes(a,b) {
+      return ![a.from,a.to].some(endpoint=>endpoint===b.from||endpoint===b.to);
+    }
+    function layoutComponents(components) {
+      for (const component of Object.values(components))
+        component.x=50+(component.x-50)/380*600;
+    }
+    function terminalSide(component, port) {
+      if (component.endsWith("Motor") || component === "lights") return "left";
+      if (component === "battery" || component === "ringBody") return "right";
+      if (component === "ringDome") return "left";
+      if (component === "shifter") return port.startsWith("LV") ? "right" : "left";
+      if (component.endsWith("Vesc"))
+        return /^(B[+-]|PPM)/.test(port) ? "left" : "right";
+      if (component === "esp")
+        return /^(5V|GND|GPIO16|GPIO19)/.test(port) ? "left" : "right";
+      if (component === "pca") return port.startsWith("CH") ? "right" : "left";
+      if (component === "amp") return /^L[+-]$/.test(port) ? "right" : "left";
+      if (component === "dfplayer") return port.startsWith("DAC") ? "right" : "left";
+      if (component === "receiver") return /^(5V|GND)/.test(port) ? "left" : "right";
+      if (component === "telemetry") return "left";
+      if (component === "fuseBlock") return port.endsWith("FEED") ? "left" : "right";
+      if (component === "driveSupply") return "left";
+      if (component === "capacitor" || component === "speaker")
+        return "left";
+      if (["domeServo","frontPan","frontTilt","rearPan","rearTilt","topPan","topTilt"].includes(component))
+        return "left";
+      return /^(IN|FEED|5V|GND)/.test(port) ? "left" : "right";
+    }
+    function routeWire(from, to, rectangles, occupied = []) {
+      const clearance = 12, stub = 24;
+      const start = {x:from.x+(from.side==="left"?-stub:stub),y:from.y};
+      const finish = {x:to.x+(to.side==="left"?-stub:stub),y:to.y};
+      const obstacles = rectangles.map(r => ({
+        x:r.x-clearance,y:r.y-clearance,w:r.w+2*clearance,h:r.h+2*clearance
+      }));
+      const vertical=occupied.filter(([a,b])=>a.x===b.x);
+      const horizontal=occupied.filter(([a,b])=>a.y===b.y);
+      const xs = [...new Set([start.x,finish.x,...obstacles.flatMap(r=>[r.x,r.x+r.w]),
+        ...vertical.flatMap(([a])=>[a.x-10,a.x+10]),
+        ...horizontal.flatMap(([a,b])=>[a.x-10,a.x,a.x+10,b.x-10,b.x,b.x+10])])].sort((a,b)=>a-b);
+      const ys = [...new Set([start.y,finish.y,...obstacles.flatMap(r=>[r.y,r.y+r.h]),
+        ...horizontal.flatMap(([a])=>[a.y-10,a.y+10]),
+        ...vertical.flatMap(([a,b])=>[a.y-10,a.y,a.y+10,b.y-10,b.y,b.y+10])])].sort((a,b)=>a-b);
+      const nx = xs.length, ny = ys.length;
+      const verticalLanes=new Map(xs.map(x=>[x,vertical.filter(([a])=>Math.abs(a.x-x)<8)]));
+      const horizontalLanes=new Map(ys.map(y=>[y,horizontal.filter(([a])=>Math.abs(a.y-y)<8)]));
+      function crosses(a,b) {
+        const lanes=a.x===b.x?verticalLanes.get(a.x):horizontalLanes.get(a.y);
+        if (lanes.some(([c,d])=>a.x===b.x
+          ? Math.max(Math.min(a.y,b.y),Math.min(c.y,d.y))<Math.min(Math.max(a.y,b.y),Math.max(c.y,d.y))
+          : Math.max(Math.min(a.x,b.x),Math.min(c.x,d.x))<Math.min(Math.max(a.x,b.x),Math.max(c.x,d.x))))
+          return true;
+        return obstacles.some(r => a.x===b.x
+          ? a.x>r.x && a.x<r.x+r.w && Math.max(a.y,b.y)>r.y && Math.min(a.y,b.y)<r.y+r.h
+          : a.y>r.y && a.y<r.y+r.h && Math.max(a.x,b.x)>r.x && Math.min(a.x,b.x)<r.x+r.w);
+      }
+      const source = ys.indexOf(start.y)*nx+xs.indexOf(start.x);
+      const target = ys.indexOf(finish.y)*nx+xs.indexOf(finish.x);
+      const heap = [];
+      function push(entry) {
+        heap.push(entry);
+        let i=heap.length-1;
+        while (i>0) {
+          const parent=(i-1)>>1;
+          if (heap[parent].score<=entry.score) break;
+          heap[i]=heap[parent]; i=parent;
+        }
+        heap[i]=entry;
+      }
+      function pop() {
+        const first=heap[0], last=heap.pop();
+        if (heap.length) {
+          let i=0;
+          while (i*2+1<heap.length) {
+            let child=i*2+1;
+            if (child+1<heap.length && heap[child+1].score<heap[child].score) ++child;
+            if (heap[child].score>=last.score) break;
+            heap[i]=heap[child]; i=child;
+          }
+          heap[i]=last;
+        }
+        return first;
+      }
+      const distance=new Map(), previous=new Map();
+      const sourceDirection=from.side==="left"?1:0;
+      const finalDirection=to.side==="left"?0:1;
+      const sourceKey=source*4+sourceDirection;
+      distance.set(sourceKey,0);
+      push({key:sourceKey,node:source,direction:sourceDirection,cost:0,score:0});
+      let result;
+      while (heap.length) {
+        const current=pop();
+        if (current.cost!==distance.get(current.key)) continue;
+        if (current.node===target && current.direction!==(finalDirection^1)) {
+          result=current.key; break;
+        }
+        const xi=current.node%nx, yi=Math.floor(current.node/nx);
+        const a={x:xs[xi],y:ys[yi]};
+        for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+          const x=xi+dx,y=yi+dy;
+          if (x<0 || y<0 || x>=nx || y>=ny) continue;
+          const b={x:xs[x],y:ys[y]};
+          const direction=dx===1?0:dx===-1?1:dy===1?2:3;
+          if (direction===(current.direction^1) || crosses(a,b)) continue;
+          const node=y*nx+x,key=node*4+direction;
+          const cost=current.cost+Math.abs(b.x-a.x)+Math.abs(b.y-a.y)+(direction!==current.direction?24:0);
+          if (distance.has(key) && distance.get(key)<=cost) continue;
+          distance.set(key,cost);
+          previous.set(key,current.key);
+          push({key,node,direction,cost,score:cost+Math.abs(b.x-finish.x)+Math.abs(b.y-finish.y)});
+        }
+      }
+      if (result===undefined) throw new Error("No clear orthogonal route between terminals");
+      const middle=[];
+      for (let key=result;key!==undefined;key=previous.get(key)) {
+        const node=Math.floor(key/4);
+        middle.push({x:xs[node%nx],y:ys[Math.floor(node/nx)]});
+      }
+      const points=[{x:from.x,y:from.y},...middle.reverse(),{x:to.x,y:to.y}];
+      const simplified=[];
+      for (const point of points) {
+        if (simplified.length && point.x===simplified[simplified.length-1].x &&
+            point.y===simplified[simplified.length-1].y) continue;
+        while (simplified.length>=2) {
+          const a=simplified[simplified.length-2], b=simplified[simplified.length-1];
+          if ((a.x===b.x && b.x===point.x && (b.y-a.y)*(point.y-b.y)>=0) ||
+              (a.y===b.y && b.y===point.y && (b.x-a.x)*(point.x-b.x)>=0)) simplified.pop();
+          else break;
+        }
+        simplified.push(point);
+      }
+      return simplified;
+    }
+  </script>
+  <script>
+    "use strict";
+    const data = JSON.parse(document.getElementById("harness-data").textContent);
+    layoutComponents(data.components);
+    const svg = document.getElementById("schematic");
+    const inspector = document.getElementById("inspector");
+    const filter = document.getElementById("filter");
+    const search = document.getElementById("search");
+    const table = document.getElementById("wire-table");
+    const width = 320, portGap = 24;
+    const endpoints = new Map(), wireElements = new Map(), componentElements = new Map();
+    const colors = {power12:"#ef4444",body5:"#a78bfa",dome5:"#f472b6",ring:"#22d3ee",phase:"#fb923c",hall:"#4ade80",charge:"#10b981",audio:"#60a5fa"};
+    let box = {x:0,y:0,w:2750,h:2950};
+    let visibleWires = data.wires;
+    const ns = "http://www.w3.org/2000/svg";
+    function element(tag, attributes, text) {
+      const node = document.createElementNS(ns, tag);
+      for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, value);
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+    function paragraph(text) {
+      const node = document.createElement("p");
+      node.textContent = text;
+      inspector.append(node);
+    }
+    function heading(text) {
+      inspector.replaceChildren();
+      const node = document.createElement("h2");
+      node.textContent = text;
+      inspector.append(node);
+    }
+    function describeEndpoint(endpoint) {
+      const split = endpoint.indexOf(":");
+      const component=data.components[endpoint.slice(0,split)],port=endpoint.slice(split+1);
+      return component.name + " / " + (component.portLabels?.[port] || port);
+    }
+    function inspectWire(wire) {
+      for (const [id,node] of wireElements) {
+        node.classList.remove("selected");
+        node.classList.toggle("trace-muted",id!==wire.id);
+      }
+      wireElements.get(wire.id).classList.add("selected");
+      wireLayer.append(wireElements.get(wire.id));
+      heading(wire.id);
+      paragraph("From: " + describeEndpoint(wire.from));
+      paragraph("To: " + describeEndpoint(wire.to));
+      paragraph(wire.spec);
+      paragraph(wire.note);
+      paragraph("Logical terminal labels only. Verify the actual connector mating-face orientation.");
+    }
+    function inspectComponent(id) {
+      const component = data.components[id];
+      heading(component.name);
+      paragraph(component.area);
+      paragraph(component.note);
+      paragraph("Terminals: " + component.ports.join(" / "));
+    }
+    function activate(node, handler) {
+      node.addEventListener("click", handler);
+      node.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handler();
+        }
+      });
+    }
+    const componentLayer = element("g", {});
+    const wireLayer = element("g", {});
+    svg.append(componentLayer, wireLayer);
+    for (const [id, component] of Object.entries(data.components)) {
+      const group = element("g", {class:"component",tabindex:0,role:"button","aria-label":component.name});
+      group.append(element("rect",{x:component.x,y:component.y,width,height:70+component.ports.length*portGap,rx:8}));
+      group.append(element("text",{x:component.x+12,y:component.y+25,class:"title"},component.name));
+      group.append(element("text",{x:component.x+12,y:component.y+47},component.area));
+      component.ports.forEach((port, index) => {
+        const y = component.y+75+index*portGap;
+        const side = terminalSide(id,port);
+        const input = side === "left";
+        const x = input ? component.x : component.x+width;
+        endpoints.set(id+":"+port, {x,y,side});
+        group.append(element("circle",{cx:x,cy:y,r:5}));
+        group.append(element("text",{x:input?x+12:x-12,y:y+4,"text-anchor":input?"start":"end"},component.portLabels?.[port] || port));
+      });
+      activate(group, () => inspectComponent(id));
+      componentLayer.append(group);
+      componentElements.set(id, group);
+    }
+    const rectangles = Object.entries(data.components).map(([id,c])=>({
+      id,x:c.x,y:c.y,w:width,h:70+c.ports.length*portGap
+    }));
+    const powerRoutes=[];
+    data.wires.forEach(wire => {
+      const from = endpoints.get(wire.from), to = endpoints.get(wire.to);
+      if (!from || !to) throw new Error("Unknown terminal on wire: "+wire.id);
+      const ground = isGroundWire(wire);
+      const color = ground ? "#94a3b8" : signalColor(wire)||(colors[wire.cat] || "#facc15");
+      const occupied=powerRoutes.filter(r=>wiresNeedSeparateLanes(wire,r.wire))
+        .flatMap(r=>r.segments);
+      const points = routeWire(from,to,rectangles,occupied);
+      powerRoutes.push({ground,wire,
+        segments:points.slice(1).map((p,i)=>[points[i],p])});
+      const path = points.map((p,i)=>`${i===0?"M":"L"}${p.x},${p.y}`).join(" ");
+      const group = element("g",{class:"wire",tabindex:0,role:"button","data-wire-id":wire.id,"aria-label":wire.id+": "+wire.spec});
+      group.append(element("path",{d:path,class:"hit"}));
+      group.append(element("path",{d:path,class:"line",stroke:color,"stroke-dasharray":ground?"7 5":"none"}));
+      activate(group, () => inspectWire(wire));
+      wireLayer.append(group);
+      wireElements.set(wire.id,group);
+    });
+    function matches(wire) {
+      const text = [wire.id,describeEndpoint(wire.from),describeEndpoint(wire.to),wire.spec,wire.note].join(" ").toLowerCase();
+      return (filter.value === "all" || wire.cat === filter.value) && text.includes(search.value.trim().toLowerCase());
+    }
+    function applyViewBox() {
+      svg.setAttribute("viewBox",`${box.x} ${box.y} ${box.w} ${box.h}`);
+    }
+    function fit() {
+      const ids = new Set(visibleWires.flatMap(w => [w.from.split(":")[0],w.to.split(":")[0]]));
+      if (!ids.size) { box = {x:0,y:0,w:2750,h:2950}; applyViewBox(); return; }
+      const components = [...ids].map(id => data.components[id]);
+      const x = Math.min(...components.map(c => c.x))-40;
+      const y = Math.min(...components.map(c => c.y))-40;
+      const right = Math.max(...components.map(c => c.x+width))+40;
+      const bottom = Math.max(...components.map(c => c.y+70+c.ports.length*portGap))+40;
+      box = {x,y,w:right-x,h:bottom-y};
+      applyViewBox();
+    }
+    function update() {
+      visibleWires = data.wires.filter(matches);
+      const active = new Set(visibleWires.map(w => w.id));
+      const components = new Set(visibleWires.flatMap(w => [w.from.split(":")[0],w.to.split(":")[0]]));
+      for (const [id, node] of wireElements) {
+        node.classList.toggle("dimmed",!active.has(id));
+        node.classList.remove("trace-muted","selected");
+        node.setAttribute("tabindex",active.has(id)?0:-1);
+      }
+      for (const [id, node] of componentElements) {
+        node.classList.toggle("dimmed",!components.has(id));
+        node.setAttribute("tabindex",components.has(id)?0:-1);
+      }
+      table.replaceChildren();
+      for (const wire of visibleWires) {
+        const row = document.createElement("tr");
+        for (const value of [wire.id,describeEndpoint(wire.from),describeEndpoint(wire.to),wire.spec,wire.note]) {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          row.append(cell);
+        }
+        table.append(row);
+      }
+      document.getElementById("count").textContent = `${visibleWires.length} of ${data.wires.length} connections shown. Use All circuits and clear search for the complete schedule.`;
+    }
+    function zoom(factor) {
+      const w = Math.max(200,Math.min(6000,box.w*factor));
+      const h = box.h*w/box.w;
+      box = {x:box.x+(box.w-w)/2,y:box.y+(box.h-h)/2,w,h};
+      applyViewBox();
+    }
+    filter.addEventListener("change",() => { update(); fit(); });
+    search.addEventListener("input",() => { update(); fit(); });
+    document.getElementById("fit").addEventListener("click",fit);
+    document.getElementById("zoom-in").addEventListener("click",() => zoom(.8));
+    document.getElementById("zoom-out").addEventListener("click",() => zoom(1.25));
+    document.getElementById("print").addEventListener("click",() => window.print());
+    svg.addEventListener("wheel",event => {
+      event.preventDefault();
+      zoom(event.deltaY<0?.9:1.1);
+    },{passive:false});
+    let drag = null;
+    svg.addEventListener("pointerdown",event => {
+      if (event.target.closest(".wire,.component")) return;
+      svg.setPointerCapture(event.pointerId);
+      drag = {x:event.clientX,y:event.clientY,box:{...box}};
+    });
+    svg.addEventListener("pointermove",event => {
+      if (!drag) return;
+      const scale = Math.max(drag.box.w/svg.clientWidth,drag.box.h/svg.clientHeight);
+      box = {...drag.box,x:drag.box.x-(event.clientX-drag.x)*scale,y:drag.box.y-(event.clientY-drag.y)*scale};
+      applyViewBox();
+    });
+    svg.addEventListener("pointerup",() => { drag=null; });
+    svg.addEventListener("pointercancel",() => { drag=null; });
+    update();
+    fit();
+  </script>
+</body>
+</html>

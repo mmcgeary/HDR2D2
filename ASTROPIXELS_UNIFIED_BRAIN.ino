@@ -67,9 +67,9 @@ CRGB leds_rhp[NUM_LEDS_HP];
 CRGB leds_thp[NUM_LEDS_HP];
 
 // PCA9685 12-bit PWM Counts (50Hz = 20ms period, 4096 steps = 4.88us/step)
-#define SERVO_MIN_PULSE     150   // ~0.73ms
-#define SERVO_MID_PULSE     375   // ~1.83ms (Center)
-#define SERVO_MAX_PULSE     600   // ~2.93ms
+#define SERVO_MIN_PULSE     205   // ~1.00ms
+#define SERVO_MID_PULSE     307   // ~1.50ms (Center)
+#define SERVO_MAX_PULSE     410   // ~2.00ms
 
 // 35kg Continuous Rotation Dome Servo (LEDC Channel 0, 16-bit resolution)
 #define DOME_LEDC_CHANNEL   0
@@ -136,7 +136,7 @@ struct MacroConfig {
 const MacroConfig PROGMEM MACRO_CONFIGS[MACRO_COUNT] = {
   { 0,   0     }, // MACRO_NONE
   { 109, 14000 }, // MACRO_LEIA:    Track 109, 14 seconds
-  { 106, 18000 }, // MACRO_CANTINA: Track 106, 18 seconds
+  { 106, 30000 }, // MACRO_CANTINA: Track 106, provisional 30-second duration
   { 102, 4500  }, // MACRO_SCREAM:  Track 102, 4.5 seconds
   { 110, 20000 }, // MACRO_DISCO:   Track 110, 20 seconds
   { 107, 5000  }  // MACRO_FAINT:   Track 107, 5 seconds
@@ -157,7 +157,6 @@ unsigned long last_rc_packet_ms = 0;
 #define RC_CH_HOLO_TILT        2  // Left Stick Y (CH3): Manual Front Holo Tilt (Up/Down)
 #define RC_CH_DOME_STEER       3  // Left Stick X (CH4): Manual Dome Rotation (Left/Right)
 #define RC_CH_SPEED_MODE       4  // Switch SwB   (CH5): Transmitter Dual Rates
-#define RC_CH_DRIVE_ENABLE     5  // Switch SwA   (CH6): Drive Safety Lockout
 #define RC_CH_MOOD_SELECT      6  // Knob VrA     (CH7): Persistent Mood & Macro Selector (1-13)
 #define RC_CH_MACRO_TRIGGER    7  // Switch SwC   (CH8): Macro Execution Trigger
 #define RC_CH_HOLO_ENABLE      8  // Switch SwD   (CH9): Holo Random Motion Toggle
@@ -165,7 +164,10 @@ unsigned long last_rc_packet_ms = 0;
 // System State Machine
 PersistentMood current_mood = MOOD_NORMAL;
 ActiveMacro current_macro = MACRO_NONE;
+unsigned long macro_start_time_ms = 0;
 unsigned long macro_expire_time_ms = 0;
+uint8_t last_cantina_step = 0xFF;
+unsigned long next_scream_twitch_ms = 0;
 
 // Active Homing State Machine
 HomingState homing_state = HOMING_INACTIVE;
@@ -195,6 +197,8 @@ unsigned long last_audio_cmd_ms = 0;
 // Forward Declarations
 void setDomeServoSpeed(int speed_percent);
 void centerAllHoloServos();
+void disableAllHoloServos();
+void fillMarchingPattern(CRGB* leds, uint16_t count, uint8_t phase);
 void playTrack(uint16_t track_num);
 void playThemedChatter();
 void setPersistentMood(PersistentMood mood);
@@ -313,6 +317,7 @@ void processIBusFrames() {
               rc_channels[ch] = raw_val;
             }
           }
+
           rc_connected = true;
           last_rc_packet_ms = millis();
         }
@@ -375,10 +380,7 @@ void processDomeHoming() {
     homing_state = HOMING_INACTIVE;
     Serial.println(F("[HOMING] Warning: Homing timed out (Magnet not detected)."));
 
-    if (pending_macro_after_home != MACRO_NONE) {
-      startMacro(pending_macro_after_home);
-      pending_macro_after_home = MACRO_NONE;
-    }
+    pending_macro_after_home = MACRO_NONE;
   }
 }
 
@@ -463,13 +465,22 @@ void startMacro(ActiveMacro macro) {
   MacroConfig config;
   memcpy_P(&config, &MACRO_CONFIGS[macro], sizeof(MacroConfig));
 
-  macro_expire_time_ms = millis() + config.durationMs;
+  macro_start_time_ms = millis();
+  macro_expire_time_ms = macro_start_time_ms + config.durationMs;
   playTrack(config.trackNumber);
 
   // Macro-specific servo staging
   if (macro == MACRO_LEIA) {
     pwm.setPWM(0, 0, SERVO_MID_PULSE);       // Front HP Pan Center
     pwm.setPWM(1, 0, SERVO_MIN_PULSE + 80);  // Front HP Tilt Downward 35°
+  } else if (macro == MACRO_CANTINA) {
+    last_cantina_step = 0xFF;
+    centerAllHoloServos();
+  } else if (macro == MACRO_SCREAM) {
+    next_scream_twitch_ms = macro_start_time_ms;
+    centerAllHoloServos();
+  } else if (macro == MACRO_FAINT) {
+    disableAllHoloServos();
   }
 
   Serial.print(F("[MACRO] Started Macro ID: "));
@@ -594,8 +605,38 @@ void centerAllHoloServos() {
   }
 }
 
+void disableAllHoloServos() {
+  for (uint8_t ch = 0; ch < 6; ch++) {
+    pwm.setPWM(ch, 0, 4096);
+  }
+}
+
 void processHoloServos() {
-  if (current_macro != MACRO_NONE) return; // Servos managed by active macro
+  if (current_macro == MACRO_SCREAM) {
+    unsigned long now = millis();
+    if (now >= next_scream_twitch_ms) {
+      uint8_t target_servo = random(6);
+      uint16_t pulse = random(SERVO_MID_PULSE - 35, SERVO_MID_PULSE + 36);
+      pwm.setPWM(target_servo, 0, pulse);
+      next_scream_twitch_ms = now + random(100, 251);
+    }
+    return;
+  }
+
+  if (current_macro == MACRO_CANTINA) {
+    unsigned long now = millis();
+    uint8_t step = (now - macro_start_time_ms) / 250;
+    if (step != last_cantina_step) {
+      uint8_t servo = step % 6;
+      int16_t offset = ((step / 6) % 2 == 0) ? 35 : -35;
+      uint16_t pulse = SERVO_MID_PULSE + offset;
+      pwm.setPWM(servo, 0, pulse);
+      last_cantina_step = step;
+    }
+    return;
+  }
+
+  if (current_macro != MACRO_NONE) return; // Other macro servos are staged separately
 
   // 1. Manual Front Holo Tilt Override from Left Stick Y (CH3: 1000us - 2000us)
   uint16_t stick_tilt_us = rc_channels[RC_CH_HOLO_TILT];
@@ -619,6 +660,8 @@ void processHoloServos() {
       manual_holo_active = false; // Release back to autonomous mood engine
     }
   }
+
+  if (rc_channels[RC_CH_HOLO_ENABLE] < 1500) return;
 
   // 3. Autonomous Mood & Posture Engine
   static unsigned long next_twitch_ms = 0;
@@ -720,6 +763,18 @@ void processAstroPixelsLighting() {
         fill_solid(leds_fhp, NUM_LEDS_HP, CRGB::Red);
         return;
 
+      case MACRO_CANTINA: {
+        uint8_t phase = (millis() - macro_start_time_ms) / 150;
+        fillMarchingPattern(leds_rld, NUM_LEDS_RLD, phase);
+        fillMarchingPattern(leds_fld, NUM_LEDS_FLD, phase);
+        fillMarchingPattern(leds_fpsi, NUM_LEDS_FPSI, phase);
+        fillMarchingPattern(leds_rpsi, NUM_LEDS_RPSI, phase);
+        fillMarchingPattern(leds_fhp, NUM_LEDS_HP, phase);
+        fillMarchingPattern(leds_rhp, NUM_LEDS_HP, phase);
+        fillMarchingPattern(leds_thp, NUM_LEDS_HP, phase);
+        return;
+      }
+
       case MACRO_DISCO:
         fill_rainbow(leds_rld, NUM_LEDS_RLD, hue, 7);
         fill_rainbow(leds_fld, NUM_LEDS_FLD, hue, 7);
@@ -730,12 +785,20 @@ void processAstroPixelsLighting() {
         fill_rainbow(leds_thp, NUM_LEDS_HP, hue + 160, 15);
         return;
 
-      case MACRO_FAINT:
-        fill_solid(leds_rld, NUM_LEDS_RLD, (random(10) > 7) ? CRGB(10, 20, 50) : CRGB::Black);
-        fill_solid(leds_fld, NUM_LEDS_FLD, (random(10) > 7) ? CRGB(10, 20, 50) : CRGB::Black);
-        fill_solid(leds_fpsi, NUM_LEDS_FPSI, CRGB::Black);
-        fill_solid(leds_rpsi, NUM_LEDS_RPSI, CRGB::Black);
+      case MACRO_FAINT: {
+        uint32_t elapsed = millis() - macro_start_time_ms;
+        CRGB faint_color = (elapsed < 600 && (elapsed / 75) % 2 == 0)
+            ? CRGB(10, 12, 20)
+            : CRGB::Black;
+        fill_solid(leds_rld, NUM_LEDS_RLD, faint_color);
+        fill_solid(leds_fld, NUM_LEDS_FLD, faint_color);
+        fill_solid(leds_fpsi, NUM_LEDS_FPSI, faint_color);
+        fill_solid(leds_rpsi, NUM_LEDS_RPSI, faint_color);
+        fill_solid(leds_fhp, NUM_LEDS_HP, faint_color);
+        fill_solid(leds_rhp, NUM_LEDS_HP, faint_color);
+        fill_solid(leds_thp, NUM_LEDS_HP, faint_color);
         return;
+      }
 
       default:
         break;
@@ -800,5 +863,12 @@ void processAstroPixelsLighting() {
       fill_solid(leds_fpsi, NUM_LEDS_FPSI, CRGB::Blue);
       fill_solid(leds_rpsi, NUM_LEDS_RPSI, CRGB::Red);
       break;
+  }
+}
+
+void fillMarchingPattern(CRGB* leds, uint16_t count, uint8_t phase) {
+  for (uint16_t i = 0; i < count; i++) {
+    uint8_t position = (i + phase) % 12;
+    leds[i] = (position < 4) ? CRGB(255, 100, 15) : CRGB(0, 0, 25);
   }
 }
