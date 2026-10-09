@@ -236,7 +236,7 @@ class TypedPayloadTests(unittest.TestCase):
     AudioRequest ar = {0, 1, 12, 0, 1};
     DriveRequest dv = {-1000, 1000, 1, 8};
     ControlRequest cq = {4, 2, 0xABCD, 5};
-    CommissionRequest cm = {4, 6, 0x01020304u, 9, 1, -2147483647 - 1, 7};
+    CommissionRequest cm = {4, 0, 0x01020304u, 9, 1, -2147483647 - 1, 7};
     Reply rp = {0x24, 0xFFFF, 8, 15};
     AudioStatus as = {2, 1, 44, 30, 3, 1000, 5000, 6};
     Event ev = {5, 0x20, 12, 15};
@@ -370,6 +370,50 @@ class TypedPayloadTests(unittest.TestCase):
     d.field = 0; d.value = 1; BAD(d, Status::BadReserved, reserved_bits)
     d.value = 0; d.subtype = 1; d.counters[3] = 1; BAD(d, Status::BadReserved, reserved_bits)
     d.counters[3] = 0; d.wheel = 2; BAD(d, Status::BadEnum, enum_value)
+''')
+
+    def test_commission_request_operation_schema(self):
+        self.check(r'''
+    ErrorCounters c;
+    uint8_t bytes[96]; size_t length = 0;
+    const CommissionRequest valid[] = {
+        {0, 0, 0, 0, 0, 0, 0},
+        {0, 0, 0, 1, 1, 20, 0},
+        {1, 1, 42, 0, 0, 0, 0},
+        {2, 0, 42, 0, 0, 0, 0},
+        {3, 0, 42, 0, 0, 0, 0},
+        {4, 0, 0, 0, 0, 123, 0},
+        {4, 0, 0, 20, 1, 123, 0},
+        {5, 0, 0, 0, 0, 0, 0},
+        {6, 0, 0, 0, 0, 31, 0}
+    };
+    for (size_t i = 0; i < sizeof(valid) / sizeof(valid[0]); ++i) {
+        assert(encodePayload(valid[i], bytes, sizeof bytes, length, c) == Status::Ok);
+        CommissionRequest decoded = {};
+        assert(decodePayload(bytes, length, decoded, c) == Status::Ok);
+        assert(decoded.operation == valid[i].operation && decoded.field == valid[i].field &&
+               decoded.wheel == valid[i].wheel && decoded.value == valid[i].value);
+    }
+#define REJECT(m) assert(encodePayload(m, bytes, sizeof bytes, length, c) != Status::Ok)
+    CommissionRequest request = {0, 0, 0, 1, 1, 21, 0}; REJECT(request);
+    request.value = -1; REJECT(request);
+    request = {0, 1, 0, 0, 0, 0, 0}; REJECT(request);
+    request = {1, 0, 42, 0, 0, 0, 0}; REJECT(request);
+    request = {2, 1, 42, 0, 0, 0, 0}; REJECT(request);
+    request = {3, 1, 42, 0, 0, 0, 0}; REJECT(request);
+    request = {4, 1, 0, 0, 0, 1, 0}; REJECT(request);
+    request = {4, 0, 0, 21, 0, 1, 0}; REJECT(request);
+    request = {5, 1, 0, 0, 0, 0, 0}; REJECT(request);
+    request = {6, 1, 0, 0, 0, 1, 0}; REJECT(request);
+    request = {6, 0, 0, 0, 0, 32, 0}; REJECT(request);
+    request = {6, 0, 0, 1, 0, 1, 0}; REJECT(request);
+#undef REJECT
+
+    Diagnostics profile = {};
+    profile.subtype = 1; profile.field = 20; profile.wheel = 1;
+    assert(encodePayload(profile, bytes, sizeof bytes, length, c) == Status::Ok);
+    profile.field = 21;
+    assert(encodePayload(profile, bytes, sizeof bytes, length, c) == Status::BadRange);
 ''')
 
     def test_decode_rejects_invalid_bytes_without_touching_output(self):

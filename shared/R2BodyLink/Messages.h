@@ -245,14 +245,32 @@ inline Status validate(const CommissionRequest& m) {
     R2_CHECK(enumLE(m.operation, 6));
     R2_CHECK(enumLE(m.test, 6));
     R2_CHECK(ok01(m.wheel));
-    if (m.operation == 1 && m.test == 0) return Status::BadRange;
-    if (m.operation == 0 && m.test != 0) return Status::BadRange;
-    if (m.operation != 4) {
+    if (m.operation == 1) {
+        if (m.test == 0) return Status::BadRange;
         R2_CHECK(zero(m.field));
         R2_CHECK(zero(m.wheel));
         R2_CHECK(zero(static_cast<uint32_t>(m.value)));
+        return Status::Ok;
     }
-    return Status::Ok;
+    if (m.operation == 0) {
+        if (m.test != 0) return Status::BadRange;
+        R2_CHECK(enumLE(m.field, 1));
+        if (m.field == 0) {
+            R2_CHECK(zero(m.wheel));
+            return zero(static_cast<uint32_t>(m.value));
+        }
+        return inRange(m.value >= 0 && m.value <= 20);
+    }
+    R2_CHECK(zero(m.test));
+    if (m.operation == 4) return inRange(m.field <= 20);
+    if (m.operation == 6) {
+        R2_CHECK(zero(m.field));
+        R2_CHECK(zero(m.wheel));
+        return inRange(m.value >= 0 && m.value <= 31);
+    }
+    R2_CHECK(zero(m.field));
+    R2_CHECK(zero(m.wheel));
+    return zero(static_cast<uint32_t>(m.value));
 }
 inline Status validate(const Reply& m) {
     if (!isKnownType(m.request_type)) return Status::BadType;
@@ -285,7 +303,8 @@ inline Status validate(const Diagnostics& m) {
         return zero(static_cast<uint32_t>(m.value));
     }
     for (int i = 0; i < 8; ++i) R2_CHECK(zero(m.counters[i]));
-    return ok01(m.wheel);
+    R2_CHECK(ok01(m.wheel));
+    return inRange(m.field <= 20);
 }
 
 // ---- serialization (field order matches the spec's message catalog) ----

@@ -32,11 +32,15 @@ class Codec {
 public:
     Codec() { reset(); }
     // Returns zero on invalid frame, null pointer or insufficient capacity.
+    // Encode diagnostics are shared, unsynchronized, and diagnostic-only.
+    // Encode and all counter reads/clears must run on the control-loop context;
+    // adapters must snapshot, send, and clear the counters there.
     static size_t encode(const Frame& frame, uint8_t* out, size_t capacity);
     DecodeResult feed(uint8_t byte, uint32_t now_ms, Frame& out);
     void tick(uint32_t now_ms);
     const ErrorCounters& counters() const { return counters_; }
-    // Counts encode failures, which have no parser instance.
+    // Unsynchronized diagnostic counters for encode failures, which have no
+    // parser instance. Access and clear only from the control-loop context.
     static ErrorCounters& encodeCounters();
 private:
     void reset() { count_ = 0; discarding_ = false; last_ms_ = 0; }
