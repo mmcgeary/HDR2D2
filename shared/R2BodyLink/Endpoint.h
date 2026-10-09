@@ -134,6 +134,7 @@ private:
     void handleStream(const Frame& f, uint32_t now, int key);
     void handleDiscrete(const Frame& f, uint32_t now);
     bool validPayload(const Frame& f);
+    void checkLinkTimeout(uint32_t now);
     void housekeeping(uint32_t now);
     void txPump(uint32_t now);
     bool startNext(uint32_t now);

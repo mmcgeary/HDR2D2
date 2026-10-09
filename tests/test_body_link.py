@@ -939,7 +939,7 @@ class EndpointTests(unittest.TestCase):
         self.check(r'''
     Solo s(true); s.connect(); Frame got;
     s.from(audioPlay(1, 2), 70, 1); s.e.tick(s.now); assert(s.e.takeReceived(got)); assert(s.e.reply(got, Result::Accepted, 0));
-    s.now += 2100; s.heartbeat(s.peer, s.local); s.e.tick(s.now);
+    for (int i = 0; i < 21; ++i) { s.now += 100; s.heartbeat(s.peer, s.local); s.e.tick(s.now); }   // link stays fresh
     s.from(audioPlay(1, 2), 70, 1); s.e.tick(s.now);
     assert(s.e.takeReceived(got));                                      // expired: treated as new
     Solo q(true); q.connect();
@@ -1011,6 +1011,33 @@ class EndpointTests(unittest.TestCase):
     assert(s.e.connected(s.now + 1) && s.e.peerSession() == s.peer);
     s.from(audioPlay(1, 4), 42, 1); s.e.tick(s.now + 2);
     assert(!s.e.takeReceived(got));
+""")
+
+    def test_stalled_tick_with_queued_heartbeat_still_drops_the_old_link(self):
+        self.check(r"""
+    Solo s(true); s.connect(); Frame got;
+    s.from(audioPlay(1, 2), 40, 1); s.e.tick(s.now); assert(s.e.takeReceived(got));
+    s.from(audioPlay(1, 4), 42, 1); s.e.tick(s.now);                      // queued, not taken
+    DriveRequest d = {1, 1, 100, 0}; s.from(frameOf(d), 41, 0); s.e.tick(s.now);
+    uint32_t gen = s.e.peerGeneration(); s.sent();
+    s.now += 400;
+    s.heartbeat(s.peer, s.local, 2, 1);                                   // arrives with the stalled tick
+    s.e.tick(s.now);
+    assert(s.e.peerGeneration() == gen + 1 && s.e.stats().link_losses == 1);
+    assert(s.e.connected(s.now) && s.e.peerMode() == 2 && s.e.peerReady() == 1);
+    assert(!s.e.takeReceived(got));                                      // queue and stream cleared
+    s.from(audioPlay(1, 2), 40, 1); s.from(audioPlay(1, 4), 42, 1); s.e.tick(s.now + 1);
+    assert(!s.e.takeReceived(got));                                      // old replays never run as new
+""")
+
+    def test_fresh_traffic_under_the_timeout_keeps_the_link(self):
+        self.check(r"""
+    Solo s(true); s.connect(); Frame got;
+    s.from(audioPlay(1, 2), 40, 1); s.e.tick(s.now);
+    uint32_t gen = s.e.peerGeneration();
+    s.now += 299; s.heartbeat(s.peer, s.local, 2, 1); s.e.tick(s.now);
+    assert(s.e.peerGeneration() == gen && s.e.stats().link_losses == 0 && s.e.connected(s.now));
+    assert(s.e.takeReceived(got) && got.sequence == 40);
 """)
 
     def test_answered_but_unsent_reply_is_dropped_at_dropout(self):

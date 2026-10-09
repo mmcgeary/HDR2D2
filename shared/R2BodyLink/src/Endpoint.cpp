@@ -490,12 +490,16 @@ void Endpoint::resetPeer(uint32_t new_peer) {
 }
 
 // ---- time-driven work ----
-void Endpoint::housekeeping(uint32_t now) {
+void Endpoint::checkLinkTimeout(uint32_t now) {
     if (peer_ != 0 && was_connected_ && !connected(now)) {
         ++stats_.link_losses;
         was_connected_ = false;
         dropLink(now);
     }
+}
+
+void Endpoint::housekeeping(uint32_t now) {
+    checkLinkTimeout(now);
     for (uint8_t i = 0; i < kSlots; ++i) {
         Out& o = out_[i];
         if (!o.used) continue;
@@ -645,6 +649,7 @@ void Endpoint::txPump(uint32_t now) {
 void Endpoint::tick(uint32_t now) {
     last_now_ = now;
     if (local_ == 0) return;
+    checkLinkTimeout(now);  // before ingesting: a late heartbeat must not hide the stall
     rxPump(now);
     housekeeping(now);
     txPump(now);

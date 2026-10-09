@@ -33,3 +33,15 @@ API (headers are authoritative):
 - Faults: `faultBits(ConfigResult)` Uncommissioned=1, Corrupt=2, IoError=2; `ConfigStore::faultMask(ConfigResult)` adds bit 4 (value 4, boot-session storage error) when boot result is IoError/Corrupt/CounterExhausted.
 - Boot slot: 32 bytes, commit marker at index 31 (0xFF = torn). `nextBootSession`: valid slot -> increments; only Torn/Blank without a valid slot recovers to counter 1; any other invalid -> Corrupt, false.
 - `body::LinkBootstrap(uint32_t session)`: `tick(now)`, `connected(now)`, `endpoint()`; NullPort; main.cpp ticks it. No Teensy EEPROM adapter yet.
+
+## Fix round 2
+Signature change: private `Endpoint::checkLinkTimeout(uint32_t now)` added (Endpoint.h); `tick()` calls it BEFORE `rxPump`, so a queued heartbeat after a >=300ms stall cannot mask the timeout; `housekeeping` still calls it. dropLink (generation++, pending PeerLost, queues/streams/replies/readiness cleared) fires first; the new heartbeat then reconnects as a fresh generation.
+Red (before fix): `cd tests && python3 -m unittest test_body_link -k stalled -k fresh_traffic`
+```
+FAIL: test_stalled_tick_with_queued_heartbeat_still_drops_the_old_link (test_body_link.EndpointTests)
+AssertionError: -6 != 0 : Assertion failed: (s.e.peerGeneration() == gen + 1 && s.e.stats().link_losses == 1), function main, file test.cpp, line 104.
+Ran 2 tests ... FAILED (failures=1)   (fresh_traffic <300ms test passed)
+```
+Green: `python3 -m unittest test_body_link` -> `Ran 52 tests ... OK`.
+Existing test_cache_expiry_and_receive_queue_full previously relied on a single 2100ms stall with a heartbeat; it now keeps the link fresh with 100ms heartbeats (a 2.1s stall is correctly a link loss).
+Teensy: `pio-venv/bin/pio run -d TEENSY_BODY_CONTROLLER -e teensy41` -> [SUCCESS] (FLASH code:21256, RAM1 vars:11008).
