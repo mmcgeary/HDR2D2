@@ -116,7 +116,7 @@ r2link::Result DriveController::submitRemote(const r2link::DriveRequest& r, uint
 }
 
 int16_t DriveController::permit(Wheel& w, int16_t target, const VescSample& s,
-                               const WheelProfile& p, uint32_t now) {
+                               const WheelProfile& p, uint32_t /* now */) {
     if (!target) {
         w.magnitude_milli = 0; w.low_started = false;
         w.state = ReversalState::Tracking;

@@ -347,6 +347,7 @@ int main() {
                              BODY / "body/LinkBootstrap.cpp",
                              BODY / "body/VescLink.cpp", BODY / "body/ConfigStore.cpp",
                              BODY / "body/DriveController.cpp",
+                             BODY / "body/DomePosition.cpp", BODY / "body/DomeController.cpp",
                              SHARED / "src/Endpoint.cpp", SHARED / "src/Codec.cpp"],
                          include_dirs=[ROOT / "tests/radio_fakes", BODY, SHARED])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

@@ -72,6 +72,21 @@ const uint16_t kMaxLeaseMs = 150;
 
 enum class DriveState : uint8_t { Boot, Disarmed, Qualifying, Armed, Fault, Locked };
 enum class DriveIntent : uint8_t { Stationary, Forward, Reverse, Pivot };
+enum class DomeState : uint8_t { Inhibited = 0, Manual = 1, RemoteVelocity = 2, SeekingReference = 3, HoldingReference = 4 };
+enum class DomeOwner : uint8_t { None = 0, Manual = 1, Drive = 2, Event = 3, Idle = 4, Startup = 5 };
+enum class DomeOperation : uint8_t { Cancel = 0, Velocity = 1, SeekReference = 2 };
+enum class DomeReference : uint8_t { Front = 0, Rear = 1 };
+enum class EventKind : uint8_t {
+    Completed = 0, Cancelled = 1, Timeout = 2, HardwareError = 3,
+    PlaybackStarted = 4, DomeTakeover = 5
+};
+enum class Detail : uint16_t {
+    None = 0, InputStale = 1, LeftVescUnavailable = 2, RightVescUnavailable = 3,
+    ProfileUnavailable = 4, HallStale = 5, SeekTimeout = 6, LeaseExpired = 7,
+    AudioUnavailable = 8, AudioGuardExpired = 9, TokenMismatch = 10,
+    PeerLost = 11, QueueFull = 12, InitTimeout = 13, DeviceError = 14,
+    SequenceConflict = 15
+};
 
 struct Hello {
     uint8_t role; uint32_t capabilities; uint16_t safety_revision;

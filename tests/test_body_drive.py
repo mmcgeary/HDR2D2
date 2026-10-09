@@ -435,6 +435,7 @@ int main() {
 '''
         result = run_cpp(program, extra_sources=SOURCES + [
             BODY / "body/IbusTelemetry.cpp", BODY / "body/LinkBootstrap.cpp",
+            BODY / "body/DomePosition.cpp", BODY / "body/DomeController.cpp",
             SHARED / "src/Endpoint.cpp"],
             include_dirs=[BODY.parent.parent / "tests/radio_fakes", BODY, SHARED])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

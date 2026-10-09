@@ -78,5 +78,7 @@ Task 5 starting b4314a3; drive mixer/braking/arbitration.
 
 Task 5 review of dd779b0: Important reversal dwell start timestamp underflow bug in permit() when s.sample_ms < now; missing reversalState() assertions and asynchronous sample arrival test. Fix round 1: initialize w.low_ms to s.sample_ms, add lifecycle assertions and async sample regression test.
 Task 5: fix round 1/5 (3 addressed, 0 open; 18 drive tests, 148 full tests pass).
-Task 5: complete.
-Task 6: starting; dome arbitration, dual references and estimated position.
+Task 5: complete (commit 31b4880).
+Task 6: implemented and verified. DomePosition (dual Hall anchors at 0 and -1800 ddeg, continuous normalization, shortest route seek), DomeController (authority hierarchy STOP -> CH4 -> Drive -> Event -> Idle -> Homing, authority generation bump and takeover event, continuous servo pulses). 10 dome tests, 158 full tests pass.
+Task 6: complete.
+Task 6b: starting; ESP32 autonomous dome scheduler, random idle animations and safety gating.

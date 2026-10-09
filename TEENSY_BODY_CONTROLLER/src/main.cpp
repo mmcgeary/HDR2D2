@@ -8,11 +8,16 @@
 #include "body/HardwareAdapters.h"
 #include "body/VescLink.h"
 #include "body/DriveController.h"
+#include "body/DomePosition.h"
+#include "body/DomeController.h"
+#include <Servo.h>
 
 // No saved acceptance is injected yet: boot profile keeps motion disabled.
-// No servo pin is configured; body/dome link remains NullPort.
+// Pin 2 attached to continuous dome servo; body/dome link remains NullPort.
 static body::CommissioningProfile g_profile;
 static body::DriveController g_drive;
+static body::DomeController g_dome(g_profile);
+static Servo g_dome_servo;
 static body::LinkBootstrap g_link(0);
 static body::IbusInput g_input;
 static body::IbusTelemetry g_telemetry;
@@ -22,8 +27,7 @@ static body::VescPort g_left_vesc(Serial1, 0);
 static body::VescPort g_right_vesc(Serial2, 1);
 static body::VescLink g_left(g_left_vesc, 0);
 static body::VescLink g_right(g_right_vesc, 1);
-// Shared immediate drive-status view for the later dome arbiter. No dome
-// policy or actuator is implemented here.
+// Shared immediate body-status view published over the link.
 static r2link::BodyStatus g_body_status{};
 
 static void publishDriveStatus(uint32_t now_ms) {
@@ -41,16 +45,31 @@ static void publishDriveStatus(uint32_t now_ms) {
         (left.fault ? (1u << 6) : 0u) | (right.fault ? (1u << 7) : 0u) |
         (left.unsupported || right.unsupported ? (1u << 8) : 0u) |
         (g_drive.deadlineMisses() ? (1u << 9) : 0u);
+    const uint8_t dome_state = uint8_t(g_dome.state());
+    const uint8_t dome_owner = uint8_t(g_dome.owner());
+    const uint32_t dome_gen = g_dome.authorityGeneration();
+    const uint8_t angle_valid = g_dome.position().valid() ? 1 : 0;
+    const int16_t angle_ddeg = g_dome.position().angleDdeg();
     const bool changed = g_body_status.drive_state != state ||
         g_body_status.drive_intent != intent || g_body_status.lock_reasons != locks ||
         g_body_status.profile_ready != profile_ready ||
-        g_body_status.control_epoch != g_drive.controlEpoch() || g_body_status.faults != faults;
+        g_body_status.control_epoch != g_drive.controlEpoch() || g_body_status.faults != faults ||
+        g_body_status.dome_state != dome_state ||
+        g_body_status.dome_owner != dome_owner ||
+        g_body_status.dome_authority_generation != dome_gen ||
+        g_body_status.angle_valid != angle_valid ||
+        g_body_status.estimated_angle_ddeg != angle_ddeg;
     g_body_status.drive_state = state;
     g_body_status.drive_intent = intent;
     g_body_status.lock_reasons = locks;
     g_body_status.profile_ready = profile_ready;
     g_body_status.control_epoch = g_drive.controlEpoch();
     g_body_status.faults = faults;
+    g_body_status.dome_state = dome_state;
+    g_body_status.dome_owner = dome_owner;
+    g_body_status.dome_authority_generation = dome_gen;
+    g_body_status.angle_valid = angle_valid;
+    g_body_status.estimated_angle_ddeg = angle_ddeg;
     static bool published = false;
     static uint32_t published_ms = 0;
     if (changed || !published || uint32_t(now_ms - published_ms) >= 200) {
@@ -104,6 +123,8 @@ void setup() {
     g_right_vesc.begin();
     g_left.setProfile(body::VescProfile::fromSaved(g_profile, 0));
     g_right.setProfile(body::VescProfile::fromSaved(g_profile, 1));
+    g_dome_servo.attach(body_pins::kDomeServo);
+    g_dome_servo.writeMicroseconds(g_profile.servo_neutral ? g_profile.servo_neutral : 1500);
 }
 
 void loop() {
@@ -122,10 +143,48 @@ void loop() {
         body::applyWheelCommands(commands, g_left, g_right);
         command_revision = g_drive.commandRevision(); sent = true;
     }
+    g_dome.updateDrive(g_drive.intent(), now_ms);
+    g_dome.updateRc(g_input.snapshot(now_ms), now_ms);
+    g_dome.setControlEpoch(g_drive.controlEpoch());
+    g_dome.tick(now_ms);
+    const body::ServoCommand dome_cmd = g_dome.output();
+    if (dome_cmd.pulses) {
+        g_dome_servo.writeMicroseconds(dome_cmd.pulse_us);
+    }
     g_telemetry.setMeasurements(body::vescMeasurements(g_left.sample(now_ms), g_right.sample(now_ms)));
     g_sensor.pump(g_telemetry, micros());
     g_telemetry.tick(micros(), g_sensor);
     g_link.tick(now_ms);
+    r2link::Frame rx_frame{};
+    uint32_t rx_ms = 0;
+    while (g_link.endpoint().takeReceived(rx_frame, rx_ms)) {
+        if (rx_frame.type == r2link::MessageType::DomeRequest) {
+            r2link::DomeRequest req{};
+            r2link::ErrorCounters err{};
+            if (r2link::decode(rx_frame, req, err) == r2link::Status::Ok) {
+                r2link::Result res = g_dome.request(req, rx_frame.sequence, now_ms);
+                g_link.endpoint().reply(rx_frame, res, 0);
+            }
+        } else if (rx_frame.type == r2link::MessageType::HallState) {
+            r2link::HallState hall{};
+            r2link::ErrorCounters err{};
+            if (r2link::decode(rx_frame, hall, err) == r2link::Status::Ok) {
+                g_dome.updateHall(hall, rx_ms);
+            }
+        }
+    }
+    if (!g_link.endpoint().connected(now_ms)) {
+        g_dome.peerLost(now_ms);
+    }
+    r2link::Event ev{};
+    while (g_dome.takeEvent(ev)) {
+        r2link::Frame ev_frame{};
+        r2link::ErrorCounters err{};
+        if (r2link::encode(ev, ev_frame, err) == r2link::Status::Ok) {
+            uint16_t seq = 0;
+            g_link.endpoint().request(ev_frame, now_ms, seq);
+        }
+    }
     publishDriveStatus(now_ms);
     g_telemetry.tick(micros(), g_sensor);
     const bool usb_busy = usbCaptureTick();
