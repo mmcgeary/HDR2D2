@@ -1,194 +1,114 @@
-# Dual VESC 4.20 UART & Internal CAN Setup Guide
+# Dual FSESC4.20: Two Independent UARTs
 
-This guide covers setting up the Flipsky Dual FSESC 4.20 speed controller to drive the Razor Tekno Pop hub motors in R2's feet. The motors are driven directly from the **Dome ESP32** over a single serial line through the slip ring, using the controller's internal CAN bus to link both wheel channels.
+> **Target wiring, not current firmware:** Do not connect this wiring to the old ESP32-only firmware. Complete the firmware migration and flash both boards before combined testing.
 
----
+The Flipsky Dual FSESC4.20 drives two Razor Tekno Pop12V hub/wheel motors, one per foot. Exact motor power is unconfirmed (roughly80-100W discussed). Do not derive safe winding current or braking limits from that estimate.
 
-## 1. Drive Architecture Overview
+**Teensy owns two direct full-duplex UARTs.** There is no master/slave forwarding. Internal CAN switch **OFF**, multiple-controller mode disabled. Neither VESC UART passes through the slip ring.
 
-The FlySky radio receiver sits in the dome and streams all joystick channels to the ESP32 over digital iBUS. The ESP32 handles differential tank mixing, speed scaling, and deadbands in firmware, then sends digital VESC packets down **Slip Ring Channel 6** to the Dual VESC in the body.
+## 1. Inventory and supply
 
-The Dual VESC's onboard switch is set to **`ON: dual`**, bridging both halves over their internal CAN bus:
-* **Left Motor:** Driven directly by the Master controller (CAN ID 1).
-* **Right Motor:** Driven by the Slave controller (CAN ID 2) via VESC CAN forwarding (`COMM_FORWARD_CAN`).
+This controller has two COMM connectors, two CAN connectors, two USB ports, two Hall connectors, two SWD connectors, two three-phase wire groups, **one shared battery input pair**, one RECEIVER connector labelled GND/5V/SIN, and an internal CAN switch.
 
-No extra body microcontroller, Arduino, or level shifter is needed.
+Label halves LEFT and RIGHT according to their motor wiring. Supply the shared battery+ via F1 **15A**,12AWG; battery- goes to fuse-box negative bus. Leave RECEIVER/SIN, CAN and SWD unconnected.
 
-```mermaid
-flowchart TD
-    subgraph DOME [DOME]
-        TX["FlySky FS-i6X Transmitter (Mode 2 Right Stick)"]
-        RX["FlySky FS-iA6B Receiver (In Dome)"]
-        ESP["AstroPixels ESP32 Brain"]
+## 2. COMM connections
 
-        TX -.->|"2.4GHz AFHDS 2A"| RX
-        RX -->|"iBUS Serial (115200)"| ESP
-    end
+Use the connector's actual pin markings/orientation. The following numbered assignment is the existing COMM map, **not a left-to-right view of an unidentified photograph**.
 
-    subgraph RING [SLIP RING]
-        SR6["Slip Ring CH6 (3.3V Drive UART)"]
-        SR3["Slip Ring CH3 (3.3V Telemetry UART)"]
-    end
+| COMM pin / label | Left controller | Right controller |
+| --- | --- | --- |
+| 1 / 5V | Unconnected | Unconnected |
+| 2 / 3.3V | Unconnected | Unconnected |
+| 3 / GND | Body common ground | Body common ground |
+| 4 / ADC | Unconnected | Unconnected |
+| 5 / TX | Teensy RX0 / Serial1 | Teensy RX7 / Serial2 |
+| 6 / RX | Teensy TX1 / Serial1 | Teensy TX8 / Serial2 |
+| 7 / ADC2 | Unconnected | Unconnected |
 
-    subgraph BODY [BODY]
-        COMM_RX["Dual VESC Port 3 Pin 6 RX"]
-        COMM_TX["Dual VESC Port 3 Pin 5 TX"]
-        MASTER["Master VESC (CAN ID 1)"]
-        CAN["Internal CAN Bus (Switch ON: dual)"]
-        SLAVE["Slave VESC (CAN ID 2)"]
-        MOTOR_L["Left Razor Hub Motor"]
-        MOTOR_R["Right Razor Hub Motor"]
+Both UARTs are native3.3V1152008N1. No shifters. Do not power Teensy/receiver from VESC 5V/3.3V outputs. Route signal/ground harnesses away from phase wires.
 
-        COMM_RX --> MASTER
-        MASTER -->|"Direct Command"| MOTOR_L
-        MASTER -->|"COMM_FORWARD_CAN"| CAN --> SLAVE
-        SLAVE -->|"Targeted Command"| MOTOR_R
-        MASTER -->|"COMM_GET_VALUES"| COMM_TX
-    end
+### Motors and Hall connectors
 
-    ESP -->|"GPIO18 TX (AUX 4)"| SR6 --> COMM_RX
-    COMM_TX --> SR3 -->|"GPIO5 RX (AUX 3)"| ESP
-```
+Use12AWG phase extensions, approximately2m per lead, and22AWG five-core Hall cable, approximately2m per motor. Keep each motor's phases and Hall connector with its corresponding controller.
 
----
+| Marked Hall pin | Existing motor wire colour |
+| --- | --- |
+| GND | Black |
+| H3 | Green |
+| H2 | Blue |
+| H1 | Yellow |
+| TMP | Unused, insulated |
+| 5V | Red |
 
-## 2. Physical Wiring & Pinout
+Verify marked connector orientation before inserting the harness. These Hall sensors are powered by their own VESC, not the body 5V distribution. The detection wizard maps Hall timing; arbitrary pin reversal is not a substitute.
 
-### Dual VESC Port 3 (`COMM`) Pinout
+## 3. Configure each half over its own USB
 
-Two signal wires and one ground wire connect to the 7-pin Port 3 (`COMM`) on the Master side:
+Elevate both wheels securely. Keep Teensy UART harnesses disconnected during initial VESC Tool setup. Connect to **one USB port at a time**; never infer right-side settings from left-side results.
 
-```
-  Top of Port 3 (COMM)
-  ┌───────────────┐
-  │ 1. 5V         │  --> LEAVE DISCONNECTED (Never backfeed VESC 5V to slip ring)
-  │ 2. 3.3V       │  --> LEAVE DISCONNECTED
-  │ 3. - (GND)    │  --> Connect to 12V Fuse Box Negative Bus
-  │ 4. ADC        │  --> LEAVE DISCONNECTED
-  │ 5. TX         │  --> Connect to Slip Ring CH3 (to ESP32 GPIO5 AUX 3 for telemetry)
-  │ 6. RX         │  --> Connect to Slip Ring CH6 (from ESP32 GPIO18 AUX 4 for drive)
-  │ 7. ADC2       │  --> LEAVE DISCONNECTED
-  └───────────────┘
-```
+1. Record hardware/firmware version and export original motor/app configuration. Do not update firmware until the installed hardware version is identified and supported.
+2. Identify which motor this USB controls; label it LEFT or RIGHT.
+3. Set **App to use: UART**, baud **115200**, timeout **150ms**. Both halves use UART; right is not "No App."
+4. Disable multiple-ESC/CAN forwarding and CAN status broadcasting. Internal switch remains OFF. IDs1/2 are labels, not a forwarding route.
+5. Set timeout brake current explicitly, then test command-loss braking. A timeout with zero brake current may coast.
+6. Set and record motor/battery/regen/brake/voltage limits for this hardware and pack before the motor detection wizard. Start with conservative low-energy detection settings supported by VESC Tool; do not accept a high-current wizard default blindly.
+7. Run individual FOC detection with Hall sensors, save results, then verify wheel direction unloaded. Export final settings.
+8. Repeat through the other USB port. Reconnect direct UARTs only with power off.
 
-| Port / Connection | Terminal | Destination | Purpose |
-| :--- | :--- | :--- | :--- |
-| **Battery Leads (12AWG)** | Shared (+) Red | Fuse F1 (15A) | 12V DC power for both motor channels |
-| **Battery Leads (12AWG)** | Shared (&minus;) Black | Fuse Box Negative Bus | Common system ground return |
-| **Port 3 (`COMM`) Pin 6** | `RX` (3.3V) | Slip Ring CH6 (body side) | Incoming 115,200-baud VESC drive command stream |
-| **Port 3 (`COMM`) Pin 5** | `TX` (3.3V) | Slip Ring CH3 (body side) | Outgoing 115,200-baud VESC telemetry stream to dome ESP32 |
-| **Port 3 (`COMM`) Pin 3** | `-` (GND) | Fuse Box Negative Bus | Signal reference ground |
-| **Hardware Toggle Switch** | Slide Switch | **`ON: dual`** | Bridges internal CAN bus traces between Master & Slave |
-| **Master Port 2 (`SENSE`)** | 6-pin JST | Left Motor Hall bundle | Motor commutation sensors |
-| **Slave Port 2 (`SENSE`)** | 6-pin JST | Right Motor Hall bundle | Motor commutation sensors |
+### Current and voltage settings are commissioning records
 
-> [!CAUTION]
-> **Never connect Pin 1 (5V) or Pin 2 (3.3V) on Port 3.** The VESC generates its own internal logic voltages. Connecting these pins to the slip ring or ESP32 can damage both boards.
+Battery current and motor-phase current are different. A low battery limit can still allow high phase current at low duty. Regeneration charges the battery; at full charge it can cause overvoltage or BMS disconnection.
 
-### Motor Hall Sensor Pinout (Port 2)
-Plug each motor's 5-wire Hall bundle into its channel's 6-pin JST port:
-1. **GND** &rarr; Black (Sensor ground)
-2. **H3** &rarr; Green (Hall signal 3)
-3. **H2** &rarr; Blue (Hall signal 2)
-4. **H1** &rarr; Yellow (Hall signal 1)
-5. **TMP** &rarr; *Unused* (insulate lead)
-6. **5V** &rarr; Red (Hall sensor power)
+The earlier suggested5A battery maximum per side is a **starting allocation** of10A combined, not a proven motor current limit or guarantee that all other loads fit the20A pack budget. Record the final limits after individual low-speed and thermal checks. The earlier12A phase/-2.5A regen/-5A brake suggestions are not established safe ratings and are not automatic defaults.
 
----
+Do not run a floor test while this table is blank. Use motor/controller identification, low-speed tests and full-pack braking to fill it; if detection cannot be configured without an unsupported guess, stop before running the wizard.
 
-## 3. VESC Tool Configuration & Motor Detection
+| Setting | Left | Right |
+| --- | --- | --- |
+| Hardware / firmware version | | |
+| Supported values-layout/profile ID | | |
+| Motor detection current and results | | |
+| Battery current maximum | | |
+| Battery regenerative current limit | | |
+| Motor phase-current maximum | | |
+| Motor brake-current limit | | |
+| Voltage cutoffs / overvoltage behaviour | | |
+| Normal neutral brake command | | |
+| App timeout / timeout brake current | 150ms / record current | 150ms / record current |
+| FOC Hall detection / wheel direction | | |
 
-Always prop the droid up on a stand so **both drive wheels spin freely in the air** during configuration and testing.
+Teensy firmware must ship **motion disabled** until this installed-controller profile is commissioned. Unknown/truncated telemetry layouts inhibit motion; they must not be parsed using guessed field offsets.
 
-Connect a micro-USB cable to each controller port one at a time:
+## 4. Target receiver and drive behaviour
 
-### Step 1: Master Controller Setup (Left Wheel)
-1. Plug USB into the **Master side USB port** and open **VESC Tool**.
-2. Connect and backup default settings.
-3. Open **App Settings &rarr; General**:
-   * **App to Use:** `UART`
-   * **Controller ID:** `1`
-   * **Send Status over CAN:** `True`
-   * **Multiple ESCs over CAN:** `True`
-   * **CAN Baud Rate:** `CAN_BAUD_500K`
-   * **Timeout:** `150 ms` (motors shut down if serial packets stop)
-4. Open **App Settings &rarr; UART**:
-   * **Baudrate:** `115200 bps`
-5. Write App Configuration (down-arrow icon with "A").
+Receiver stays in body: SERVO ->Lonely Binary channel 1->TeensyRX21, SENSOR <->channel 2<->pin 24. No receiver PPM output connects to either VESC.
 
-### Step 2: Slave Controller Setup (Right Wheel)
-1. Plug USB into the **Slave side USB port** (or use CAN forwarding within VESC Tool).
-2. Connect and backup default settings.
-3. Open **App Settings &rarr; General**:
-   * **App to Use:** `UART` (or `No App`)
-   * **Controller ID:** `2`
-   * **Send Status over CAN:** `True`
-   * **CAN Baud Rate:** `CAN_BAUD_500K`
-   * **Timeout:** `150 ms`
-4. Write App Configuration.
+| Channel | Assignment |
+| --- | --- |
+| CH1 | Steering |
+| CH2 | Throttle |
+| CH3 | Front holo tilt |
+| CH4 | Manual dome rotation |
+| CH5 / SwB | Duty rates35/70/100% |
+| CH6 / SwA | Drive enable |
+| CH7 / VrA | Mood/macro selection |
+| CH8 / SwC | Trigger |
+| CH9 / SwD | Random holo motion |
+| CH10 | Unused |
 
-### Step 3: Motor Current Limits & FOC Detection (Both Sides)
-Configure safe current limits for the Razor hub motors:
+Disable transmitter-side tank mixing: Teensy mixes throttle/steer. Confirm radio channel mapping in diagnostics.
 
-| Parameter | Recommended Setting | Rationale |
-| :--- | :---: | :--- |
-| **`Battery Current Max`** | **`5.0 A`** | Caps battery draw to 10A combined, safely below the 20A battery rating. |
-| **`Battery Current Max Regen`** | **`-2.5 A`** | Caps regenerative braking current safely for LiFePO4 cells. |
-| **`Motor Current Max`** | **`12.0 A`** | Prevents motor winding overheating during sustained turns. |
-| **`Motor Current Max Brake`** | **`-5.0 A`** | Smooth, controlled stopping force without jerky tire skidding. |
+At boot/fault, CH6 OFF <=1250us -> ON >=1750us -> CH1/2 neutral1460-1540us for 500ms is required. Mid-position disarms. Validate all 14 iBUS channel fields900-2100us; stale frames>250ms inhibit drive.
 
-Run the **FOC Motor Detection Wizard** on both sides:
-1. Select **Hall Sensors**.
-2. Run automated $R$, $L$, and flux linkage detection (wheels spin briefly).
-3. Run Hall sensor mapping (wheels rotate slowly in one direction).
-4. Apply and write motor settings.
+The50Hz mixer calculates L=throttle+steer, R=throttle-steer, divides both by max(1,abs(L),abs(R)), then applies selected rate and95% duty cap. This preserves turning proportions without independently clipping each side.
 
----
+Both feedback records are polled every 100ms, must be <=500ms old, supported and fault-free. A fault/stale record on either controller stops **both** feet and requires rearming. Neutral/stop sends **positive `COMM_SET_CURRENT_BRAKE` magnitude**, not `COMM_SET_DUTY(0)`. Normal motion uses duty commands.
 
-## 4. Firmware Tank Mixing & Control
+## 5. Acceptance before floor driving
 
-The dome ESP32 runs `processVescDrive()` in its main loop every 20ms (50Hz):
+Complete [Commissioning](BODY_CONTROLLER_COMMISSIONING.md), including transmitter OFF and receiver data cable unplugged as **separate** tests. Configure receiver failsafe: CH1/2/3/4 centered, CH6 OFF, CH8 released, CH9 OFF. Valid failsafe frames must still disarm through CH6.
 
-1. **Stick Inputs:**
-   * Right Stick Y (CH2): Forward / Reverse throttle (`1000us` to `2000us`).
-   * Right Stick X (CH1): Left / Right differential steering (`1000us` to `2000us`).
-2. **Deadband:**
-   * `1460us` to `1540us` is treated as neutral `0.0`. Eliminates motor hum or crawl when the spring-centered stick is at rest.
-3. **Dual Rates (Speed Switch SwB):**
-   * **Position 1 (Slow):** 35% speed — crowd navigation and indoor maneuvering.
-   * **Position 2 (Medium):** 70% speed — outdoor cruising.
-   * **Position 3 (Fast):** 100% speed — wide open areas.
-4. **Tank Mixing:**
-   $$\text{Left Duty} = (\text{Throttle} + \text{Steer}) \times \text{Rate}$$
-   $$\text{Right Duty} = (\text{Throttle} - \text{Steer}) \times \text{Rate}$$
-   * Moving the stick diagonally curves smoothly into turns.
-   * Pushing the stick hard left/right with zero throttle counter-rotates the wheels for instant 360° spins in place.
-5. **Failsafe Actions:**
-   * If the radio signal drops (`rc_connected == false`), the ESP32 sends `0.0` duty to both motors immediately.
-   * If the slip ring contact is broken, the VESC's internal `150ms` timeout kicks in and halts the motors.
-   * When the Faint macro (`:SE06`) triggers, the ESP32 cuts motor power automatically.
-6. **Telemetry Feedback & Auto-Protection:**
-   * `requestVescTelemetry()` polls the Master VESC at 5Hz using `COMM_GET_VALUES`.
-   * `processVescTelemetry()` decodes the incoming response stream over Slip Ring CH3 on ESP32 GPIO5 (AUX 3).
-   * **Low-Voltage Cutoff:** If battery voltage drops below 10.5V (and > 5.0V), firmware forces motor duty to `0.0` to prevent over-discharging the LiFePO4 cells.
-   * **Fault Cutoff:** If the VESC reports any non-zero fault code (`FAULT_CODE_DRV`, `FAULT_CODE_OVER_TEMP_FET`, `FAULT_CODE_UNDER_VOLTAGE`), motor duty is immediately forced to `0.0`.
+Test each VESC UART feedback disconnection separately; either failure must inhibit both feet. Stop UART commands and verify each controller's 150ms timeout action independent of Teensy. Reconnection does not rearm automatically.
 
----
-
-## 5. Bench & Floor Testing Procedure
-
-### Bench Test (Wheels Elevated)
-1. Turn on the transmitter with sticks centered.
-2. Power on R2's master battery switch.
-3. Gently push throttle forward: both wheels must spin forward.
-4. Pull throttle backward: both wheels must spin backward.
-5. Push stick full right: left wheel spins forward, right wheel spins backward.
-6. Push stick full left: left wheel spins backward, right wheel spins forward.
-7. **Failsafe Test:** While wheels are spinning forward, turn off the FlySky transmitter. Both wheels must stop within 250ms. Turn transmitter back on.
-
-### Floor Test
-1. Place R2 on a smooth, level floor.
-2. Set switch `SwB` to **Position 1 (Slow)**.
-3. Practice gentle straight lines, slow turns, and spins in place.
-4. Confirm smooth stopping when releasing the stick.
-5. After 5 minutes, feel the wheel hubs and Dual VESC casing—they should be barely warm.
+Start at slow 35% duty on level open ground with the cutoff reachable. Record full-pack braking voltage/faults, actual stopping distance and ten-minute temperatures. Do not deliberately stall a wheel. Healthy manual feet may continue after ordinary dome-link loss, but explicit STOP/Faint/maintenance locks inhibit them and remain latched across a dome reboot.

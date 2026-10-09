@@ -70,6 +70,9 @@ const uint8_t kReasonOperator = 0, kReasonReserved = 1, kReasonMaintenance = 2;
 const uint8_t kMaxVolume = 30;
 const uint16_t kMaxLeaseMs = 150;
 
+enum class DriveState : uint8_t { Boot, Disarmed, Qualifying, Armed, Fault, Locked };
+enum class DriveIntent : uint8_t { Stationary, Forward, Reverse, Pivot };
+
 struct Hello {
     uint8_t role; uint32_t capabilities; uint16_t safety_revision;
     static MessageType type() { return MessageType::Hello; }

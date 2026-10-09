@@ -1,173 +1,99 @@
-# AstroPixels Plus Unified Firmware Guide
+# AstroPixels Plus Unified: Dome Firmware and Target Wiring
 
-This is the primary dome firmware for the R2-D2 conversion. Built on ReelTwo and AstroPixels Plus, it provides authentic lighting animations, a phone-friendly Wi-Fi dashboard, Over-The-Air (OTA) wireless updates, and smooth servo control.
+> **Target wiring, not current firmware:** Do not connect this wiring to the old ESP32-only firmware. Complete the firmware migration and flash both boards before combined testing.
 
----
+This project builds on ReelTwo/AstroPixels Plus for lighting, Wi-Fi and settings. **Its source still uses the old ESP32-only architecture.** The Teensy migration is planned, not implemented. Current builds may be flashed to a bare ESP32 for inspection; do not use them on the target motion harness.
 
-## 1. Hardware Pinout & Wiring
+Follow [Body Wiring](../BODY_CONTROLLER_WIRING.md), [Dome Wiring](../DOME_WIRING_DIAGRAM.md) and [Commissioning](../BODY_CONTROLLER_COMMISSIONING.md).
 
-Follow [DOME_WIRING_DIAGRAM.md](../DOME_WIRING_DIAGRAM.md) for full circuit schematics.
+## 1. Target ESP32 map
 
-| ESP32 Pin | Function | Wiring Connection |
-| :---: | :--- | :--- |
-| **GPIO 16** | FlySky iBUS Serial (115,200 baud) | Receiver in dome &rarr; Level shifter HV1 &rarr; LV1 &rarr; GPIO16 |
-| **GPIO 18** | Dual VESC Drive UART (115,200 baud) | Direct 3.3V UART (AUX 4) &rarr; Slip ring CH6 &rarr; Dual VESC Port 3 RX |
-| **GPIO 5** | Dual VESC Telemetry UART (115,200 baud) | Direct 3.3V UART (AUX 3) &larr; Slip ring CH3 &larr; Dual VESC Port 3 TX |
-| **GPIO 19** | KY-003 Hall Homing Sensor | Hall signal &rarr; Level shifter HV2 &rarr; LV2 &rarr; GPIO19 |
-| **GPIO 4** | 35kg Continuous Dome Servo PWM | Direct 3.3V PWM &rarr; Slip ring CH5 &rarr; Servo signal lead (no shifter) |
-| **GPIO 17** | DFPlayer Serial Commands (9,600 baud)| Direct 3.3V UART &rarr; Slip ring CH4 &rarr; 1k&Omega; resistor &rarr; DFPlayer RX (no shifter) |
-| **GPIO 21 / 22** | PCA9685 I2C (SDA / SCL) | Motherboard I2C headers D/C &rarr; PCA9685 SDA/SCL (3.3V logic) |
-| **GPIO 15 / 33** | Front / Rear Logic Displays | Standard AstroPixels display headers FLD / RLD |
-| **GPIO 32 / 23** | Front / Rear PSI Displays | Standard AstroPixels headers FPSI / RPSI |
-| **GPIO 25 / 26 / 27**| Front / Rear / Top Holo LEDs | Standard AstroPixels headers FHP / RHP / THP |
+| ESP32 pin | Target role |
+| --- | --- |
+| GPIO16 | Serial2 RX, body link from TeensyTX17 via ringCH3 |
+| GPIO17 | Serial2 TX, body link to TeensyRX16 via ringCH6 |
+| GPIO19 | Hall signal through dome Lonely Binary channel 2 |
+| GPIO21/22 | PCA9685 SDA/SCL |
+| GPIO15/33 | FLD/RLD |
+| GPIO32/23 | FPSI/RPSI |
+| GPIO25/26/27 | FHP/RHP/THP LEDs |
+| GPIO2/4/5/18 | Unused / spare |
 
-### Level Shifter & Logic Voltages
-* **Level Shifter:** Connect **HV** to dome 5V, **LV** to ESP32 3.3V, and **GND** to common ground. Only 5V inputs (receiver iBUS and Hall sensor) pass through the shifter.
-* **Direct 3.3V I/O:** VESC Drive UART (GPIO18 / AUX 4), VESC Telemetry UART (GPIO5 / AUX 3), Dome servo PWM (GPIO4), and DFPlayer TX (GPIO17) operate at native 3.3V and bypass the shifter.
-* **PCA9685 Servo Driver:** Logic power (**VCC**) runs on 3.3V from the ESP32. Servo power (**V+** green terminal) connects directly to the dome 5V distribution block. Servos 0–5 control Front (0/1), Rear (2/3), and Top (4/5) pan and tilt.
+Serial2's sole reader will be the framed body client at 115200; the old MarcDuino UART reader must be disabled while web/internal commands remain. Receiver, VESCs, continuous dome-servo pulses and DFPlayer UART move to Teensy.
 
----
+| Contact | BODY end | DOME end | Function |
+| --- | --- | --- | --- |
+| CH1 | F4 7.5A fused battery positive | Dome buck IN+ | Dome 12V feed |
+| CH2 | Body ground bus | Dome ground / buck IN- | Common return |
+| CH3 | Teensy TX17 | ESP32 GPIO16 | Body to dome serial |
+| CH4 | Unconnected | Unconnected | Spare |
+| CH5 | Unconnected | Unconnected | Spare |
+| CH6 | Teensy RX16 | ESP32 GPIO17 | Dome to body serial |
 
-## 2. Radio & Wi-Fi Controls
+UART 3.3V bypasses shifters. Dome Lonely Binary HV=D-LOGIC3A fused 5V, LV=ESP32 3.3V, GND common; HallHV2->LV2->GPIO19. No receiver signal in dome.
 
-The dome ESP32 serves as the unified central brain for the entire droid, decoding FlySky radio input, running lighting animations, positioning servos, and driving the foot motors via Dual VESC UART down the slip ring.
+PCA9685 VCC=3.3V, V+=D-SERVO 5A fused 5V with 16AWG feed/return; AstroPixels I2C D/C/G ->SDA/SCL/GND, V unconnected. Address 0x40,50Hz;0/1front pan/tilt,2/3rear,4/5top.
 
-### Transmitter Controls (FlySky FS-i6X)
-| Radio Control | Channel | Function in Plus Firmware |
-| :--- | :--- | :--- |
-| **Right Stick Vertical** | CH 2 | **Throttle:** Forward and reverse foot motor drive. |
-| **Right Stick Horizontal** | CH 1 | **Steering:** Differential tank steering for foot motors. |
-| **Left Stick Horizontal** | CH 4 | **Dome Rotation:** Proportional continuous speed; stops dead at center. |
-| **Left Stick Vertical** | CH 3 | **Manual Front Holo Tilt:** Up/down control; holds position for 3s after centering. |
-| **Switch `SwB`** | CH 5 | **Speed Rates:** Pos 1 = Slow (35%), Pos 2 = Medium (70%), Pos 3 = Fast (100%). |
-| **Switch `SwD`** | CH 9 | **Ambient Holo Motion:** HIGH enables random autonomous twitches; LOW disables them. |
-| **Knob `VrA` + Switch `SwC`** | CH 7 + CH 8 | **Macro Trigger:** Select routine with `VrA`, flip `SwC` DOWN to execute. |
+## 2. Target radio controls and safety
 
-### Motion & Safety Failsafes
-* **Missing iBUS Signal (>250ms):** Automatically stops foot drive (sends 0 duty to VESC), cancels homing, stops dome rotation, and disables holoprojector servo outputs.
-* **VESC Telemetry & Battery Cutoff:** Decodes live battery voltage and fault codes at 5Hz. If battery voltage drops below 10.5V or a hardware fault code occurs, motor drive cuts immediately.
-* **Startup & Failsafe Lockout:** Dome rotation starts disabled. Centering the dome joystick rearms manual control.
-* **Wi-Fi STOP Button:** Immediately halts foot motors, dome rotation, and active routines.
+| Input | Target function |
+| --- | --- |
+| CH1 / right horizontal | Foot steering |
+| CH2 / right vertical | Foot throttle |
+| CH3 / left vertical | Front holo tilt |
+| CH4 / left horizontal | Manual dome rotation |
+| CH5 / SwB | Normalized duty rates35/70/100%;95% absolute cap |
+| CH6 / SwA | Drive enable; OFF -> ON -> centered 500ms after boot/fault |
+| CH7 / VrA + CH8 / SwC | Macro selection / trigger |
+| CH9 / SwD | Ambient holo motion |
+| CH10 | Unused |
 
----
+Teensy validates RC, both VESC feedback links and actuator locks. Stale/faulted feedback on either wheel inhibits both; neutral uses brake current, not zero duty. Manual dome can work with CH6 OFF; automatic home requires fresh RC, CH6 ON and neutral dome stick.
 
-## 3. Shared Sound & Motion Macros
+Target Wi-Fi STOP must show body confirmation or "Body stop unconfirmed." Maintenance/Faint locks remain latched across dome restart. These acknowledgements, body diagnostics page, explicit lock recovery and OTA preparation are **pending firmware features**, not guarantees of the current build.
 
-These routines can be triggered from either the transmitter dial (`VrA` + `SwC`) or the Wi-Fi web dashboard:
+## 3. Sound library and choreography
 
-| Dial `VrA` | Web Command | Audio Track | Description |
-| :---: | :---: | :---: | :--- |
-| **Pos 1** | `:DMH` | `011.mp3` | **Home Dome:** Rotates dome until Hall sensor detects 0° magnet, centers servos. |
-| **Pos 2** | &mdash; | Random | Normal lighting and a cheerful chirp. |
-| **Pos 3** | &mdash; | Random | Normal lighting and a happy chirp. |
-| **Pos 4** | `:SE01` | `102.mp3` | **Scream / Panic:** Red alarm lighting and fast holoprojector twitches (4.5s). |
-| **Pos 5** | `:SE05` / `:SE07` | `106.mp3` | **Cantina Band:** Marching logic lights and synchronized servo dance steps (30s). |
-| **Pos 6** | `:SE08` | `109.mp3` | **Princess Leia:** Homes dome forward to 0°, pale green lights, front holo dips 35° with blue flicker (14s). |
-| **Pos 7** | `:SE09` | `110.mp3` | **Disco:** Rainbow color wave across all displays (20s). |
-| **Pos 8** | `:SE06` | `107.mp3` | **Short Circuit / Faint:** Flickers briefly, turns displays black, disables servo PWM for 5s, then restores normal lights. |
-| &mdash; | `:DMS` / `:SE00` | &mdash; | **Stop:** Cancels homing or active macro and pauses dome rotation until stick is re-centered. |
+Keep FAT32 microSD folder `/01/`, three-digit filenames. Ambient chirps/chatter use001-080; macro tracks stay reserved. Default volume 10/30 unless saved settings override it; no physical volume potentiometer required.
 
----
+| VrA position / command | Track | Intended routine |
+| --- | --- | --- |
+| 1 / `:DMH` | 011.mp3 | Home dome, then sound |
+| 2 | Random | Normal / cheerful |
+| 3 | Random | Normal / happy |
+| 4 / `:SE01` | 102.mp3 | Scream / alarm4.5s |
+| 5 / `:SE05`, `:SE07` | 106.mp3 | Cantina lights and holo dance30s |
+| 6 / `:SE08` | 109.mp3 | Leia: home first, then playback-confirmed choreography14s |
+| 7 / `:SE09` | 110.mp3 | Disco20s |
+| 8 / `:SE06` | 107.mp3 | Faint / motion lock5s |
+| `:DMS`, `:SE00` | None | Stop |
+| Startup | 255.mp3 | Startup chime |
 
-## 4. MicroSD Card Audio Setup
+Folder-play command0x0F uses `/01/`. Supply your own legally obtained audio. In the target, ESP32 selects tracks while Teensy controls the DFPlayer and returns playback events; an accepted UART request alone does not prove audible sound.
 
-1. Format your MicroSD card as **FAT32**.
-2. Create a folder named **/01/** on the card.
-3. Place your MP3 files inside `/01/` using 3-digit numerical filenames:
-   * `001.mp3` through `080.mp3` &rarr; Ambient chirps and chatter.
-   * `102.mp3` &rarr; Scream.
-   * `106.mp3` &rarr; Cantina Band.
-   * `107.mp3` &rarr; Short Circuit / Faint.
-   * `109.mp3` &rarr; Princess Leia message.
-   * `110.mp3` &rarr; Disco.
-   * `255.mp3` &rarr; Startup chime.
+## 4. Wi-Fi
 
-The firmware plays sounds using folder-play commands (`0x0F`), so files must be placed inside the `/01/` directory.
+SSID **AstroPixels**, password **Astromech**, dashboard **http://192.168.4.1**. Existing interface provides logic/PSI text, colour/speed settings, macros, sound volume/chatter and firmware upload. The target adds acknowledged body actions and maintenance preparation; do not assume those additions exist in the present UI.
 
----
+## 5. First bare ESP32 flash
 
-## 5. Wi-Fi Dashboard & Web GUI
+Turn off/disconnect droid power. Remove ESP32 from AstroPixels **before** USB. Use a data cable matching the module's actual socket.
 
-When powered, the ESP32 broadcasts its own Wi-Fi network:
-* **SSID:** `AstroPixels`
-* **Password:** `Astromech`
-* **Dashboard URL:** `http://192.168.4.1`
-
-Open this address in any browser on your phone, tablet, or laptop to access:
-* **Logics & PSIs:** Custom text messages, speed settings, and color palettes.
-* **Dome & Macros:** One-click buttons for Cantina, Leia, Scream, Disco, and Faint routines.
-* **Sound Settings:** Sound volume slider (default is 10 out of 30) and chatter frequency controls.
-* **Firmware:** Over-The-Air wireless firmware upload page.
-
----
-
-## 6. First USB Flash: Step-by-Step
-
-Before mounting the ESP32 into the dome motherboard, flash it cleanly over USB using PlatformIO.
-
-### Step 1: Build the Firmware
-In VS Code with the PlatformIO extension (or via PlatformIO CLI):
 ```sh
 pio run -d ASTROPIXELS_PLUS_UNIFIED -e astropixelsplus
-```
-Verify that the build completes with `SUCCESS`.
-
-### Step 2: Unmount the ESP32
-* Remove the ESP32 module from the AstroPixels dome motherboard.
-* Flashing the bare ESP32 over USB ensures your computer's USB port does not power dome servos or LED displays.
-
-### Step 3: Flash Over USB
-1. Plug the ESP32 into your computer using a data-capable USB cable.
-2. Find the port:
-   ```sh
-   pio device list
-   ```
-3. Upload firmware (substitute your actual serial port):
-   ```sh
-   pio run -d ASTROPIXELS_PLUS_UNIFIED -e astropixelsplus -t upload --upload-port PORT
-   ```
-
-### Step 4: Verify Boot
-Open the serial monitor at 115,200 baud:
-```sh
+pio device list
+pio run -d ASTROPIXELS_PLUS_UNIFIED -e astropixelsplus -t upload --upload-port PORT
 pio device monitor -d ASTROPIXELS_PLUS_UNIFIED -e astropixelsplus --baud 115200
 ```
-Press the EN/Reset button on the ESP32. You should see:
-```
-[SYSTEM] AstroPixels Plus Unified Brain Online & Ready!
-```
-Connect your phone to the `AstroPixels` Wi-Fi network and verify the dashboard opens at `http://192.168.4.1`.
 
-### Step 5: Reinstall on the Motherboard
-Unplug USB, ensure main power is turned off, and seat the ESP32 firmly into the motherboard headers in its correct orientation.
+Replace PORT with the discovered device. Use EN/Reset if needed, confirm Wi-Fi boots, then unplug USB before seating the ESP32 with droid power still off. Never connect ordinary computer USB to the mounted, externally powered ESP32.
 
----
+The future Teensy project is not present yet. Its build/flash sequence and one-time USB-power isolation are documented as future commissioning steps in [Commissioning](../BODY_CONTROLLER_COMMISSIONING.md).
 
-## 7. Staged Hardware Testing
+## 6. Target installed OTA procedure
 
-Test each subsystem in order to verify wiring:
+**Pending firmware integration:** CH6 OFF, centered sticks, no routine; press Prepare update and wait for body maintenance-lock acknowledgement before starting web upload or ArduinoOTA. Both upload paths must reject unprepared updates before flash writes.
 
-1. **AstroPixels Displays:** Power the dome 5V rail. Confirm startup text scrolls across FLD and RLD, and PSIs cycle through normal animations.
-2. **Radio Link & Level Shifter:** Turn on the transmitter and receiver. Verify the receiver binds and the dashboard remains responsive.
-3. **Dome Rotation Servo (Unloaded):** Connect the dome servo with its drive gear disengaged. Verify stick center keeps the servo completely stopped, and stick deflection rotates it left and right.
-4. **Failsafe & STOP Test:** Deflect the dome stick while pressing **STOP** on the web dashboard. Verify rotation immediately halts. Turn off the transmitter to confirm failsafe stop.
-5. **Hall Homing:** With the transmitter on, request **Home**. Wave a small magnet past the KY-003 sensor to verify it halts rotation and registers 0° center.
-6. **PCA9685 & Servos:** Connect PCA9685 logic and 5V servo power. Plug in one holoprojector servo at a time and verify smooth motion without jitter.
-7. **Audio System:** Connect DFPlayer, isolator, and amplifier. Power up and verify startup track `255.mp3` plays cleanly through the speaker.
-8. **Macros:** Trigger the Cantina and Leia routines from the transmitter and web dashboard to verify synchronized lights, sound, and servo movements.
+Build with the command above; binary is `ASTROPIXELS_PLUS_UNIFIED/.pio/build/astropixelsplus/firmware.bin`. After failed upload/reboot, do not automatically unlock motion. The explicit Recover body locks action requires a fresh handshake, CH6 OFF and centered sticks 500ms, and leaves drive disarmed.
 
----
-
-## 8. Wireless Over-The-Air (OTA) Updates
-
-Once R2 is fully assembled, you can update the dome firmware wirelessly without taking the droid apart:
-
-1. Build the updated binary in PlatformIO:
-   ```sh
-   pio run -d ASTROPIXELS_PLUS_UNIFIED -e astropixelsplus
-   ```
-   The compiled file will be located at `.pio/build/astropixelsplus/firmware.bin`.
-2. Connect your computer or phone to the `AstroPixels` Wi-Fi network.
-3. Open `http://192.168.4.1` and navigate to the **Firmware** page.
-4. Select `firmware.bin` and click **Upload**.
-5. The ESP32 will flash the new binary and reboot automatically within 30 seconds.
+Until implemented, use bare-module USB rather than an assembled-target OTA path. Complete the power, communication, servo and failure stages in [Commissioning](../BODY_CONTROLLER_COMMISSIONING.md) before floor operation.

@@ -330,10 +330,14 @@ int main() {
     loop(); assert(g_input.snapshot(0).valid && Serial6.written==0);
     assert(Serial1.written==6 && Serial2.written==6);
     assert(!g_left.sample(0).valid && !g_right.sample(0).valid);
+    assert(g_drive.commands().left.mode==body::WheelMode::Disabled);
+    assert(g_body_status.drive_intent==uint8_t(r2link::DriveIntent::Stationary));
+    assert((g_body_status.faults & (1u|16u|32u|256u))==(1u|16u|32u|256u));
     fake_us=100; loop(); assert(Serial6.written==4);
     assert(g_telemetry.counters().responses==1);
     Serial.space=0; fake_ms=5000; fake_us=5000000; loop();
     assert(Serial.written==0 && !g_input.snapshot(fake_ms).valid);
+    assert(g_body_status.faults & 8u);
     Serial.space=512; fake_ms=10000; fake_us=10000000; loop();
     assert(Serial.written>0 && Serial.written<512);
 }
@@ -342,6 +346,7 @@ int main() {
                          extra_sources=SOURCES + [
                              BODY / "body/LinkBootstrap.cpp",
                              BODY / "body/VescLink.cpp", BODY / "body/ConfigStore.cpp",
+                             BODY / "body/DriveController.cpp",
                              SHARED / "src/Endpoint.cpp", SHARED / "src/Codec.cpp"],
                          include_dirs=[ROOT / "tests/radio_fakes", BODY, SHARED])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

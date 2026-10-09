@@ -171,6 +171,10 @@ void VescLink::setBrake(uint32_t brake) {
     invalidateCommand(true);
     brake_ = brake; demand_ = 7; demand_ms_ = now_;
 }
+void VescLink::disableControl() {
+    invalidateCommand(false);
+    demand_ = 0;
+}
 VescSample VescLink::sample(uint32_t now) const {
     VescSample s = cached_;
     s.wheel = wheel_; s.fw_major = major_; s.fw_minor = minor_;

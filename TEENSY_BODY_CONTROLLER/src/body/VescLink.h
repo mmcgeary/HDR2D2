@@ -80,6 +80,8 @@ public:
     void tick(uint32_t now_ms);
     void setDuty(int16_t permille);
     void setBrake(uint32_t current_mA);
+    // Cancel demand/unsafe unsent suffixes without transmitting guessed current.
+    void disableControl();
     VescSample sample(uint32_t now_ms) const;
     void setProfile(const VescProfile&);
     const VescCounters& counters() const { return counters_; }

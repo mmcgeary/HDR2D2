@@ -503,8 +503,8 @@ class VescTests(unittest.TestCase):
         self.assertIn("kLeftVescRx", adapter)
         self.assertIn("kRightVescTx", adapter)
         self.assertIn(".requestCapture(", source)
-        self.assertNotIn(".setDuty(", source)
-        self.assertNotIn(".setBrake(", source)
+        self.assertIn("body::applyWheelCommands(", source)
+        self.assertIn("static body::CommissioningProfile g_profile;", source)
 
 
 if __name__ == "__main__":

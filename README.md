@@ -4,7 +4,7 @@ An in-progress build to turn the 2024 Home Depot R2-D2 animatronic into a fully 
 
 The build keeps the stock exterior shell while adding:
 * **AstroPixels lighting:** Logic displays (FLD/RLD), process state indicators (PSIs), and 3 illuminated holoprojectors.
-* **Smart dome mechanics:** ESP32 controller, 6 holoprojector servos (pan/tilt), 360° continuous dome rotation, and Hall-effect magnetic homing.
+* **Split controllers:** Teensy 4.1/Treedix in the body for radio, feet, dome rotation and audio; AstroPixels ESP32 in the dome for lighting, six holo servos, Hall input, Wi-Fi and choreography.
 * **Onboard sound:** DFPlayer Mini, 12V Class-D amplifier, and speaker firing through the front acoustic vents for chatter and movie sounds.
 * **Dual-motor foot drive:** Razor Tekno Pop hub motors in the feet powered by a Flipsky Dual FSESC 4.20 motor controller.
 * **FlySky radio control & Wi-Fi:** 10-channel RC control, plus an onboard Wi-Fi dashboard for triggering routines, adjusting volume, and flashing firmware updates.
@@ -14,25 +14,30 @@ The build keeps the stock exterior shell while adding:
 
 ## Quick Reference
 
+**Physical documentation now describes the approved Teensy architecture. Firmware migration is still pending. Do not connect this wiring to the old ESP32-only firmware.** Nothing has been wired yet.
+
 | Guide | Description |
 | :--- | :--- |
 | [System Architecture](SYSTEM_ARCHITECTURE.md) | High-level system overview, subsystem descriptions, and block diagrams |
+| [Body Controller Wiring](BODY_CONTROLLER_WIRING.md) | Authoritative Teensy/Treedix terminal map, receiver, selected shifters and UART harnesses |
+| [Commissioning](BODY_CONTROLLER_COMMISSIONING.md) | USB isolation illustration, first power-up and subsystem/failure checks |
 | [Power Harness Guide](POWER_HARNESS_GUIDE.md) | Wire gauges, fuse sizes, crimping standards, and step-by-step electrical testing |
 | [Interactive Wiring Diagram](wiring_visualizer.html) | Searchable terminal-to-terminal wiring schematic (open locally in your browser) |
 | [System Wiring Overview](DOME_WIRING_DIAGRAM.md) | Logical circuit diagrams, slip-ring assignments, and logic-level shifter pinouts |
-| [AstroPixels Plus Firmware Guide](ASTROPIXELS_PLUS_UNIFIED/README.md) | Primary firmware setup, first USB flash instructions, sound files, and Wi-Fi controls |
+| [AstroPixels Plus Firmware Guide](ASTROPIXELS_PLUS_UNIFIED/README.md) | Dome firmware setup, target pin map, sound files, and current-vs-planned controls |
 | [VESC Drive Setup](VESC_DRIVE_INTEGRATION.md) | Motor detection, current limits, radio mixing, and safety failsafes for the feet |
 | [Bill of Materials](Master_R2D2_BOM.xls) | Complete parts list, hardware links, and purchase notes (Excel-compatible) |
 
-If an older document conflicts with the harness guide or BOM, follow the harness guide.
+Use the body guide for pins and the power guide for fuses. `ESP32_DOME_BRAIN_GUIDE.md` and standalone sketches are historical references, not alternative instructions for the selected hardware.
 
 ---
 
 ## Repository Contents
 
 ### Primary Firmware
-* [`ASTROPIXELS_PLUS_UNIFIED/`](ASTROPIXELS_PLUS_UNIFIED/): The primary PlatformIO firmware for the dome ESP32. It builds on AstroPixels Plus and ReelTwo, adding FlySky iBUS input, dome homing, PCA9685 servo control, serial sound triggers, a mobile-friendly Wi-Fi dashboard, and digital VESC UART packet transmission with live telemetry return for differential foot drive.
-* The ESP32 acts as the central brain for the entire droid, decoding FlySky iBUS input, coordinating dome lighting and servos, streaming digital drive commands down Slip Ring CH6 to the Dual VESC over internal CAN bus, and reading live battery voltage/fault telemetry back up Slip Ring CH3.
+* [`ASTROPIXELS_PLUS_UNIFIED/`](ASTROPIXELS_PLUS_UNIFIED/): Existing PlatformIO ESP32 firmware built on AstroPixels Plus/ReelTwo. Its current local receiver, VESC, dome-servo and audio wiring is being superseded; source is unchanged in this physical-documentation phase.
+* Target: Teensy decodes radio, independently controls both VESC UARTs, dome servo and DFPlayer. ESP32 keeps lights, holo servos, Hall, Wi-Fi and choreography. Ring CH3/CH6 connects Teensy TX17/RX16 to ESP32 RX16/TX17.
+* [Firmware implementation plan](docs/superpowers/plans/2026-10-09-teensy-firmware.md): pending. A Teensy firmware project and acknowledged body client must be implemented before combined operation.
 
 ### Wiring & Power
 * [`POWER_HARNESS_GUIDE.md`](POWER_HARNESS_GUIDE.md) and [`DOME_WIRING_DIAGRAM.md`](DOME_WIRING_DIAGRAM.md) detail the entire electrical layout, wire sizes, fusing, and testing steps.
@@ -63,7 +68,7 @@ To avoid damaging electronics or running into wiring issues, test your build in 
 3. **Keep 5V rails separate:** The body and dome each use an independent 5V buck converter. **Never connect their +5V outputs together.** Common ground connects everywhere.
 4. **Flash the ESP32 unmounted:** Remove the ESP32 module from the AstroPixels dome motherboard before plugging into your computer via USB. Reinstall it only with all power turned off.
 5. **Elevate wheels during motor tests:** When configuring the Dual VESC or testing radio transmitter mixes, always elevate the droid so the wheels can spin freely in the air.
-6. **Set up radio failsafes:** Ensure both VESC channels stop driving immediately if the radio link is lost or the transmitter is switched off.
+6. **Set up radio failsafes:** Test transmitter-off and unplugged receiver separately; CH6 must go OFF. Record actual stopping distance and each VESC's timeout brake action.
 7. **Accessible master cutoff:** Keep the 25A main battery fuse close to the battery (<=150mm), and mount the master power switch where you can hit it instantly from the outside.
 
 ---
@@ -86,8 +91,8 @@ We reviewed the standard AstroPixels firmware (`src/standard/main.cpp`) alongsid
 | Feature | Standard AstroPixels | AstroPixels Plus (Selected) | Notes for this Build |
 | :--- | :--- | :--- | :--- |
 | **User Interface** | Serial / I2C commands only | Built-in Wi-Fi dashboard & web GUI | Plus gives us an easy phone/browser dashboard to trigger sounds, test macros, and adjust settings. |
-| **Remote Control** | Serial2 (9600 baud) or I2C slave | FlySky iBUS input over UART (115200 baud) | Standard serial commands conflict with our dedicated iBUS pin (GPIO16) and DFPlayer TX pin (GPIO17). |
-| **Firmware Updates** | USB cable required | Wireless ArduinoOTA & web uploads | Once the dome is assembled, Plus allows flashing updates over Wi-Fi without taking anything apart. |
+| **Remote Control** | Serial2 (9600 baud) or I2C slave | Body client planned on Serial2 (115200 baud) | Target reserves GPIO16/17 for the body protocol; radio/audio move to Teensy. |
+| **Firmware Updates** | USB cable required | Wireless ArduinoOTA & web uploads | Target requires body maintenance-lock acknowledgement before either OTA path writes flash; integration is pending. |
 | **Lighting Effects** | ReelTwo display classes & sequences | ReelTwo display classes & sequences | Both firmware families use the same high-quality ReelTwo lighting engines. |
 | **Library Versions** | Unpinned dependencies | Pinned PlatformIO environment (`esp32@5.2.0`, `ReelTwo@23.5.3`) | Pinned dependencies ensure consistent, reliable builds without unexpected breakage from newer library versions. |
 

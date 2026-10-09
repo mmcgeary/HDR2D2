@@ -116,7 +116,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Razor Tekno Pop 100mm integrated brushless hub motors</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">12V system; approximately 80W each per current information, verify motor label/specification. 16mm x 11mm Double-D axles.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">12V known; exact power unconfirmed, roughly80-100W discussed (user estimates100W). Do not derive phase-current limits from wattage. 16mm x11mm Double-D axles.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">4</Data></Cell>
@@ -125,7 +125,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Flipsky Dual FSESC4.20 100A</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Independent left/right receiver commands; slave-mode toggle OFF; no VESC button. Configure receiver neutral failsafe and VESC input timeout.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Two direct Teensy UARTs: leftTX1/RX0, rightTX8/RX7,115200. CAN switchOFF, forwarding disabled. One shared F1 15A supply; configure each USB separately,150ms timeout and tested braking.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">5</Data></Cell>
@@ -161,7 +161,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">TIANKONGRC TD-8135MG-360 (35kg 360°)</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Drives center post mechanism; stated 4.8V-8.4V supply range supports the 5V body rail; torque/speed lower than at higher voltage. Zero-Creep Sleep in firmware.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body B-SERVO5A fused5V,16AWG trunk; Teensy pin2 via body shifterLV3/HV3. Calibrate neutral unloaded; pulse-sleep disabled until installed signal-loss test passes.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">9</Data></Cell>
@@ -170,7 +170,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">KY-003 / 3144E Hall Effect Sensor</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Mounted inside dome hub; Plus firmware GPIO19 via 5V-to-3.3V level-shifter channel HV2/LV2</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome D-LOGIC fused5V; Lonely Binary HV2/LV2 to GPIO19. ESP32 publishes Hall state to Teensy for homing.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">10</Data></Cell>
@@ -197,7 +197,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">AstroPixels ESP32 30-Pin Module</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Main Droid Brain: Decoupled UARTs, FastLED, PCA9685, Moods &amp; Macros</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome controller: lights, PCA9685, Hall, choreography, Wi-Fi/OTA. D-LOGIC3A supply. Body link RX16/TX17; target firmware migration pending.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">13</Data></Cell>
@@ -251,16 +251,16 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">PCA9685 16-Channel 12-bit PWM Module</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Plugs into AstroPixels I2C port (SDA 21 / SCL 22) in dome</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">VCC=ESP32 3.3V; SDA21/SCL22/GND from I2C D/C/G, headerV unused. V+ via D-SERVO5A,16AWG feed/return. 0x40,50Hz,channels0-5. Test each servo then all six; stop for heat/jams, do not enlarge fuse.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">19</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Brain &amp; Lights</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Buffer Capacitor</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Optional / Not required</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">1000uF - 2200uF 10V/16V Low-ESR Cap</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Buffers 5V rail at dome distro block next to servos</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Diagnostic option for observed supply transients, not a mandatory purchase. Fix wiring/jams before adding capacitance.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">20</Data></Cell>
@@ -269,7 +269,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">uxcell 6-Position Dual Row Terminal Block</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome screw-terminal distribution with separate shared5V+ and ground buses; no5V output fuses required by user decision. Verify terminal normal-load current rating; converter fault protection of thin leads is unverified.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Owned dome block. Continuity-check isolated pairs; jumper intended5V/GND groups separately. D-SERVO5A and D-LOGIC3A inline branches; separate fused logic fan-out, no bypass jumper. No separate5V fuse box.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">21</Data></Cell>
@@ -278,7 +278,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Senring H3086 (30mm ID, 6-Channel 10A)</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">User-confirmed 17AWG leads, 10A/contact. Ch1=F4 7.5A-fused nominal12V to dome buck; Ch2=GND; Ch3=iBus; Ch4=audioTX; Ch5=domePWM; Ch6=insulated spare. Extend power with16AWG; do not parallel contacts.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">17AWG leads,10A/contact. CH1=F4 7.5A battery to dome buck; CH2=GND; CH3=TeensyTX17 to ESP32RX16; CH6=ESP32TX17 to TeensyRX16; CH4/5 insulated spares. Extend power16AWG; no paralleling.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">22</Data></Cell>
@@ -287,7 +287,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">DFPlayer Mini MP3 Player Board</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Lives in body; Dedicated 9600 baud serial on Slip Ring Ch 4</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body B-LOGIC2A fused5V,20AWG. Bidirectional3.3V9600: TeensyTX14 through1k resistor to RX; TX to TeensyRX15. No ring audio line or BUSY wire.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">23</Data></Cell>
@@ -305,7 +305,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">1kΩ 1/4W Resistor</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">In-line on DFPlayer RX pin for clean 3.3V/5V TTL</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">TeensyTX14 to DFPlayerRX command line only,3.3V UART. Not a voltage converter. DFPlayerTX directly to TeensyRX15.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">25</Data></Cell>
@@ -338,10 +338,10 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">28</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Sound Subsystem (Body)</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Audio Volume Potentiometer</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Unused / Not required</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">10kΩ Logarithmic Stereo Potentiometer</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Manual master volume adjustment knob for amp</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Wi-Fi volume control; default10/30 unless saved. No separate physical pot.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">29</Data></Cell>
@@ -401,10 +401,10 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">35</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Battery Voltage Telemetry Sensor</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Unused</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">FS-CVT01 sensor; user-selected Amazon.ca B0DQXT337L; no standalone display</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Battery sense+ via F6 1A and sense- to negative bus; separate factory5V/GND/data cable to receiver SENS port. Remote external-voltage display, not measured charge percentage. Never put12V on receiver/SENS supply pins; verify exact pinout.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Not needed: Teensy replies to receiver SENSOR polls with fresh VESC pack voltage/temperature. F6 empty; no sense cable. Voltage is not charge percentage.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">36</Data></Cell>
@@ -413,7 +413,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">FlySky FS-i6X 10-Channel 2.4GHz AFHDS 2A</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Mode 2 right-stick tank mixing and output directions must be verified on receiver monitor; SwB rates and VrA assignment remain transmitter setup items</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">No transmitter tank mix; Teensy mixes. CH1steer/2throttle/3holo/4dome/5SwB rates/6SwA enable/7VrA/8SwC trigger/9SwD random;10unused. Verify failsafe CH6OFF and centered sticks.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">37</Data></Cell>
@@ -422,7 +422,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">FlySky FS-iA6B 6/10-Ch iBus Receiver</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Mixed left/right receiver outputs to independent VESC PPM inputs; iBus signal to slip-ring Ch 3. Set neutral failsafe on both drive outputs.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body B-LOGIC5V. SERVO via body Lonely Binary HV1/LV1 to TeensyRX21; SENSOR single-wire HV2/LV2 to pin24,115200. No PPM or ring receiver line. TX20/RX25 unused.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">38</Data></Cell>
@@ -436,11 +436,11 @@
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">39</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Wiring &amp; Hardware</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Servo Patch Cables</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Keyed Signal Harness Connectors</Data></Cell>
     <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">6 pcs</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Standard 3-pin male-to-male servo extensions</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">VESC PPM leads use signal and ground only (remove center red +5V wire). Standard 3-pin leads for receiver and PCA9685 connections.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Matching COMM TX/RX/GND pigtails, receiver connectors and labelled detachable UART harnesses</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">No VESC PPM cables or supply pins. Keep PCA servo factory plugs, no unnecessary thin extensions. Short22AWG signal leads, strain relief and correct terminal ferrules.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">40</Data></Cell>
@@ -457,8 +457,8 @@
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Programming Cable</Data></Cell>
     <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 set</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Micro-USB (VESC) &amp; USB-C (ESP32)</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">For flashing firmware and tuning VESC Tool</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Data Micro-USB for Teensy4.1/VESC; data cable matching actual ESP32 socket</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Teensy VUSB/VIN cut once and carrier isolation checked before externalVIN plus USB. After cut externalVIN required. ESP32 flashed bare, removed from AstroPixels.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">42</Data></Cell>
@@ -467,16 +467,16 @@
     <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Second matching B09T954ZV1-equivalent 10-35V input / fixed 5V 10A converter</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Powers receiver, DFPlayer, and continuous dome servo. Fuse F3 (7.5A) on input. Never connect body and dome +5V rails together.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">F3 7.5A input; B-SERVO5A and B-LOGIC2A output branches. Powers Teensy,receiver,DFPlayer,body shifter and dome servo. Body/dome5V positives separate.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">43</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Brain &amp; I/O</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">3.3V / 5V Logic-Level Shifter</Data></Cell>
-    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Old 3.3V / 5V Logic-Level Shifter</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Being returned / Not used</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">4-channel bidirectional logic-level shifter (two channels used)</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Steps down 5V iBUS and Hall sensor signals to 3.3V for ESP32 inputs. LV=3.3V, HV=5V, common ground. Servo PWM and audio TX bypass shifter.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Old module listing max28,800bps; unsuitable for115200 iBUS</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Superseded by selected Lonely Binary kit item50. Do not install old modules.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">44</Data></Cell>
@@ -485,16 +485,16 @@
     <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 set</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">6-way blade fuse block with + and - feed studs and common negative bus</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Main 12V branch distribution. Battery feeds + stud through 25A main fuse and cutoff switch. F1: VESC (15A), F2: Empty, F3: Body buck (7.5A), F4: Dome buck (7.5A), F5: Amp (5A), F6: Telemetry sense (1A).</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Main25A and cutoff. F1VESC15A,F2empty,F3body7.5A,F4dome7.5A,F5amp5A,F6empty. One12V fuse block; no separate5V fuse boxes.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">45</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Local 5V Screw-Terminal Distribution</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
-    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2 assemblies</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Screw-terminal distribution strips (rated &gt;=15A) for body and dome</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Distributes 5V and ground locally to nearby modules. Body and dome 5V rails stay separate; grounds connect together.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body 5V Screw-Terminal Distribution</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Owned</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 assembly</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Owned screw-terminal distribution, separate from dome item20</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Continuity-check terminal pairs, correctly sized jumpers for5V/GND. B-SERVO5A and B-LOGIC2A inline branches; insulated fused electronics fan-out. No output bypass jumper.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">46</Data></Cell>
@@ -512,7 +512,52 @@
     <Cell ss:StyleID="Pending"><Data ss:Type="String">Verify availability</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 set</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Digital multimeter and DC-capable clamp meter or inline wattmeter</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">For verifying rail voltages (12V and 5V), continuity, and total system current draw under load.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Multimeter continuity/voltage plus USB diagnostics, VESC Tool and handheld display. No oscilloscope or logic analyzer. Total20A budget measurement requires rated inline/DC clamp meter; never DMM current mode across battery.</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">48</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body Controller</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Teensy 4.1</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">PJRC Teensy4.1,3.3V I/O; matching male headers if not preinstalled</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">14 terminals per BODY_CONTROLLER_WIRING.md; B-LOGIC2A VIN5V. Cut designated underside VUSB/VIN bridge once; verify isolation before ordinaryUSB plus externalVIN.</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">49</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body Controller</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Treedix Teensy Carrier</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Socketed screw-terminal carrier, Amazon.ca B09NXYWYK7</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">No perfboard/female sockets needed. Check terminal labels by continuity and no VIN/VUSB re-bridge. Standoffs, short22AWG logic harnesses; servo power bypasses carrier.</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">50</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body / Dome I/O</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Lonely Binary Logic-Level Converter Kit</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">Selected / Purchase not confirmed</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 kit; use2 four-channel boards</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Amazon.ca B0FFMLDYNY,27-piece MOSFET kit,10k pull-ups</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body ch1iBUSinput,ch2single-wiretelemetry,ch3servo; domech2Hall. LV externally supplied3.3V,HV respective fused5V,common ground. A/B labels alias LV/HV. Short leads; functional115200 checks without scope.</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">51</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Four 5V Inline Fuse Holders</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Owned</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">4</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Amazon.ca B0FDJYRGB7,12AWG leads,standard ATO/ATC blade</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Approved B-SERVO=5A,B-LOGIC=2A,D-SERVO=5A,D-LOGIC=3A. Fuse positive at takeoff before smaller branch leads; unfused grounds. Four holders only, no5V fuse boxes.</Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">52</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">5V Branch Blade Fuses</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">2A/3A needed;5A in holder assortment</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2x5A,1x2A,1x3A plus spares</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Standard automotive ATO/ATC matching item51; not mini-blade</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Indexed included assortment starts5A. Buy matching2A and3A separately. Do not increase approved ratings after a blown fuse; diagnose fault.</Data></Cell>
    </Row>
   </Table>
  </Worksheet>

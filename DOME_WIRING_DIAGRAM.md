@@ -1,203 +1,100 @@
-# R2-D2 System Wiring & Architecture Guide
+# Body/Dome Wiring and AstroPixels Connections
 
-This guide details the electrical connections between the body and dome, the slip ring pinout, and the logic-level wiring for the ESP32 dome controller.
+> **Target wiring, not current firmware:** Do not connect this wiring to the old ESP32-only firmware. Complete the firmware migration and flash both boards before combined testing.
 
-For wire gauges, fuse ratings, and shopping lists, see [POWER_HARNESS_GUIDE.md](POWER_HARNESS_GUIDE.md). For an interactive schematic of every terminal, open [wiring_visualizer.html](wiring_visualizer.html).
+Use [Body Controller Wiring](BODY_CONTROLLER_WIRING.md) for Teensy terminals and [Power Harness](POWER_HARNESS_GUIDE.md) for exact fuse/distribution wiring. The [interactive inspector](wiring_visualizer.html) is the terminal graph.
 
----
+## 1. Body components
 
-## 1. Six Core Design Principles
+Mount Teensy 4.1/Treedix, FS-iA6B receiver, body Lonely Binary four-channel shifter, DFPlayer and dual VESC in the body. The dome-rotation servo also stays in the body.
 
-1. **Unified ESP32 Foot Drive & Tank Mixing:** The FlySky receiver sits in the dome and communicates directly with the ESP32 over 115,200-baud digital iBUS. The ESP32 calculates differential tank mixing, speed rates, and safety timeouts in firmware, transmitting VESC packets down Slip Ring CH6 to the Flipsky Dual FSESC 4.20 over internal CAN bus (`ON: dual`). No body microcontroller board is required.
-2. **Firmware & Transmitter Speed Modes:** The ESP32 reads switch `SwB` (Slow 35%, Medium 70%, Fast 100%) and scales motor duty cycle in code, providing responsive cruise speeds without changing motor controller configs.
-3. **Isolated Body Sound System:** The DFPlayer Mini, HF82 (TPA3110) 12V Class-D amplifier, and speaker are mounted in the body behind the front vents. A dedicated ground-loop isolator in the line-level audio path prevents digital noise from bleeding into the speaker.
-4. **Unified Dome Brain:** The dome ESP32 runs [AstroPixels Plus Unified](ASTROPIXELS_PLUS_UNIFIED/README.md), managing logic displays, holoprojector LEDs, 6 holoprojector servos, sound triggering, dome rotation, and foot propulsion.
-5. **Center-Post Rotation & Homing:** A 35kg continuous-rotation servo in the body drives the dome pivot post directly. A KY-003 Hall effect sensor in the dome detects a stationary magnet on the post to find the forward 0° home position.
-6. **Two-Tier Power Safety:** Tier 1 is a 25A main fuse within 150mm of the battery. Tier 2 is an easily accessible high-current master cutoff switch. 250ms iBUS watchdog detection and VESC input timeouts ensure drive motors stop instantly if radio contact is lost.
+Body buck OUT+ feeds two branches: B-SERVO 5A for dome servo and B-LOGIC 2A for Teensy VIN, receiver, DFPlayer and body shifter HV. Teensy 3.3V supplies shifter LV. Grounds common. Body shifter channels: receiver SERVO ->HV1/LV1->RX21; receiver SENSOR <->HV2/LV2<->pin 24; pin 2->LV3/HV3->dome servo signal. Fourth channel unused.
 
----
+Each VESC gets direct3.3V TX/RX/GND: left TeensyTX1/RX0, right TX8/RX7. No CAN master/slave forwarding; internal CAN switch OFF. TeensyTX14->1k resistor->DFPlayerRX; DFPlayerTX->RX15.
 
-## 2. System Block Diagram
+## 2. Slip ring
 
-```mermaid
-flowchart TB
-    subgraph BODY [BODY - Power, Drive & Audio]
-        BAT[12V 20Ah LiFePO4 Battery]
-        FUSE_MAIN[25A Main Fuse]
-        CUTOFF[Master Cutoff Switch]
-        FBOX[12V Fuse Box with Negative Bus]
-        BUCK_B[Body 5V / 10A Buck Converter]
-        
-        VESC[Dual VESC 4.20 Controller - Switch ON: dual]
-        MOTOR_L[Left Hub Motor]
-        MOTOR_R[Right Hub Motor]
-        
-        DFPLAYER[DFPlayer Mini MP3 Player]
-        ISO[BESIGN Ground-Loop Isolator]
-        AMP[HF82 Class-D Amplifier]
-        SPK[2.5 inch Speaker]
-        
-        DOME_SERVO[35kg Continuous Rotation Servo]
-        POST[Dome Center Pivot Post]
-        MAG[Stationary Magnet at Post Base]
+| Contact | BODY end | DOME end | Function |
+| --- | --- | --- | --- |
+| CH1 | F4 7.5A fused battery positive | Dome buck IN+ | Dome 12V feed |
+| CH2 | Body ground bus | Dome ground / buck IN- | Common return |
+| CH3 | Teensy TX17 | ESP32 GPIO16 | Body to dome serial |
+| CH4 | Unconnected | Unconnected | Spare |
+| CH5 | Unconnected | Unconnected | Spare |
+| CH6 | Teensy RX16 | ESP32 GPIO17 | Dome to body serial |
 
-        %% Power routing
-        BAT --> FUSE_MAIN --> CUTOFF --> FBOX
-        BAT -->|Negative Feed| FBOX
-        FBOX -->|F1 15A| VESC
-        FBOX -->|F3 7.5A| BUCK_B
-        FBOX -->|F5 5A| AMP
+Verify numbering end-to-end with a multimeter. Insulate CH4/5 separately at both ends. CH3/6 use3.3V1152008N1; no translator. GPIO16/17 are the dedicated AstroPixels serial pins. Leave the header voltage pin disconnected;5V must never enter a UART pin.
 
-        %% Body 5V distribution
-        BUCK_B --> DFPLAYER
-        BUCK_B --> DOME_SERVO
+## 3. Dome power and selected shifter
 
-        %% Motor outputs
-        VESC ==>|Master Left| MOTOR_L
-        VESC ==>|Slave Right over CAN| MOTOR_R
+CH1/2 -> dome buck IN+/IN-. Buck OUT+/OUT- -> owned dome 5V/GND terminal groups using12AWG trunks. D-LOGIC3A feeds AstroPixels 5V screw terminal, Hall supply and shifter HV; D-SERVO 5A separately feeds PCA V+.
 
-        %% Dome drive
-        DOME_SERVO --> POST
+Use a four-channel **Lonely Binary B0FFMLDYNY** module; the old modules are being returned. HV/LV are externally supplied references, not regulator outputs.
 
-        %% Audio
-        DFPLAYER --> ISO --> AMP --> SPK
-    end
+| Dome shifter terminal | Wire |
+| --- | --- |
+| HV | D-LOGIC fused 5V |
+| LV | ESP32 3.3V |
+| GND | Dome ground |
+| HV2 / B2 | KY-003 Hall signal |
+| LV2 / A2 | GPIO19 / AUX5 |
+| Channels 1/3/4 | Unconnected |
 
-    subgraph RING [6-CHANNEL THROUGH-BORE SLIP RING]
-        CH1[CH1: Fused 12V Power]
-        CH2[CH2: Common Ground]
-        CH3[CH3: Spare - Insulated]
-        CH4[CH4: Audio Serial 9600 Baud]
-        CH5[CH5: Dome Servo PWM 3.3V]
-        CH6[CH6: VESC Drive UART 115200 Baud]
-    end
+Hall VCC is D-LOGIC5V and ground is dome ground. Set/record detected polarity during commissioning. Hall state is sent to Teensy every 50ms/on change for body-controlled homing.
 
-    subgraph DOME [DOME - Brain, Lights, Servos & Radio]
-        BUCK_D[Dome 5V / 10A Buck Converter]
-        RX[FlySky FS-iA6B Receiver]
-        TELEM[FS-CVT01 Voltage Sensor]
-        SHIFTER[3.3V / 5V Logic Level Shifter]
-        ESP32[AstroPixels ESP32 Brain]
-        PCA[PCA9685 16-Channel Servo Driver]
-        HALL[KY-003 Hall Effect Sensor]
-        
-        RLD[Rear Logic Display]
-        FLD[Front Logic Displays]
-        FPSI[Front PSI]
-        RPSI[Rear PSI]
-        HPS[3x Holoprojector LEDs]
-        
-        SERVOS[6x Holoprojector Servos MG90S]
+## 4. PCA9685: separate logic and servo power
 
-        BUCK_D --> ESP32
-        BUCK_D --> RX
-        BUCK_D --> PCA
-        BUCK_D --> RLD & FLD & FPSI & RPSI & HPS
+The AstroPixels I2C header letters are **G** ground, **V** supply, **C** clock, **D** data. Its voltage header pin is not the PCA logic supply.
 
-        RX -->|iBUS 5V| SHIFTER -->|LV1 3.3V to GPIO16| ESP32
-        RX <-->|SENS Port| TELEM
-        ESP32 --> FLD & RLD & FPSI & RPSI & HPS
-        ESP32 -->|I2C SDA/SCL| PCA --> SERVOS
-        HALL -->|5V Pulse| SHIFTER -->|3.3V to GPIO19| ESP32
-    end
+| AstroPixels / source | PCA9685 terminal |
+| --- | --- |
+| I2C D / GPIO21 | SDA |
+| I2C C / GPIO22 | SCL |
+| I2C G | Logic GND |
+| ESP32 3.3V | VCC |
+| D-SERVO 5A fused 5V | V+ screw terminal |
+| Dome ground,16AWG | Ground screw terminal |
 
-    %% Slip ring connections
-    FBOX -->|F4 7.5A| CH1 --> BUCK_D
-    CH1 -.->|12V Sense Tap| TELEM
-    FBOX -->|Negative Bus| CH2 --> BUCK_D
-    VESC -->|Port 3 Pin 5 TX 3.3V| CH3 -->|GPIO5 (AUX 3)| ESP32
-    ESP32 -->|GPIO17 direct 3.3V| CH4 -->|1k Resistor| DFPLAYER
-    ESP32 -->|GPIO4 direct 3.3V| CH5 --> DOME_SERVO
-    ESP32 -->|GPIO18 direct 3.3V (AUX 4)| CH6 -->|Port 3 COMM RX| VESC
-    HALL -.->|Sweeps past| MAG
-```
+**Leave I2C V disconnected.** No level shifter on I2C. Logic ground and servo ground are common on PCA9685; the heavy return still goes directly to its ground screw terminal, not through the small I2C ground lead.
 
----
+Use16AWG positive/negative power trunks and MG90S factory plugs. Align each plug to the labelled GND/V+/signal rows; wire colours do not override PCB labels. The PCA9685 is address **0x40**,50Hz servo output.
 
-## 3. Slip Ring 6-Channel Allocation
+| PCA channel | Servo |
+| --- | --- |
+| 0 | Front pan |
+| 1 | Front tilt |
+| 2 | Rear pan |
+| 3 | Rear tilt |
+| 4 | Top pan |
+| 5 | Top tilt |
+| 6-15 | Unused |
 
-A 30mm through-bore slip ring slides over the central pivot post to pass power and signals between body and dome:
+Test one servo at a time with horns removed, calibrate travel before mounting, then test all six without hitting mechanical stops. Stop for heat at the board/terminal/lead or any jam. Do not increase D-SERVO 5A after a fault. The shared fuse does not individually limit every servo overload.
 
-| Channel | Label | Direction | Origin | Destination | Description |
-| :---: | :--- | :---: | :--- | :--- | :--- |
-| **CH 1** | `+12V_DOME` | Body &rarr; Dome | Fuse F4 (7.5A) | Dome 5V Buck IN(+) | 12V power feed to the dome. Fused before entering the slip ring. |
-| **CH 2** | `GND_COMMON` | Body &harr; Dome | Fuse Box Negative Bus | Dome 5V Buck IN(&minus;) | Common power return and signal ground reference. |
-| **CH 3** | `VESC_TELEM` | Body &rarr; Dome | Dual VESC Port 3 Pin 5 (`TX`) | ESP32 GPIO5 (AUX 3) | 115,200-baud VESC telemetry packet stream (`COMM_GET_VALUES`). Direct 3.3V logic match; bypasses level shifter. |
-| **CH 4** | `SOUND_CMD` | Dome &rarr; Body | ESP32 GPIO17 (3.3V) | DFPlayer RX (via 1k&Omega; resistor) | 9,600-baud serial commands triggering sounds. Bypasses level shifter. |
-| **CH 5** | `DOME_PWM` | Dome &rarr; Body | ESP32 GPIO4 (3.3V) | Dome Continuous Servo Signal | 50Hz PWM controlling rotation speed and direction. Bypasses level shifter. |
-| **CH 6** | `VESC_UART` | Dome &rarr; Body | ESP32 GPIO18 (AUX 4) | Dual VESC Port 3 Pin 6 (`RX`) | 115,200-baud VESC packet stream. Direct 3.3V logic match; bypasses level shifter. |
+## 5. ESP32 signal map
 
-### Notes on Slip Ring Power & Ground
-* The slip ring carries **12V at ~4.5A peak**, not 5V at 10A. Stepping down to 5V inside the dome keeps voltage drop through the slip ring minimal.
-* **Never connect the body 5V and dome 5V outputs together.** Both buck converters share the common ground reference via CH2.
-* Battery voltage is monitored directly by the ESP32 via VESC telemetry on CH3, as well as on your transmitter using the **FS-CVT01 telemetry sensor** connected to the receiver in the dome, sensing incoming 12V on CH1.
+| Pin | Target function / AstroPixels connection |
+| --- | --- |
+| GPIO16 | Serial2 RX; ringCH3 from TeensyTX17 |
+| GPIO17 | Serial2 TX; ringCH6 to TeensyRX16 |
+| GPIO19 | Hall through dome shifter channel 2 / AUX5 |
+| GPIO21 | I2C SDA / D |
+| GPIO22 | I2C SCL / C |
+| GPIO15 | Front logic displays / FLD |
+| GPIO33 | Rear logic display / RLD |
+| GPIO32 | Front PSI / FPSI |
+| GPIO23 | Rear PSI / RPSI |
+| GPIO25 | Front holo LED / FHP |
+| GPIO26 | Rear holo LED / RHP |
+| GPIO27 | Top holo LED / THP |
+| GPIO2/4/5/18 | Unused / spare |
 
----
+The dedicated body protocol is the sole Serial2 reader at 115200. Firmware migration must disable the old MarcDuino serial reader on that UART; web/internal command dispatch remains. GPIO5 is no longer a UART input, avoiding use of a boot-strapping pin.
 
-## 4. Logic-Level Shifting & Wiring
+## 6. Programming and test order
 
-The ESP32 runs at 3.3V logic and is **not 5V tolerant**. A bidirectional 4-channel logic-level shifter in the dome steps down 5V incoming signals:
+Flash ESP32 **removed from AstroPixels**, then unplug USB before reinstalling with all power off. Never let a computer USB port power assembled lights/servos. Installed ESP32 updates require the planned acknowledged maintenance/OTA path.
 
-```
-  5V Side (High Voltage)           3.3V Side (Low Voltage)
-  ──────────────────────           ───────────────────────
-  Dome 5V Rail ─────────> [ HV ]   [ LV ] <───────── ESP32 3.3V Pin
-  Common Ground ────────> [GND ]   [GND ] <───────── Common Ground
-  Receiver iBUS (5V) ───> [HV1 ]   [LV1 ] ─────────> ESP32 GPIO16 (RX2)
-  KY-003 Hall Sensor ───> [HV2 ]   [LV2 ] ─────────> ESP32 GPIO19 (Homing)
-  (Unused) ─────────────> [HV3 ]   [LV3 ]
-  (Unused) ─────────────> [HV4 ]   [LV4 ]
-```
+Teensy uses external VIN with the factory VUSB/VIN link cut once and carrier checked for re-bridging; ordinary USB then supplies data/debug only. See the official cut illustration and exact continuity checks in [Commissioning](BODY_CONTROLLER_COMMISSIONING.md).
 
-| Signal | 5V Side (HV) | 3.3V Side (LV) | ESP32 Pin | Direction |
-| :--- | :--- | :--- | :--- | :--- |
-| **RC iBUS Stream** | Receiver iBUS Pin &rarr; HV1 | LV1 | GPIO16 (RX2) | Input to ESP32 |
-| **Dome Hall Sensor** | KY-003 Signal &rarr; HV2 | LV2 | GPIO19 (AUX5) | Input to ESP32 |
-
-### Signals Bypassing the Shifter
-* **VESC Telemetry UART (GPIO5 / AUX 3):** Connects directly from Dual VESC Port 3 Pin 5 (`TX`) through slip ring CH3 to ESP32 GPIO5. The VESC STM32 MCU transmits 3.3V logic natively.
-* **VESC Drive UART (GPIO18 / AUX 4):** Connects directly from GPIO18 through slip ring CH6 to Dual VESC Port 3 Pin 6 (`RX`). The VESC STM32 MCU inputs 3.3V logic natively.
-* **Dome Servo PWM (GPIO4):** Connects directly from GPIO4 through slip ring CH5 to the servo signal wire. The TD-8135MG-360 servo accepts 3.3V logic signals reliably.
-* **Audio Commands (GPIO17):** Connects directly from GPIO17 through slip ring CH4, through a 1k&Omega; resistor, into the DFPlayer RX pin. 3.3V UART drives the DFPlayer input cleanly.
-
----
-
-## 5. PCA9685 Servo Driver Wiring
-
-The PCA9685 16-channel PWM driver controls the 6 holoprojector micro servos (MG90S):
-
-```
-  ESP32 Pin                    PCA9685 Terminal
-  ─────────────────            ────────────────
-  ESP32 I2C Ground  ─────────> Logic GND
-  ESP32 3.3V Pin    ─────────> VCC (Logic Power)
-  GPIO22 (SCL)      ─────────> SCL
-  GPIO21 (SDA)      ─────────> SDA
-  Dome 5V Rail      ─────────> V+ (Green Screw Terminal - Servo Power)
-  Dome Ground       ─────────> GND (Green Screw Terminal - Servo Ground)
-```
-
-### Channel Allocation
-* **Channels 0 & 1:** Front Holoprojector (CH0 = Pan, CH1 = Tilt)
-* **Channels 2 & 3:** Rear Holoprojector (CH2 = Pan, CH3 = Tilt)
-* **Channels 4 & 5:** Top Holoprojector (CH4 = Pan, CH5 = Tilt)
-
-Keep default I2C address jumpers at `0x40`. Verify servo connector orientation (Ground = brown/black, Power = red, Signal = yellow/orange) before plugging in.
-
----
-
-## 6. AstroPixels Motherboard Display Connections
-
-All LED displays plug into the standard factory AstroPixels headers on the motherboard:
-
-| Display Header | ESP32 GPIO | Function |
-| :--- | :---: | :--- |
-| **FLD** | GPIO 15 | Front Logic Displays (FLD1 and FLD2 daisy-chained) |
-| **RLD** | GPIO 33 | Rear Logic Display |
-| **FPSI** | GPIO 32 | Front Process State Indicator |
-| **RPSI** | GPIO 23 | Rear Process State Indicator |
-| **FHP** | GPIO 25 | Front Holoprojector LED Core |
-| **RHP** | GPIO 26 | Rear Holoprojector LED Core |
-| **THP** | GPIO 27 | Top Holoprojector LED Core |
-
-Motherboard power comes from the dome 5V distribution block into the motherboard's main 5V screw terminal.
+First power logic only; validate UART/Hall/I2C before adding servo power. Rotate dome through full turns while watching communication counts/errors. Complete the failure matrix and unloaded motion checks before engaging drive gears or floor testing.

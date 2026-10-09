@@ -30,8 +30,11 @@
     .wire { cursor: pointer; }
     .wire .hit { fill: none; stroke: transparent; stroke-width: 18; }
     .wire .line { fill: none; stroke-width: 3; }
+    .wire.ground .line { filter: drop-shadow(0 0 1px #cbd5e1); }
+    .wire:hover .line, .wire:focus-visible .line { stroke-width: 5; filter: drop-shadow(0 0 3px #fff); }
     .wire.selected .line { stroke-width: 7; filter: drop-shadow(0 0 4px #fff); }
     .wire.trace-muted .line { opacity: .15; }
+    .wire:hover .line, .wire:focus-visible .line, .wire.selected .line { opacity: 1; }
     .dimmed { display: none; }
     #schedule { padding: 16px 20px; overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; font-size: 13px; }
@@ -58,7 +61,9 @@
   <header>
     <h1>R2-D2 Power Harness and Pin-to-Pin Inspector</h1>
     <p class="notice">Schematic layout. Always verify physical connector pin markings before wiring.</p>
-    <p class="notice"><strong>Level shifting & Serial:</strong> The FlySky receiver is mounted in the dome. Receiver iBUS and dome Hall signals step down from 5V to 3.3V before entering the ESP32. VESC bidirectional UART (GPIO18 TX down CH6, GPIO5 RX up CH3), dome PWM, and audio TX operate at native 3.3V logic and bypass the shifter.</p>
+    <p class="notice">Assemble only with all power disconnected.</p>
+    <p class="notice"><strong>Body / dome ownership:</strong> Teensy 4.1 in Treedix B09NXYWYK7 owns the body FS-iA6B receiver, two independent full-duplex VESC UARTs (CAN switch OFF), bidirectional DFPlayer UART, and dome-servo pulses through body shifter CH3. Dome ESP32 owns Hall GPIO19 through dome shifter CH2, I2C and lighting. Direct 3.3V body link: CH3 TX17 → GPIO16 RX; CH6 GPIO17 TX → RX16. CH4/5 are insulated spares.</p>
+    <p class="notice"><strong>USB / power:</strong> VUSB/VIN trace isolation is approved but not physically done. Follow the Teensy 4.1 underside cut and unpowered multimeter checks in <a href="BODY_CONTROLLER_WIRING.md">the body wiring guide</a>; verify no carrier re-bridge. After isolation, external VIN is required even with normal USB attached. Keep independent 5V positives and common grounds.</p>
     <div class="controls">
       <label for="filter">Circuit</label>
       <select id="filter">
@@ -92,14 +97,16 @@
       <aside id="inspector" aria-live="polite">
         <h2>Harness inspector</h2>
         <p>Click any wire or component to inspect its terminals, gauge, fuse protection, and assembly notes. Selected wires are highlighted in the diagram. Drag the canvas to pan; use the zoom buttons or mouse wheel to zoom.</p>
-        <p>Red: battery positive. Purple: body 5V. Pink: dome 5V. Dashed grey: ground return. I2C SDA/SCL: blue/green. Motor phases U/V/W: orange/violet/blue. Hall H1/H2/H3: yellow/blue/green. Holo CH0-5: yellow/blue/green/violet/orange/pink. Cyan: slip-ring paths. Colors identify diagram circuits, not required physical wire jackets.</p>
-        <p><strong>Do not join the two 5V positive rails. Do not fuse ground. Ring CH3 carries live VESC telemetry up to dome ESP32 AUX 3 (GPIO 5). Leave VESC COMM 5V/3.3V/ADC and motor temperature leads unconnected.</strong></p>
+        <p><strong>Diagram colors:</strong> Red: positive supplies (12V, 5V, 3.3V). Dashed black with a light outline: ground. Body and dome 5V positives are still independent; color does not imply continuity.</p>
+        <p>Body-link CH3: cyan; CH6: amber. Left VESC TX/RX: sky blue/indigo. Right VESC TX/RX: lime/green. DFPlayer command/feedback: pink/violet. Receiver iBUS: yellow; SENSOR: peach. Dome-servo pulses: lavender; home Hall: mint. Each signal keeps its color across ring contacts and both sides of its translator.</p>
+        <p>I2C SDA/SCL: blue/teal. Motor phases U/V/W: orange/violet/blue. Motor Hall H1/H2/H3: yellow/blue/green. Holo CH0-5: yellow/blue/green/violet/orange/pink. Hover/focus thickens a wire; selected wires glow. Signal colors are diagram tracing aids, not physical wire-jacket requirements.</p>
+        <p><strong>Four owned inline 5V holders:</strong> Body servo 5A; body electronics 2A; dome PCA9685 V+ 5A; dome electronics/lighting 3A. No 5V fuse boxes. Grounds unfused. VESC COMM power/ADC, single RECEIVER connector, CAN/SWD and F2/F6 unused. BTL speaker: neither lead is ground. Analog isolator remains intact.</p>
       </aside>
     </div>
     <section id="schedule">
       <h2>Terminal-by-terminal wire schedule</h2>
       <p class="small" id="count"></p>
-      <p class="small">Use the filter dropdown and search bar to find specific circuits. Wire gauges show recommended added extensions. Only the 12V fuse box has fused branch outputs; the 5V terminal blocks distribute power across shared screw buses.</p>
+      <p class="small">Use All circuits and clear search before printing the complete schedule. Wire gauges show recommended added extensions. Owned 5V screw buses feed four B0FDJYRGB7 inline standard-blade holders with 12AWG leads: body servo 5A, body electronics 2A, dome PCA9685 V+ 5A, dome electronics/lighting 3A. Separate insulated electronics fan-outs carry fused outputs only. Obtain matching 2A/3A blades; holder lead gauge does not set downstream protection. Grounds remain unfused. All wiring is planned, not installed or commissioned.</p>
       <table>
         <thead><tr><th>ID</th><th>From</th><th>To</th><th>Wire / protection</th><th>Assembly and verification</th></tr></thead>
         <tbody id="wire-table"></tbody>
@@ -156,34 +163,46 @@
         "F3 7.5A",
         "F4 7.5A",
         "F5 5A",
-        "F6 1A",
+        "F6 UNUSED",
         "NEGATIVE BUS"
       ],
       "fuses": {
         "F1": 15,
         "F3": 7.5,
         "F4": 7.5,
-        "F5": 5,
-        "F6": 1
+        "F5": 5
       },
-      "note": "Integrated negative bus. + FEED receives battery+ through main fuse/cutoff; - FEED receives battery- directly. F1 supplies ONE shared dual-VESC input; F2 empty/unused, not paralleled. Other positive outputs individually fused. NEGATIVE BUS tied internally to - FEED, never to+. Verify >=32V DC, >=30A total, F1 holder/circuit >=15A and other circuits >=their selected fuses; negative bus >=30A. No negative fuses."
+      "note": "Integrated negative bus. + FEED receives battery+ through main fuse/cutoff; - FEED receives battery- directly. F1 supplies ONE shared dual-VESC input; F2 empty/unused, not paralleled. Other positive outputs individually fused. NEGATIVE BUS tied internally to - FEED, never to+. Verify >=32V DC, >=30A total, F1 holder/circuit >=15A and other circuits >=their selected fuses; negative bus >=30A. No negative fuses. F6 empty spare: no FS-CVT01 installed.",
+      "connections": [
+        [
+          "- FEED",
+          "NEGATIVE BUS"
+        ]
+      ]
     },
     "driveSupply": {
       "name": "Dual FSESC4.20 shared power",
       "area": "ONE bare-wire input; both channels internal",
       "x": 50,
-      "y": 470,
+      "y": 546,
       "ports": [
         "B+",
-        "B-"
+        "B-",
+        "RECEIVER GND UNUSED",
+        "RECEIVER 5V UNUSED",
+        "RECEIVER SIN UNUSED",
+        "CAN 1 UNUSED",
+        "CAN 2 UNUSED",
+        "SWD 1 UNUSED",
+        "SWD 2 UNUSED"
       ],
-      "note": "User confirms one bare-wire battery input pair, no connector. F1 15A feeds factory positive via12AWG extension and gauge-matched rated crimp splice; shared negative to bus. Verify lead polarity/gauge and inrush. No external split/parallel fuse outputs. Logical motor channels powered internally; each has own microUSB for configuration. Both start at5A battery-current max each; phase-current ceiling unresolved."
+      "note": "User confirms one bare-wire battery input pair, no connector. F1 15A feeds factory positive via12AWG extension and gauge-matched rated crimp splice; shared negative to bus. Verify lead polarity/gauge and inrush. No external split/parallel fuse outputs. Logical motor channels powered internally; each has own microUSB for configuration. Both start at5A battery-current max each; phase-current ceiling unresolved. Connector inventory: ONE shared RECEIVER GND/5V/SIN connector, two COMM, two CAN, two USB, two motor Hall, two SWD, two phase sets, one battery input. RECEIVER/SIN, CAN and SWD unused. Set internal CAN switch OFF; no CAN forwarding."
     },
     "charger": {
       "name": "ECO-WORTHY LiFePO4 charger",
       "area": "Purchased; external14.4V / 9A",
       "x": 50,
-      "y": 800,
+      "y": 308,
       "ports": [
         "FUSED+",
         "-"
@@ -194,33 +213,49 @@
       "name": "Body fixed 5V / 10A buck",
       "area": "Body electronics plate",
       "x": 430,
-      "y": 650,
+      "y": 308,
       "ports": [
         "IN+",
         "IN-",
         "OUT+",
         "OUT-"
       ],
-      "note": "Amazon B09T954ZV1: listing 10-35V input, fixed5V/10A, non-isolated. Confirm actual unit markings. Mount for airflow; do not trim to5.05V or assume lead colors."
+      "note": "Amazon B09T954ZV1: listing 10-35V input, fixed5V/10A, non-isolated. Confirm actual unit markings. Mount for airflow; do not trim to5.05V or assume lead colors.",
+      "connections": [
+        [
+          "IN-",
+          "OUT-"
+        ]
+      ]
     },
     "body5": {
       "name": "Body 5V terminal distribution",
-      "area": "Beside body buck",
-      "x": 810,
-      "y": 650,
+      "area": "Body beside buck",
+      "x": 430,
+      "y": 594,
       "ports": [
         "FEED",
         "GND",
         "SERVO +",
-        "DFPLAYER +"
+        "ELECTRONICS +"
       ],
-      "note": "User-selected screw-terminal strip, NOT a fused block. FEED and named+outputs share 5V; GND is a separate common negative bus. Powers dome rotation servo and DFPlayer Mini. Receiver is mounted in dome."
+      "note": "Owned screw-terminal distribution, NOT a fuse box. FEED and takeoffs share unfused body 5V only. Each takeoff goes immediately to its inline fuse before any smaller branch cable. GND is a separate unfused common return.",
+      "connections": [
+        [
+          "FEED",
+          "SERVO +"
+        ],
+        [
+          "FEED",
+          "ELECTRONICS +"
+        ]
+      ]
     },
     "ringBody": {
       "name": "Slip ring: BODY ends",
       "area": "Fixed body side",
       "x": 1190,
-      "y": 650,
+      "y": 476,
       "ports": [
         "CH1",
         "CH2",
@@ -229,13 +264,21 @@
         "CH5",
         "CH6"
       ],
-      "note": "6 contacts, 10A/contact, 17AWG leads. CH1 12V feed, CH2 ground, CH3 VESC telemetry RX, CH4 audio TX, CH5 dome PWM, CH6 VESC UART TX."
+      "note": "Six contacts, 10A/contact, 17AWG leads. CH1 F4 7.5A-fused 12V, CH2 common ground. CH3 Teensy TX17 -> ESP32 GPIO16 RX; CH6 ESP32 GPIO17 TX -> Teensy RX16, direct 3.3V full-duplex 115200 baud. CH4/CH5 spare, insulate both ends. No 5V-positive cross-link.",
+      "portLabels": {
+        "CH1": "CH1 / F4 7.5A-fused 12V",
+        "CH2": "CH2 / common ground",
+        "CH3": "CH3 / body to dome serial",
+        "CH4": "CH4 / SPARE insulated",
+        "CH5": "CH5 / SPARE insulated",
+        "CH6": "CH6 / dome to body serial"
+      }
     },
     "ringDome": {
       "name": "Slip ring: DOME ends",
       "area": "Rotating dome side",
       "x": 1570,
-      "y": 650,
+      "y": 70,
       "ports": [
         "CH1",
         "CH2",
@@ -244,82 +287,106 @@
         "CH5",
         "CH6"
       ],
-      "note": "Single contact each for power and signals. CH3 VESC telemetry up to ESP32 AUX 3, CH6 VESC drive UART down to Master VESC."
+      "note": "Six contacts, 10A/contact, 17AWG leads. CH1 F4 7.5A-fused 12V, CH2 common ground. CH3 Teensy TX17 -> ESP32 GPIO16 RX; CH6 ESP32 GPIO17 TX -> Teensy RX16, direct 3.3V full-duplex 115200 baud. CH4/CH5 spare, insulate both ends. No 5V-positive cross-link.",
+      "portLabels": {
+        "CH1": "CH1 / F4 7.5A-fused 12V",
+        "CH2": "CH2 / common ground",
+        "CH3": "CH3 / body to dome serial",
+        "CH4": "CH4 / SPARE insulated",
+        "CH5": "CH5 / SPARE insulated",
+        "CH6": "CH6 / dome to body serial"
+      }
     },
     "domeBuck": {
       "name": "Dome fixed 5V / 10A buck",
       "area": "Dome mounting plate",
-      "x": 1950,
-      "y": 650,
+      "x": 1570,
+      "y": 404,
       "ports": [
         "IN+",
         "IN-",
         "OUT+",
         "OUT-"
       ],
-      "note": "Existing converter assigned to dome; second matching converter for body. Battery voltage enters here, not AstroPixels. Non-isolated grounds remain common."
+      "note": "Existing converter assigned to dome; second matching converter for body. Battery voltage enters here, not AstroPixels. Non-isolated grounds remain common.",
+      "connections": [
+        [
+          "IN-",
+          "OUT-"
+        ]
+      ]
     },
     "dome5": {
       "name": "Dome 5V terminal distribution",
-      "area": "Beside dome buck",
-      "x": 2330,
-      "y": 650,
+      "area": "Dome beside buck",
+      "x": 1570,
+      "y": 690,
       "ports": [
         "FEED",
         "GND",
         "PCA +",
-        "LIGHTS +",
-        "LOGIC +",
-        "RECEIVER +"
+        "ELECTRONICS +"
       ],
-      "note": "User-selected screw-terminal strip, NOT a fused block. All+outputs share dome 5V; GND is a separate common negative bus. Powers PCA9685, AstroPixels lights, ESP32, and FlySky receiver."
+      "note": "Owned screw-terminal distribution, NOT a fuse box. FEED and takeoffs share unfused dome 5V only. Each takeoff goes immediately to its inline fuse before any smaller branch cable. GND is a separate unfused common return; never join body/dome 5V positives.",
+      "connections": [
+        [
+          "FEED",
+          "PCA +"
+        ],
+        [
+          "FEED",
+          "ELECTRONICS +"
+        ]
+      ]
     },
     "receiver": {
       "name": "FlySky FS-iA6B",
-      "area": "Dome electronics plate, near shifter",
-      "x": 1570,
-      "y": 1750,
+      "area": "Body electronics plate, beside Teensy/shifter",
+      "x": 810,
+      "y": 618,
       "ports": [
         "5V",
         "GND",
         "iBUS SIG",
-        "SENS 5V",
-        "SENS GND",
+        "SENS 5V UNUSED",
+        "SENS GND UNUSED",
         "SENS DATA"
       ],
-      "note": "Mounted in dome. Powered from dome 5V strip. iBUS SIG goes directly to shifter HV1 -> LV1 -> ESP32 GPIO16. SENS port connects to FS-CVT01 telemetry module."
+      "note": "Body FS-iA6B on fused 2A body electronics rail. SERVO iBUS signal -> body shifter B1/HV1 -> A1/LV1 -> Teensy RX21. SENSOR data -> B2/HV2 -> A2/LV2 -> half-duplex open-drain TX24. Keep receiver harness short. SENSOR 5V/GND unused: common receiver supply/reference already connected; Teensy is the only sensor-bus responder. CH6/SwA drive enable; receiver failsafe CH6 OFF. No FS-CVT01."
     },
     "domeServo": {
       "name": "TD-8135MG-360 dome servo",
       "area": "Body center-post mount",
-      "x": 810,
-      "y": 1150,
+      "x": 430,
+      "y": 1356,
       "ports": [
         "5V",
         "GND",
         "PWM"
       ],
-      "note": "16AWG supply extension from body terminal distribution; no5V output fuse by user decision. Verify factory lead normal-load rating and measured load; fault protection unverified. No servo current through receiver."
+      "note": "Body pin2 through body MOSFET channel3 provides 5V servo pulses. Separate 5A-fused body 5V feed and unfused 16AWG return; no servo current through Teensy/receiver. Verify factory lead and connector ratings; keep mechanism clear."
     },
     "dfplayer": {
       "name": "DFPlayer Mini",
       "area": "Body sound plate",
-      "x": 50,
-      "y": 1250,
+      "x": 1190,
+      "y": 810,
       "ports": [
         "5V",
         "GND",
         "RX",
+        "TX",
+        "BUSY UNUSED",
         "DAC_L",
         "DAC_GND"
       ],
-      "note": "FAT32 /01 numbered files. DAC line output feeds amplifier, not SPK1/SPK2. Simplex RX through1k resistor; no TX/BUSY wiring."
+      "note": "Body DFPlayer on 2A-fused body electronics feed. Bidirectional native 3.3V UART: Teensy TX14 via 1k ohm series resistor to RX; TX to Teensy RX15. BUSY unused. FAT32 /01 numbered files. DAC line output via analog isolator, never SPK1/SPK2."
     },
     "amp": {
       "name": "HF82 / TPA3110 amplifier",
       "area": "Body sound plate; solder-pad connections",
-      "x": 430,
-      "y": 1450,
+      "x": 1190,
+      "y": 1454,
       "ports": [
         "12V",
         "POWER GND",
@@ -330,25 +397,11 @@
       ],
       "note": "Selected AmazonB09F2XR9MN lists8-26V DC,4-10ohm speakers,2x15W; nominal12V battery including14.6V full charge is within listed range. All connections solder-style: verify pad markings, anchor wires and insulate joints. Current drawing uses left speaker; optional right speaker uses separateR+/R- and DAC_R via isolator ring/R, never join channel negatives. WiFi sets DFPlayer volume; default10/30 unless saved preference exists. Confirm actual board markings before power."
     },
-    "telemetry": {
-      "name": "FS-CVT01 voltage telemetry",
-      "area": "Dome electronics plate, near receiver",
-      "x": 1570,
-      "y": 2050,
-      "ports": [
-        "SENSE+",
-        "SENSE-",
-        "SUPPLY 5V",
-        "GND",
-        "DATA"
-      ],
-      "note": "FS-CVT01 voltage sensor mounted in dome beside receiver. Senses incoming 12V dome feed from Slip Ring CH1."
-    },
     "isolator": {
       "name": "BESIGN 3.5mm audio isolator",
       "area": "TRS screw adapters at source/amp ends",
-      "x": 50,
-      "y": 1650,
+      "x": 1190,
+      "y": 1168,
       "ports": [
         "IN L",
         "IN GND",
@@ -360,8 +413,8 @@
     "speaker": {
       "name": "8ohm speaker",
       "area": "Body acoustic vents",
-      "x": 810,
-      "y": 1850,
+      "x": 1190,
+      "y": 1788,
       "ports": [
         "+",
         "-"
@@ -369,15 +422,18 @@
       "note": "Connect across selected amplifier channel L+/L-. Neither speaker lead to chassis/common ground; do not parallel stereo amplifier outputs."
     },
     "leftVesc": {
-      "name": "Left VESC (slave mode OFF)",
+      "name": "Left VESC (direct independent UART)",
       "area": "Logical channel; shared dual-controller supply",
       "x": 50,
-      "y": 2050,
+      "y": 952,
       "ports": [
         "COMM RX",
         "COMM TX",
         "COMM GND",
         "COMM 5V UNUSED",
+        "COMM 3.3V UNUSED",
+        "COMM ADC UNUSED",
+        "COMM ADC2 UNUSED",
         "PHASE U",
         "PHASE V",
         "PHASE W",
@@ -388,15 +444,21 @@
         "H3",
         "TEMP UNUSED"
       ],
-      "note": "Master VESC (CAN ID 1). Receives digital UART drive packets from Slip Ring CH6 on Port 3 COMM RX; transmits live telemetry up Slip Ring CH3 via Port 3 COMM TX. Internal CAN switch set to ON: dual."
+      "note": "Independent full-duplex 3.3V UART to Teensy Serial1 TX1/RX0, 115200 baud. COMM TX/RX crossed; explicit common COMM GND reference. Internal CAN switch OFF; disable CAN forwarding on both controllers. COMM 5V/3.3V/ADC/ADC2 and motor TEMP unused. Both motor channels use ONE shared 15A/12AWG supply; each USB configures its controller."
     },
     "rightVesc": {
-      "name": "Right VESC (independent)",
+      "name": "Right VESC (direct independent UART)",
       "area": "Logical channel; same physical dual board",
       "x": 430,
-      "y": 2050,
+      "y": 1618,
       "ports": [
-        "CAN LINK",
+        "COMM RX",
+        "COMM TX",
+        "COMM GND",
+        "COMM 5V UNUSED",
+        "COMM 3.3V UNUSED",
+        "COMM ADC UNUSED",
+        "COMM ADC2 UNUSED",
         "PHASE U",
         "PHASE V",
         "PHASE W",
@@ -407,13 +469,13 @@
         "H3",
         "TEMP UNUSED"
       ],
-      "note": "Slave VESC (CAN ID 2). Driven over internal CAN bus via COMM_FORWARD_CAN packets from Master."
+      "note": "Independent full-duplex 3.3V UART to Teensy Serial2 TX8/RX7, 115200 baud. COMM TX/RX crossed; explicit common COMM GND reference. Internal CAN switch OFF; disable CAN forwarding on both controllers. COMM 5V/3.3V/ADC/ADC2 and motor TEMP unused. Both motor channels use ONE shared 15A/12AWG supply; each USB configures its controller."
     },
     "leftMotor": {
       "name": "Left Razor hub/wheel motor",
       "area": "Left foot via shoulder",
       "x": 50,
-      "y": 2600,
+      "y": 1526,
       "ports": [
         "PHASE A",
         "PHASE B",
@@ -430,7 +492,7 @@
       "name": "Right Razor hub/wheel motor",
       "area": "Right foot via shoulder",
       "x": 430,
-      "y": 2600,
+      "y": 2192,
       "ports": [
         "PHASE A",
         "PHASE B",
@@ -447,7 +509,7 @@
       "name": "KY-003 dome home sensor",
       "area": "Rotating dome hub",
       "x": 1570,
-      "y": 1150,
+      "y": 2216,
       "ports": [
         "5V",
         "GND",
@@ -456,35 +518,52 @@
       "note": "Magnet stays stationary; sensor output level-shifted toGPIO19. Confirm module terminal markings; rotate by hand to test."
     },
     "shifter": {
-      "name": "Owned level shifter: 2ch used",
-      "area": "Dome electronics plate",
+      "name": "Lonely Binary dome MOSFET shifter",
+      "area": "Dome near Hall/ESP32",
       "x": 1570,
-      "y": 1450,
+      "y": 1762,
       "ports": [
         "HV 5V",
         "LV 3.3V",
         "GND",
-        "HV1 iBUS IN 5V",
-        "LV1 iBUS OUT 3.3V",
+        "HV1 UNUSED",
+        "LV1 UNUSED",
         "HV2 Hall IN 5V",
-        "LV2 Hall OUT 3.3V"
+        "LV2 Hall OUT 3.3V",
+        "HV3 UNUSED",
+        "LV3 UNUSED",
+        "HV4 UNUSED",
+        "LV4 UNUSED"
       ],
-      "note": "Actual labels: LV1,LV2,LV,GND,LV3,LV4 and HV1,HV2,HV,GND,HV3,HV4. Two bidirectional pairs used as incoming paths: HV1->LV1->GPIO16 for iBUS; HV2->LV2->GPIO19 for dome home Hall. Seven external wires: four signal wires plus HV5V,LV3.3V and one common ground. Verify both GND pins have continuity with board unpowered; then one ground connection suffices. HV/LV are references, not a regulator. Confirm clean115200baud translation. PWM/audio bypass it; channels3/4 unused. Never directly short HV to LV."
+      "note": "Selected B0FFMLDYNY kit, one four-channel board here; old shifters returned. LV1-LV4 aliases mean PCB A1-A4; HV1-HV4 mean PCB B1-B4. Known 10k ohm pull-ups. External LV/HV references, no voltage generation. Only CH2 used: Hall 5V -> GPIO19. CH1/3/4 unused, insulated. Verify supplied PCB labels/channel pairing and ground continuity unpowered. UARTs to both VESCs, DFPlayer and body/dome link bypass shifters.",
+      "portLabels": {
+        "HV1 UNUSED": "B1 / HV1 UNUSED",
+        "LV1 UNUSED": "A1 / LV1 UNUSED",
+        "HV2 Hall IN 5V": "B2 / HV2 Hall IN 5V",
+        "LV2 Hall OUT 3.3V": "A2 / LV2 Hall OUT 3.3V",
+        "HV3 UNUSED": "B3 / HV3 UNUSED",
+        "LV3 UNUSED": "A3 / LV3 UNUSED",
+        "HV4 UNUSED": "B4 / HV4 UNUSED",
+        "LV4 UNUSED": "A4 / LV4 UNUSED",
+        "LV 3.3V": "LV / A-side 3.3V reference",
+        "HV 5V": "HV / B-side 5V reference",
+        "GND": "Shared GND (verify both ground pins)"
+      }
     },
     "esp": {
       "name": "AstroPixels ESP32: PLUS firmware",
       "area": "Motherboard headers; not bare ESP32 pins",
       "x": 1950,
-      "y": 1150,
+      "y": 70,
       "ports": [
         "5V TERMINAL",
         "GND",
         "3.3V",
         "GPIO16 RX",
         "GPIO19 HALL",
-        "GPIO5 RX",
-        "GPIO18 TX",
-        "GPIO4 PWM",
+        "GPIO5 UNUSED",
+        "GPIO18 UNUSED",
+        "GPIO4 UNUSED",
         "GPIO17 TX",
         "GPIO21 SDA",
         "GPIO22 SCL",
@@ -500,20 +579,53 @@
       ],
       "portLabels": {
         "3.3V": "3V3 header supply",
-        "GPIO5 RX": "AUX 3 / GPIO5 VESC RX",
-        "GPIO18 TX": "AUX 4 / GPIO18 VESC TX",
         "GPIO21 SDA": "I2C D / GPIO21 SDA",
         "GPIO22 SCL": "I2C C / GPIO22 SCL",
         "I2C G": "I2C G / ground",
-        "I2C V UNUSED": "I2C V: LEAVE UNCONNECTED"
+        "I2C V UNUSED": "I2C V: LEAVE UNCONNECTED",
+        "GPIO16 RX": "Serial2 RX / GPIO16 from Teensy",
+        "GPIO17 TX": "Serial2 TX / GPIO17 to Teensy",
+        "GPIO5 UNUSED": "AUX3 GPIO5 UNUSED",
+        "GPIO18 UNUSED": "AUX4 GPIO18 UNUSED",
+        "GPIO4 UNUSED": "AUX2 GPIO4 UNUSED"
       },
-      "note": "AstroPixels Plus unified brain. Receives iBUS on GPIO16, homing Hall on GPIO19, VESC telemetry on GPIO5 (AUX 3). Transmits VESC UART on GPIO18 (AUX 4), dome PWM on GPIO4, audio TX on GPIO17. Direct 3.3V I/O bypasses shifter."
+      "note": "Target AstroPixels dome controller after firmware migration. Serial2 RX GPIO16 and TX GPIO17 exclusively carry body link; disable legacy serial MarcDuino parser on this UART. GPIO19 Hall via dome shifter CH2. SDA21/SCL22 direct 3.3V PCA9685 I2C, I2C 5V header unused. Owns lighting/holo servos/Wi-Fi/choreography, not VESC/receiver/DFPlayer/dome-servo output. Fused 3A electronics/lighting rail supplies all factory S/V/G light sockets; internal connections below represent their positive supply conductors only.",
+      "connections": [
+        [
+          "5V TERMINAL",
+          "FLD"
+        ],
+        [
+          "5V TERMINAL",
+          "RLD"
+        ],
+        [
+          "5V TERMINAL",
+          "FPSI"
+        ],
+        [
+          "5V TERMINAL",
+          "RPSI"
+        ],
+        [
+          "5V TERMINAL",
+          "FHP"
+        ],
+        [
+          "5V TERMINAL",
+          "RHP"
+        ],
+        [
+          "5V TERMINAL",
+          "THP"
+        ]
+      ]
     },
     "pca": {
       "name": "PCA9685 at default0x40",
       "area": "Green power terminal + separate logic header",
       "x": 2330,
-      "y": 1250,
+      "y": 70,
       "ports": [
         "V+ 5V",
         "GND",
@@ -534,13 +646,13 @@
         "VCC 3.3V": "Logic header VCC / 3.3V",
         "LOGIC GND": "Logic header GND"
       },
-      "note": "With board disconnected/unpowered, confirm unlabeled green screw terminal has near-zero resistance to markedGND pin; confirmV+ terminal connects to servoV+ row. Only then connect dome5V toV+ and domeground to confirmed terminal. Logic headerVCC gets3V3, NOT5V. SDA/SCL pull-ups must use3.3V. Servo header ground rail and logicGND share ground; verify PCB/header aggregate current and individual lead protection."
+      "note": "With board disconnected/unpowered, confirm unlabeled green screw terminal has near-zero resistance to markedGND pin; confirmV+ terminal connects to servoV+ row. Only then connect dome5V toV+ and domeground to confirmed terminal. Logic headerVCC gets3V3, NOT5V. SDA/SCL pull-ups must use3.3V. Servo header ground rail and logicGND share ground; verify PCB/header aggregate current and individual lead protection. V+ feed is direct from dome 5A inline fuse, 16AWG positive and 16AWG unfused return. Six standard three-pin servo sockets CH0-5; address 0x40. Logic VCC remains separate ESP32 3.3V, I2C V/5V header unused."
     },
     "lights": {
       "name": "Factory AstroPixels light boards",
       "area": "Dome bezels and holos",
       "x": 1950,
-      "y": 2050,
+      "y": 740,
       "ports": [
         "FLD S/V/G",
         "RLD S/V/G",
@@ -556,7 +668,7 @@
       "name": "Front holo pan MG90S",
       "area": "Dome front gimbal",
       "x": 2330,
-      "y": 1850,
+      "y": 548,
       "ports": [
         "5V",
         "GND",
@@ -568,7 +680,7 @@
       "name": "Front holo tilt MG90S",
       "area": "Dome front gimbal",
       "x": 2330,
-      "y": 2100,
+      "y": 810,
       "ports": [
         "5V",
         "GND",
@@ -580,7 +692,7 @@
       "name": "Rear holo pan MG90S",
       "area": "Dome rear gimbal",
       "x": 2330,
-      "y": 2350,
+      "y": 1072,
       "ports": [
         "5V",
         "GND",
@@ -592,7 +704,7 @@
       "name": "Rear holo tilt MG90S",
       "area": "Dome rear gimbal",
       "x": 2330,
-      "y": 2600,
+      "y": 1334,
       "ports": [
         "5V",
         "GND",
@@ -604,7 +716,7 @@
       "name": "Top holo pan MG90S",
       "area": "Dome top gimbal",
       "x": 1950,
-      "y": 2600,
+      "y": 1336,
       "ports": [
         "5V",
         "GND",
@@ -615,8 +727,8 @@
     "topTilt": {
       "name": "Top holo tilt MG90S",
       "area": "Dome top gimbal",
-      "x": 1570,
-      "y": 2600,
+      "x": 1950,
+      "y": 1598,
       "ports": [
         "5V",
         "GND",
@@ -627,13 +739,207 @@
     "capacitor": {
       "name": "Dome buffer capacitor",
       "area": "Dome5V distribution",
-      "x": 2330,
-      "y": 70,
+      "x": 1950,
+      "y": 1098,
       "ports": [
         "+",
         "-"
       ],
       "note": "1000-2200uF lowESR, >=10V. Stripe usually marks negative: confirm label. Shrouded terminals, not a replacement for sound wiring/fusing."
+    },
+    "bodyElectronics": {
+      "name": "Body fused electronics fan-out",
+      "area": "Body after 2A inline fuse",
+      "x": 810,
+      "y": 308,
+      "ports": [
+        "FEED",
+        "TEENSY +",
+        "RECEIVER +",
+        "DFPLAYER +",
+        "SHIFTER +"
+      ],
+      "note": "Insulated rated screw-terminal positive fan-out. ALL ports share only the output of body electronics 2A fuse. No unfused positive connection; ground returns separately to body5 GND.",
+      "connections": [
+        [
+          "FEED",
+          "TEENSY +"
+        ],
+        [
+          "FEED",
+          "RECEIVER +"
+        ],
+        [
+          "FEED",
+          "DFPLAYER +"
+        ],
+        [
+          "FEED",
+          "SHIFTER +"
+        ]
+      ]
+    },
+    "domeElectronics": {
+      "name": "Dome fused electronics fan-out",
+      "area": "Dome after 3A inline fuse",
+      "x": 1570,
+      "y": 1452,
+      "ports": [
+        "FEED",
+        "LIGHTS +",
+        "HALL +",
+        "SHIFTER +",
+        "CAPACITOR +"
+      ],
+      "note": "Insulated rated screw-terminal positive fan-out. ALL ports share only the output of dome electronics/lighting 3A fuse. No unfused positive connection; ground returns separately to dome5 GND.",
+      "connections": [
+        [
+          "FEED",
+          "LIGHTS +"
+        ],
+        [
+          "FEED",
+          "HALL +"
+        ],
+        [
+          "FEED",
+          "SHIFTER +"
+        ],
+        [
+          "FEED",
+          "CAPACITOR +"
+        ]
+      ]
+    },
+    "bodyServoFuse": {
+      "name": "Body dome-servo inline fuse: 5A",
+      "area": "Body SERVO takeoff",
+      "x": 430,
+      "y": 880,
+      "ports": [
+        "IN",
+        "OUT"
+      ],
+      "note": "Owned B0FDJYRGB7 standard-blade holder with 12AWG leads; matching 5A fuse. Locate at distribution takeoff before smaller branch cable. Final selected rating; not a current limiter. Confirm received fuse format and downstream conductor/connector limits before assembly; obtain matching 2A/3A fuses separately. Ground stays unfused.",
+      "amps": 5,
+      "connections": [
+        [
+          "IN",
+          "OUT"
+        ]
+      ]
+    },
+    "bodyElectronicsFuse": {
+      "name": "Body electronics inline fuse: 2A",
+      "area": "Body ELECTRONICS takeoff",
+      "x": 430,
+      "y": 1118,
+      "ports": [
+        "IN",
+        "OUT"
+      ],
+      "note": "Owned B0FDJYRGB7 standard-blade holder with 12AWG leads; matching 2A fuse. Locate at distribution takeoff before smaller branch cable. Final selected rating; not a current limiter. Confirm received fuse format and downstream conductor/connector limits before assembly; obtain matching 2A/3A fuses separately. Ground stays unfused.",
+      "amps": 2,
+      "connections": [
+        [
+          "IN",
+          "OUT"
+        ]
+      ]
+    },
+    "domeServoFuse": {
+      "name": "Dome holo-servo inline fuse: 5A",
+      "area": "Dome PCA takeoff",
+      "x": 1570,
+      "y": 976,
+      "ports": [
+        "IN",
+        "OUT"
+      ],
+      "note": "Owned B0FDJYRGB7 standard-blade holder with 12AWG leads; matching 5A fuse. Locate at distribution takeoff before smaller branch cable. Final selected rating; not a current limiter. Confirm received fuse format and downstream conductor/connector limits before assembly; obtain matching 2A/3A fuses separately. Ground stays unfused.",
+      "amps": 5,
+      "connections": [
+        [
+          "IN",
+          "OUT"
+        ]
+      ]
+    },
+    "domeElectronicsFuse": {
+      "name": "Dome electronics/lighting inline fuse: 3A",
+      "area": "Dome ELECTRONICS takeoff",
+      "x": 1570,
+      "y": 1214,
+      "ports": [
+        "IN",
+        "OUT"
+      ],
+      "note": "Owned B0FDJYRGB7 standard-blade holder with 12AWG leads; matching 3A fuse. Locate at distribution takeoff before smaller branch cable. Final selected rating; not a current limiter. Confirm received fuse format and downstream conductor/connector limits before assembly; obtain matching 2A/3A fuses separately. Ground stays unfused.",
+      "amps": 3,
+      "connections": [
+        [
+          "IN",
+          "OUT"
+        ]
+      ]
+    },
+    "teensy": {
+      "name": "Teensy 4.1 / Treedix carrier",
+      "area": "Body electronics plate",
+      "x": 810,
+      "y": 1406,
+      "ports": [
+        "1 TX1",
+        "0 RX1",
+        "8 TX2",
+        "7 RX2",
+        "14 TX3",
+        "15 RX3",
+        "17 TX4",
+        "16 RX4",
+        "21 RX5",
+        "24 SENS6",
+        "2 SERVO",
+        "VIN",
+        "GND",
+        "3.3V",
+        "20 TX5 UNUSED",
+        "25 RX6 UNUSED"
+      ],
+      "note": "Socketed Treedix B09NXYWYK7 carrier, not another controller. 14 connections: 11 signal plus VIN/GND/3.3V. Serial6 native half-duplex, open-drain TX24 (RX25 unused); never join push-pull TX/RX. Serial7/8 spare. USB isolation APPROVED BUT NOT DONE: remove Teensy unpowered, cut PJRC-designated VUSB/VIN underside trace, verify isolation by multimeter and no carrier re-bridge. External regulated VIN then required for normal USB programming; USB alone no longer powers Teensy. Grounds remain common (not galvanic isolation)."
+    },
+    "bodyShifter": {
+      "name": "Lonely Binary body MOSFET shifter",
+      "area": "Body beside receiver/Teensy",
+      "x": 810,
+      "y": 952,
+      "ports": [
+        "HV 5V",
+        "LV 3.3V",
+        "GND",
+        "HV1 iBUS 5V",
+        "LV1 iBUS 3.3V",
+        "HV2 SENS 5V",
+        "LV2 SENS 3.3V",
+        "HV3 SERVO 5V",
+        "LV3 SERVO 3.3V",
+        "HV4 UNUSED",
+        "LV4 UNUSED"
+      ],
+      "note": "Selected B0FFMLDYNY kit, one four-channel board here; old shifters returned. LV1-LV4 aliases mean PCB A1-A4; HV1-HV4 mean PCB B1-B4. Known 10k ohm pull-ups. External LV/HV references, no voltage generation. CH1 SERVO iBUS to RX21; CH2 SENSOR to native half-duplex open-drain TX24; CH3 pin2 dome-servo output. Keep receiver harness short. CH4 unused. Verify supplied PCB labels/channel pairing and ground continuity unpowered. UARTs to both VESCs, DFPlayer and body/dome link bypass shifters.",
+      "portLabels": {
+        "HV1 iBUS 5V": "B1 / HV1 iBUS 5V",
+        "LV1 iBUS 3.3V": "A1 / LV1 iBUS 3.3V",
+        "HV2 SENS 5V": "B2 / HV2 SENS 5V",
+        "LV2 SENS 3.3V": "A2 / LV2 SENS 3.3V",
+        "HV3 SERVO 5V": "B3 / HV3 SERVO 5V",
+        "LV3 SERVO 3.3V": "A3 / LV3 SERVO 3.3V",
+        "HV4 UNUSED": "B4 / HV4 UNUSED",
+        "LV4 UNUSED": "A4 / LV4 UNUSED",
+        "LV 3.3V": "LV / A-side 3.3V reference",
+        "HV 5V": "HV / B-side 5V reference",
+        "GND": "Shared GND (verify both ground pins)"
+      }
     }
   },
   "wires": [
@@ -738,24 +1044,24 @@
       "from": "ringBody:CH3",
       "to": "ringDome:CH3",
       "cat": "ring",
-      "spec": "Internal contact: 115200-baud VESC telemetry",
-      "note": "Body-to-dome telemetry return line (Master Port 3 TX to ESP32 RX)."
+      "spec": "Internal contact: 115200-baud 3.3V body-link UART",
+      "note": "Teensy TX17 to ESP32 GPIO16 RX."
     },
     {
       "id": "ring4",
       "from": "ringBody:CH4",
       "to": "ringDome:CH4",
       "cat": "ring",
-      "spec": "Internal contact:9600-baud audioTX",
-      "note": "Dome-to-body command signal only."
+      "spec": "Internal unused contact, both ends insulated",
+      "note": "CH4 SPARE: no external cable."
     },
     {
       "id": "ring5",
       "from": "ringBody:CH5",
       "to": "ringDome:CH5",
       "cat": "ring",
-      "spec": "Internal contact:50Hz domePWM",
-      "note": "Dome-to-body signal only; servo power stays in body."
+      "spec": "Internal unused contact, both ends insulated",
+      "note": "CH5 SPARE: no external cable."
     },
     {
       "id": "dome-input",
@@ -790,36 +1096,12 @@
       "note": "Power return to integrated negative bus, separate from audio-isolator input/output wiring."
     },
     {
-      "id": "telemetry-supply",
-      "from": "receiver:SENS 5V",
-      "to": "telemetry:SUPPLY 5V",
-      "cat": "body5",
-      "spec": "Factory3-wire SENS cable:5V conductor",
-      "note": "Receiver-powered sensor electronics, ultimately from body5V distribution. Do NOT connect this pin to12V sense feed."
-    },
-    {
-      "id": "telemetry-ground",
-      "from": "receiver:SENS GND",
-      "to": "telemetry:GND",
-      "cat": "body5",
-      "spec": "Factory3-wire SENS cable:ground conductor",
-      "note": "Keep ground/data/supply in supplied connector; verify marked orientation."
-    },
-    {
-      "id": "telemetry-data",
-      "from": "telemetry:DATA",
-      "to": "receiver:SENS DATA",
-      "cat": "logic",
-      "spec": "Factory3-wire SENS cable:data conductor",
-      "note": "Telemetry goes via receiver to remote; SENS is distinct from servo-iBUS stream to ESP32. No dome/slip-ring/level-shifter connection."
-    },
-    {
       "id": "body-5-positive",
       "from": "bodyBuck:OUT+",
       "to": "body5:FEED",
       "cat": "body5",
       "spec": "12AWG red extension;10A rated output",
-      "note": "Short as possible; converter factory lead remains bottleneck. No5V output fuses by user decision; downstream fault protection unverified."
+      "note": "Short as possible; verify converter factory lead rating. Distribution takeoffs immediately feed body servo 5A and body electronics 2A inline fuses. No smaller load branch connects directly to this unfused bus."
     },
     {
       "id": "body-5-return",
@@ -831,11 +1113,12 @@
     },
     {
       "id": "body-servo-power",
-      "from": "body5:SERVO +",
+      "from": "bodyServoFuse:OUT",
       "to": "domeServo:5V",
       "cat": "body5",
-      "spec": "16AWG red extension;no output branch fuse shown",
-      "note": "Power bypasses receiver. Confirm factory servo pigtail normal-load suitability and peak current. No5V output fuse by user decision; fault protection unverified."
+      "spec": "16AWG regulated 5V positive",
+      "note": "Protected by 5A inline fuse; rated connector/factory lead required.",
+      "awg": 16
     },
     {
       "id": "body-servo-return",
@@ -847,11 +1130,12 @@
     },
     {
       "id": "dfplayer-power",
-      "from": "body5:DFPLAYER +",
+      "from": "bodyElectronics:DFPLAYER +",
       "to": "dfplayer:5V",
       "cat": "body5",
-      "spec": "20AWG red;no output branch fuse shown",
-      "note": "Stable regulated5V; verify module pins; do not feed raw battery. No5V output fuse by user decision; fault protection unverified."
+      "spec": "22AWG regulated 5V positive",
+      "note": "Protected by body electronics 2A fuse.",
+      "awg": 22
     },
     {
       "id": "dfplayer-return",
@@ -867,7 +1151,7 @@
       "to": "dome5:FEED",
       "cat": "dome5",
       "spec": "12AWG red extension;10A rated output",
-      "note": "Fixed5V measured before loads. No5V output fuses by user decision; downstream fault protection unverified."
+      "note": "Measure fixed 5V before loads. Distribution takeoffs immediately feed PCA9685 V+ 5A and electronics/lighting 3A inline fuses. No smaller load branch connects directly to this unfused bus."
     },
     {
       "id": "dome-5-return",
@@ -879,11 +1163,12 @@
     },
     {
       "id": "esp-power",
-      "from": "dome5:LIGHTS +",
+      "from": "domeElectronics:LIGHTS +",
       "to": "esp:5V TERMINAL",
       "cat": "dome5",
-      "spec": "18AWG red;no output branch fuse shown",
-      "note": "Board's labeled5V screw terminal, NOT ESP32 3.3V pin. Factory lights draw through this branch; inspect terminal/cable normal-load rating. No5V output fuse by user decision; fault protection unverified."
+      "spec": "18AWG regulated 5V positive",
+      "note": "3A-fused electronics and factory lighting supply.",
+      "awg": 18
     },
     {
       "id": "esp-return",
@@ -895,27 +1180,30 @@
     },
     {
       "id": "pca-power",
-      "from": "dome5:PCA +",
+      "from": "domeServoFuse:OUT",
       "to": "pca:V+ 5V",
       "cat": "dome5",
-      "spec": "16AWG red;no output branch fuse shown",
-      "note": "Verify PCA terminal/PCB and individual servo-lead normal-load ratings; use rated external servo distribution if PCB cannot carry aggregate load. No5V output fuses by user decision; fault protection unverified."
+      "spec": "16AWG regulated 5V positive",
+      "note": "Direct 5A-fused V+ screw-terminal feed, not logic VCC.",
+      "awg": 16
     },
     {
       "id": "pca-return",
       "from": "pca:GND",
       "to": "dome5:GND",
       "cat": "dome5",
-      "spec": "16AWG black",
-      "note": "Green unlabeled terminal ONLY after unpowered continuity confirms it isGND. Servo supply return; same ground as logic."
+      "spec": "16AWG black ground return",
+      "note": "Unfused 16AWG direct servo-power return.",
+      "awg": 16
     },
     {
       "id": "shifter-hv",
-      "from": "dome5:LOGIC +",
+      "from": "domeElectronics:SHIFTER +",
       "to": "shifter:HV 5V",
       "cat": "dome5",
-      "spec": "22AWG red;no output branch fuse shown",
-      "note": "HV means regulated5V, never12V. No5V output fuse by user decision; fault protection unverified."
+      "spec": "22AWG regulated 5V positive",
+      "note": "3A-fused external 5V B-side reference.",
+      "awg": 22
     },
     {
       "id": "shifter-return",
@@ -927,11 +1215,12 @@
     },
     {
       "id": "hall-power",
-      "from": "dome5:LOGIC +",
+      "from": "domeElectronics:HALL +",
       "to": "hall:5V",
       "cat": "dome5",
-      "spec": "22AWG red;no output branch fuse shown",
-      "note": "Dome homing Hall module, not foot-motor Hall sensors. No5V output fuse by user decision; fault protection unverified."
+      "spec": "22AWG regulated 5V positive",
+      "note": "3A-fused Hall supply.",
+      "awg": 22
     },
     {
       "id": "hall-return",
@@ -943,11 +1232,12 @@
     },
     {
       "id": "capacitor-positive",
-      "from": "dome5:FEED",
+      "from": "domeElectronics:CAPACITOR +",
       "to": "capacitor:+",
       "cat": "dome5",
-      "spec": "Short18AWG red;shrouded terminals",
-      "note": "Fit only after confirming5V polarity; uncharged capacitor may increase inrush."
+      "spec": "18AWG regulated 5V positive",
+      "note": "Shrouded short supply connection AFTER 3A fuse.",
+      "awg": 18
     },
     {
       "id": "capacitor-negative",
@@ -975,11 +1265,11 @@
     },
     {
       "id": "ibus-low",
-      "from": "shifter:LV1 iBUS OUT 3.3V",
-      "to": "esp:GPIO16 RX",
+      "from": "bodyShifter:LV1 iBUS 3.3V",
+      "to": "teensy:21 RX5",
       "cat": "logic",
-      "spec": "22AWG short3.3V signal fromLV1",
-      "note": "ESP32iBUS input is3.3V at115200baud. Never connect HV1/rawreceiver5V toGPIO16."
+      "spec": "22AWG short A1/LV1 to RX21",
+      "note": "Receiver channel input only; TX20 unused."
     },
     {
       "id": "home-high",
@@ -998,36 +1288,20 @@
       "note": "PreferredPlus usesGPIO19, not legacyGPIO5. ESP32-side signal is3.3V."
     },
     {
-      "id": "dome-pwm-direct",
-      "from": "esp:GPIO4 PWM",
-      "to": "ringDome:CH5",
-      "cat": "logic",
-      "spec": "22AWG direct3.3V control signal",
-      "note": "No level shifter. Servo accepts3.3V control per selected specification; verify exact unit and operation through rotating ring. Servo5V power stays local tobody."
-    },
-    {
       "id": "dome-pwm-body",
-      "from": "ringBody:CH5",
-      "to": "domeServo:PWM",
+      "from": "teensy:2 SERVO",
+      "to": "bodyShifter:LV3 SERVO 3.3V",
       "cat": "logic",
-      "spec": "22AWG signal extension",
-      "note": "Servo power and ground local tobody; signal-only contact."
-    },
-    {
-      "id": "audio-tx-direct",
-      "from": "esp:GPIO17 TX",
-      "to": "ringDome:CH4",
-      "cat": "logic",
-      "spec": "22AWG direct3.3V serial command",
-      "note": "No level shifter. DFPlayer RX accepts3.3V UART at9600baud; verify actual module. Commands only, not analog audio. DFPlayer TX remains unused."
+      "spec": "22AWG 50Hz servo pulses",
+      "note": "A3/LV3 to B3/HV3 voltage translation in body."
     },
     {
       "id": "audio-rx-body",
-      "from": "ringBody:CH4",
+      "from": "teensy:14 TX3",
       "to": "dfplayer:RX",
       "cat": "logic",
-      "spec": "22AWG3.3V signal with1kohm series resistor atRX",
-      "note": "Direct ESP32 command throughCH4. Series resistor is not a voltage converter; no5V upshift is used."
+      "spec": "22AWG direct 3.3V UART with 1k ohm series resistor at RX",
+      "note": "9600 baud local AUDIO-UART command; resistor is not a voltage converter."
     },
     {
       "id": "shifter-lv",
@@ -1136,7 +1410,8 @@
       "cat": "hall",
       "length_m": 2,
       "spec": "22AWG5conductor flexible cable;2m run",
-      "note": "Confirm red=Hall5V on actual motor. VESC Hall supply, not battery12V."
+      "note": "Confirm red=Hall5V on actual motor. VESC Hall supply, not battery12V.",
+      "awg": 22
     },
     {
       "id": "left-hall-ground",
@@ -1145,7 +1420,8 @@
       "cat": "hall",
       "length_m": 2,
       "spec": "22AWG Hall cable ground;2m run",
-      "note": "Keep all5Hall conductors together; black polarity must be correct."
+      "note": "Keep all5Hall conductors together; black polarity must be correct.",
+      "awg": 22
     },
     {
       "id": "left-h1",
@@ -1154,7 +1430,8 @@
       "cat": "hall",
       "length_m": 2,
       "spec": "22AWG Hall signal;2m run",
-      "note": "Starting signal assignment learned by VESC Hall detection."
+      "note": "Starting signal assignment learned by VESC Hall detection.",
+      "awg": 22
     },
     {
       "id": "left-h2",
@@ -1163,7 +1440,8 @@
       "cat": "hall",
       "length_m": 2,
       "spec": "22AWG Hall signal;2m run",
-      "note": "No need to color-match phase wires; repeat detection after changing assignment."
+      "note": "No need to color-match phase wires; repeat detection after changing assignment.",
+      "awg": 22
     },
     {
       "id": "left-h3",
@@ -1172,7 +1450,8 @@
       "cat": "hall",
       "length_m": 2,
       "spec": "22AWG Hall signal;2m run",
-      "note": "VESC TEMPunused, insulated; no motor-temperature feedback available."
+      "note": "VESC TEMPunused, insulated; no motor-temperature feedback available.",
+      "awg": 22
     },
     {
       "id": "right-hall-power",
@@ -1181,7 +1460,8 @@
       "cat": "hall",
       "length_m": 2,
       "spec": "22AWG5conductor flexible cable;2m run",
-      "note": "Verify actual Hall-adapter connector cavities, not wire colors alone."
+      "note": "Verify actual Hall-adapter connector cavities, not wire colors alone.",
+      "awg": 22
     },
     {
       "id": "right-hall-ground",
@@ -1190,7 +1470,8 @@
       "cat": "hall",
       "length_m": 2,
       "spec": "22AWG Hall ground;2m run",
-      "note": "Dedicated Hall return in same bundle."
+      "note": "Dedicated Hall return in same bundle.",
+      "awg": 22
     },
     {
       "id": "right-h1",
@@ -1199,7 +1480,8 @@
       "cat": "hall",
       "length_m": 2,
       "spec": "22AWG Hall signal;2m run",
-      "note": "Detect each motor independently."
+      "note": "Detect each motor independently.",
+      "awg": 22
     },
     {
       "id": "right-h2",
@@ -1208,7 +1490,8 @@
       "cat": "hall",
       "length_m": 2,
       "spec": "22AWG Hall signal;2m run",
-      "note": "Separation from phase bundle reduces coupled switching noise."
+      "note": "Separation from phase bundle reduces coupled switching noise.",
+      "awg": 22
     },
     {
       "id": "right-h3",
@@ -1217,7 +1500,8 @@
       "cat": "hall",
       "length_m": 2,
       "spec": "22AWG Hall signal;2m run",
-      "note": "TEMPunconnected/insulated. Connector and cable strain relief atshoulder."
+      "note": "TEMPunconnected/insulated. Connector and cable strain relief atshoulder.",
+      "awg": 22
     },
     {
       "id": "fld",
@@ -1289,7 +1573,7 @@
       "to": "frontPan:5V",
       "cat": "servos",
       "spec": "Factoryservo supply lead via channelV+ rail",
-      "note": "No5V output fuse by user decision; verify normal-load pigtail/PCB ratings. Fault protection unverified."
+      "note": "Standard CH0 servo socket on the 5A-fused PCA9685 V+ rail. Verify PCB, socket and factory lead ratings; center horn and check for binding."
     },
     {
       "id": "front-pan-ground",
@@ -1313,7 +1597,7 @@
       "to": "frontTilt:5V",
       "cat": "servos",
       "spec": "Factoryservo supply lead",
-      "note": "Buck input fuse does not establish individual tiny-lead short protection; no output branch fuse installed."
+      "note": "Standard CH1 servo socket on the 5A-fused PCA9685 V+ rail. Verify PCB, socket and factory lead ratings; keep horns clear for first movement."
     },
     {
       "id": "front-tilt-ground",
@@ -1472,64 +1756,34 @@
       "from": "ringDome:CH6",
       "to": "ringBody:CH6",
       "cat": "ring",
-      "spec": "Internal contact: 115200-baud VESC UART",
-      "note": "Dome-to-body drive command stream."
+      "spec": "Internal contact: 115200-baud 3.3V body-link UART",
+      "note": "ESP32 GPIO17 TX to Teensy RX16."
     },
     {
       "id": "receiver-power",
-      "from": "dome5:RECEIVER +",
+      "from": "bodyElectronics:RECEIVER +",
       "to": "receiver:5V",
-      "cat": "dome5",
-      "spec": "22AWG red; powered from dome 5V",
-      "note": "Receiver lives in dome."
+      "cat": "body5",
+      "spec": "22AWG regulated 5V positive",
+      "note": "Body receiver; protected by electronics 2A fuse.",
+      "awg": 22
     },
     {
       "id": "receiver-return",
       "from": "receiver:GND",
-      "to": "dome5:GND",
-      "cat": "dome5",
-      "spec": "22AWG black",
-      "note": "Common dome ground."
+      "to": "body5:GND",
+      "cat": "body5",
+      "spec": "22AWG black ground return",
+      "note": "Unfused common body ground.",
+      "awg": 22
     },
     {
       "id": "ibus-shifter",
       "from": "receiver:iBUS SIG",
-      "to": "shifter:HV1 iBUS IN 5V",
+      "to": "bodyShifter:HV1 iBUS 5V",
       "cat": "logic",
-      "spec": "22AWG 5V iBUS signal to shifter",
-      "note": "Direct connection in dome."
-    },
-    {
-      "id": "vesc-uart-dome",
-      "from": "esp:GPIO18 TX",
-      "to": "ringDome:CH6",
-      "cat": "logic",
-      "spec": "22AWG 3.3V UART from ESP32 AUX 4",
-      "note": "Drive stream down slip ring."
-    },
-    {
-      "id": "vesc-uart-body",
-      "from": "ringBody:CH6",
-      "to": "leftVesc:COMM RX",
-      "cat": "logic",
-      "spec": "22AWG 3.3V UART to VESC COMM RX",
-      "note": "Drives Master directly and Slave over internal CAN."
-    },
-    {
-      "id": "vesc-telem-body",
-      "from": "leftVesc:COMM TX",
-      "to": "ringBody:CH3",
-      "cat": "logic",
-      "spec": "22AWG 3.3V UART from Master VESC COMM TX",
-      "note": "Sends live battery voltage, currents, RPM, and fault codes to dome."
-    },
-    {
-      "id": "vesc-telem-dome",
-      "from": "ringDome:CH3",
-      "to": "esp:GPIO5 RX",
-      "cat": "logic",
-      "spec": "22AWG 3.3V UART into ESP32 AUX 3 (GPIO 5)",
-      "note": "Feeds VESC telemetry stream into dome brain."
+      "spec": "22AWG short SERVO iBUS signal",
+      "note": "Body B1/HV1 input, 115200 baud."
     },
     {
       "id": "vesc-comm-ground",
@@ -1540,20 +1794,207 @@
       "note": "Clean signal return for COMM port."
     },
     {
-      "id": "telemetry-sense-positive",
-      "from": "ringDome:CH1",
-      "to": "telemetry:SENSE+",
-      "cat": "power12",
-      "spec": "22AWG red sense wire",
-      "note": "Senses incoming 12V dome feed."
+      "id": "bodyServoFuse-input",
+      "from": "body5:SERVO +",
+      "to": "bodyServoFuse:IN",
+      "cat": "body5",
+      "spec": "12AWG owned holder pigtail; inline 5A fuse",
+      "note": "Takeoff immediately enters fuse before smaller cable; insulated gauge-matched splice.",
+      "awg": 12
     },
     {
-      "id": "telemetry-sense-return",
-      "from": "telemetry:SENSE-",
-      "to": "ringDome:CH2",
+      "id": "bodyElectronicsFuse-input",
+      "from": "body5:ELECTRONICS +",
+      "to": "bodyElectronicsFuse:IN",
+      "cat": "body5",
+      "spec": "12AWG owned holder pigtail; inline 2A fuse",
+      "note": "Takeoff immediately enters fuse before smaller cable; insulated gauge-matched splice.",
+      "awg": 12
+    },
+    {
+      "id": "domeServoFuse-input",
+      "from": "dome5:PCA +",
+      "to": "domeServoFuse:IN",
+      "cat": "dome5",
+      "spec": "12AWG owned holder pigtail; inline 5A fuse",
+      "note": "Takeoff immediately enters fuse before smaller cable; insulated gauge-matched splice.",
+      "awg": 12
+    },
+    {
+      "id": "domeElectronicsFuse-input",
+      "from": "dome5:ELECTRONICS +",
+      "to": "domeElectronicsFuse:IN",
+      "cat": "dome5",
+      "spec": "12AWG owned holder pigtail; inline 3A fuse",
+      "note": "Takeoff immediately enters fuse before smaller cable; insulated gauge-matched splice.",
+      "awg": 12
+    },
+    {
+      "id": "bodyElectronicsFuse-fanout",
+      "from": "bodyElectronicsFuse:OUT",
+      "to": "bodyElectronics:FEED",
+      "cat": "body5",
+      "spec": "12AWG holder lead to insulated fused-only fan-out",
+      "note": "No connection to unfused positive bus downstream of this fuse.",
+      "awg": 12
+    },
+    {
+      "id": "domeElectronicsFuse-fanout",
+      "from": "domeElectronicsFuse:OUT",
+      "to": "domeElectronics:FEED",
+      "cat": "dome5",
+      "spec": "12AWG holder lead to insulated fused-only fan-out",
+      "note": "No connection to unfused positive bus downstream of this fuse.",
+      "awg": 12
+    },
+    {
+      "id": "teensy-power",
+      "from": "bodyElectronics:TEENSY +",
+      "to": "teensy:VIN",
+      "cat": "body5",
+      "spec": "22AWG regulated 5V positive",
+      "note": "2A-fused body electronics; USB VUSB/VIN isolation approved but not yet performed.",
+      "awg": 22
+    },
+    {
+      "id": "teensy-return",
+      "from": "teensy:GND",
+      "to": "body5:GND",
+      "cat": "body5",
+      "spec": "22AWG black ground return",
+      "note": "Common body reference; do not fuse ground.",
+      "awg": 22
+    },
+    {
+      "id": "body-shifter-hv",
+      "from": "bodyElectronics:SHIFTER +",
+      "to": "bodyShifter:HV 5V",
+      "cat": "body5",
+      "spec": "22AWG regulated 5V positive",
+      "note": "2A-fused external 5V B-side reference.",
+      "awg": 22
+    },
+    {
+      "id": "body-shifter-return",
+      "from": "bodyShifter:GND",
+      "to": "body5:GND",
+      "cat": "body5",
+      "spec": "22AWG black ground return",
+      "note": "Verify board GND pins share continuity.",
+      "awg": 22
+    },
+    {
+      "id": "right-vesc-comm-ground",
+      "from": "rightVesc:COMM GND",
+      "to": "fuseBlock:NEGATIVE BUS",
       "cat": "power12",
-      "spec": "22AWG black sense wire",
-      "note": "Senses dome ground."
+      "spec": "22AWG black ground return",
+      "note": "Independent COMM signal reference; ground unfused.",
+      "awg": 22
+    },
+    {
+      "id": "body-shifter-lv",
+      "from": "teensy:3.3V",
+      "to": "bodyShifter:LV 3.3V",
+      "cat": "logic",
+      "spec": "22AWG short 3.3V reference",
+      "note": "External A-side reference, no onboard regulator."
+    },
+    {
+      "id": "sensor-high",
+      "from": "receiver:SENS DATA",
+      "to": "bodyShifter:HV2 SENS 5V",
+      "cat": "logic",
+      "spec": "22AWG short SENSOR iBUS signal",
+      "note": "Bidirectional single wire; receiver sensor-bus data."
+    },
+    {
+      "id": "sensor-low",
+      "from": "bodyShifter:LV2 SENS 3.3V",
+      "to": "teensy:24 SENS6",
+      "cat": "logic",
+      "spec": "22AWG short A2/LV2 to TX24",
+      "note": "Native half-duplex plus open-drain; RX25 unused, no joined push-pull pins."
+    },
+    {
+      "id": "dome-pwm-high",
+      "from": "bodyShifter:HV3 SERVO 5V",
+      "to": "domeServo:PWM",
+      "cat": "logic",
+      "spec": "22AWG 5V servo signal",
+      "note": "Local body servo; no slip-ring servo signal."
+    },
+    {
+      "id": "left-vesc-tx",
+      "from": "teensy:1 TX1",
+      "to": "leftVesc:COMM RX",
+      "cat": "logic",
+      "spec": "22AWG direct 3.3V UART, 115200 baud",
+      "note": "LEFT-VESC commands, independent Serial1; no level shifter/CAN."
+    },
+    {
+      "id": "left-vesc-rx",
+      "from": "leftVesc:COMM TX",
+      "to": "teensy:0 RX1",
+      "cat": "logic",
+      "spec": "22AWG direct 3.3V UART, 115200 baud",
+      "note": "LEFT-VESC feedback to Teensy."
+    },
+    {
+      "id": "right-vesc-tx",
+      "from": "teensy:8 TX2",
+      "to": "rightVesc:COMM RX",
+      "cat": "logic",
+      "spec": "22AWG direct 3.3V UART, 115200 baud",
+      "note": "RIGHT-VESC commands, independent Serial2; no level shifter/CAN."
+    },
+    {
+      "id": "right-vesc-rx",
+      "from": "rightVesc:COMM TX",
+      "to": "teensy:7 RX2",
+      "cat": "logic",
+      "spec": "22AWG direct 3.3V UART, 115200 baud",
+      "note": "RIGHT-VESC feedback to Teensy."
+    },
+    {
+      "id": "audio-feedback",
+      "from": "dfplayer:TX",
+      "to": "teensy:15 RX3",
+      "cat": "logic",
+      "spec": "22AWG direct 3.3V UART, 9600 baud",
+      "note": "AUDIO-UART playback/device feedback; BUSY unused."
+    },
+    {
+      "id": "body-link-tx",
+      "from": "teensy:17 TX4",
+      "to": "ringBody:CH3",
+      "cat": "logic",
+      "spec": "22AWG direct 3.3V UART, 115200 baud",
+      "note": "DOME-LINK body to dome, no shifter or 5V header."
+    },
+    {
+      "id": "dome-link-rx",
+      "from": "ringDome:CH3",
+      "to": "esp:GPIO16 RX",
+      "cat": "logic",
+      "spec": "22AWG direct 3.3V UART, 115200 baud",
+      "note": "Serial2 dedicated body-link RX, not receiver iBUS."
+    },
+    {
+      "id": "dome-link-tx",
+      "from": "esp:GPIO17 TX",
+      "to": "ringDome:CH6",
+      "cat": "logic",
+      "spec": "22AWG direct 3.3V UART, 115200 baud",
+      "note": "Serial2 dedicated body-link TX, not DFPlayer."
+    },
+    {
+      "id": "body-link-rx",
+      "from": "ringBody:CH6",
+      "to": "teensy:16 RX4",
+      "cat": "logic",
+      "spec": "22AWG direct 3.3V UART, 115200 baud",
+      "note": "DOME-LINK dome to body feedback; shared CH2 ground."
     }
   ]
 }
@@ -1561,6 +2002,7 @@
   <script id="routing-engine">
     "use strict";
     function isGroundWire(wire) {
+      if (/^(speaker-positive|speaker-negative)$/.test(wire.id)) return false;
       return [wire.from,wire.to].some(endpoint=>/^ring(?:Body|Dome):CH2$/.test(endpoint)) ||
         /(:B-|:IN-|:OUT-|:-|GND|GROUND|RETURN|BLACK HALL-|NEGATIVE BUS|SENSE-)/i.test(wire.from+" "+wire.to);
     }
@@ -1568,16 +2010,26 @@
       return ["power12","body5","dome5","charge"].includes(wire.cat) ||
         (wire.cat==="ring" && /:CH[12]$/.test(wire.from)) ||
         (wire.cat==="hall" && /HALL 5V|HALL GND/.test(wire.from)) ||
-        wire.from==="esp:3.3V";
+        wire.from==="esp:3.3V" || wire.from==="teensy:3.3V";
     }
     function isI2cWire(wire) {
       return wire.id==="pca-sda" || wire.id==="pca-scl";
     }
     function signalColor(wire) {
-      if(wire.id==="pca-sda") return "#38bdf8";
-      if(wire.id==="pca-scl") return "#4ade80";
-      if(wire.id==="left-ppm") return "#fb923c";
-      if(wire.id==="right-ppm") return "#c084fc";
+      const groups=[
+        ["#22d3ee",["body-link-tx","dome-link-rx","ring3"]],
+        ["#fbbf24",["body-link-rx","dome-link-tx","ring6"]],
+        ["#7dd3fc",["left-vesc-tx"]],["#818cf8",["left-vesc-rx"]],
+        ["#bef264",["right-vesc-tx"]],["#4ade80",["right-vesc-rx"]],
+        ["#f472b6",["audio-rx-body"]],["#c084fc",["audio-feedback"]],
+        ["#facc15",["ibus-shifter","ibus-low"]],
+        ["#fdba74",["sensor-high","sensor-low"]],
+        ["#ddd6fe",["dome-pwm-body","dome-pwm-high"]],
+        ["#a7f3d0",["home-high","home-low"]],
+        ["#38bdf8",["pca-sda"]],["#2dd4bf",["pca-scl"]]
+      ];
+      const group=groups.find(([,ids])=>ids.includes(wire.id));
+      if(group) return group[0];
       const holo=wire.from.match(/:CH(\d) S$/);
       if(holo) return ["#facc15","#38bdf8","#4ade80","#c084fc","#fb923c","#f472b6"][Number(holo[1])];
       const hall=wire.from.match(/:H([123])$/);
@@ -1586,6 +2038,13 @@
       if(phase) return {U:"#fb923c",V:"#c084fc",W:"#38bdf8"}[phase[1]];
       if(wire.cat==="hall" && wire.from.endsWith("HALL 5V")) return "#ef4444";
       return null;
+    }
+    function wireColor(wire) {
+      if(isGroundWire(wire)) return "#000000";
+      if(isPowerWire(wire)) return "#ef4444";
+      return signalColor(wire) || {
+        ring:"#94a3b8",leds:"#f9a8d4",audio:"#60a5fa",servos:"#e2e8f0"
+      }[wire.cat] || "#e2e8f0";
     }
     function wiresNeedSeparateLanes(a,b) {
       return ![a.from,a.to].some(endpoint=>endpoint===b.from||endpoint===b.to);
@@ -1599,15 +2058,17 @@
       if (component === "battery" || component === "ringBody") return "right";
       if (component === "ringDome") return "left";
       if (component === "shifter") return port.startsWith("LV") ? "right" : "left";
+      if (component === "bodyShifter") return port.startsWith("LV") ? "left" : "right";
+      if (component === "teensy")
+        return /^(VIN|GND|3\.3V|21 RX5|24 SENS6|2 SERVO)/.test(port) ? "left" : "right";
       if (component.endsWith("Vesc"))
         return /^(B[+-]|COMM|CAN)/.test(port) ? "left" : "right";
       if (component === "esp")
-        return /^(5V|GND|GPIO16|GPIO19|GPIO5)/.test(port) ? "left" : "right";
+        return /^(5V|GND|GPIO16|GPIO17|GPIO19)/.test(port) ? "left" : "right";
       if (component === "pca") return port.startsWith("CH") ? "right" : "left";
       if (component === "amp") return /^L[+-]$/.test(port) ? "right" : "left";
       if (component === "dfplayer") return port.startsWith("DAC") ? "right" : "left";
       if (component === "receiver") return /^(5V|GND)/.test(port) ? "left" : "right";
-      if (component === "telemetry") return "left";
       if (component === "fuseBlock") return port.endsWith("FEED") ? "left" : "right";
       if (component === "driveSupply") return "left";
       if (component === "capacitor" || component === "speaker")
@@ -1615,6 +2076,12 @@
       if (["domeServo","frontPan","frontTilt","rearPan","rearTilt","topPan","topTilt"].includes(component))
         return "left";
       return /^(IN|FEED|5V|GND)/.test(port) ? "left" : "right";
+    }
+    function terminalReservations(endpoints) {
+      return [...endpoints].map(([endpoint,p])=>({
+        endpoint,segment:[{x:p.x,y:p.y},
+          {x:p.x+(p.side==="left"?-24:24),y:p.y}]
+      }));
     }
     function routeWire(from, to, rectangles, occupied = []) {
       const clearance = 12, stub = 24;
@@ -1733,7 +2200,6 @@
     const table = document.getElementById("wire-table");
     const width = 320, portGap = 24;
     const endpoints = new Map(), wireElements = new Map(), componentElements = new Map();
-    const colors = {power12:"#ef4444",body5:"#a78bfa",dome5:"#f472b6",ring:"#22d3ee",phase:"#fb923c",hall:"#4ade80",charge:"#10b981",audio:"#60a5fa"};
     let box = {x:0,y:0,w:2750,h:2950};
     let visibleWires = data.wires;
     const ns = "http://www.w3.org/2000/svg";
@@ -1778,7 +2244,10 @@
       heading(component.name);
       paragraph(component.area);
       paragraph(component.note);
-      paragraph("Terminals: " + component.ports.join(" / "));
+      paragraph("Terminals: " + component.ports.map(port => component.portLabels?.[port] || port).join(" / "));
+      if (component.connections)
+        paragraph("Internal continuity (not added cables): " +
+          component.connections.map(([a,b]) => a + " ↔ " + b).join("; "));
     }
     function activate(node, handler) {
       node.addEventListener("click", handler);
@@ -1814,18 +2283,21 @@
       id,x:c.x,y:c.y,w:width,h:70+c.ports.length*portGap
     }));
     const powerRoutes=[];
+    const reservations=terminalReservations(endpoints);
     data.wires.forEach(wire => {
       const from = endpoints.get(wire.from), to = endpoints.get(wire.to);
       if (!from || !to) throw new Error("Unknown terminal on wire: "+wire.id);
       const ground = isGroundWire(wire);
-      const color = ground ? "#94a3b8" : signalColor(wire)||(colors[wire.cat] || "#facc15");
+      const color = wireColor(wire);
       const occupied=powerRoutes.filter(r=>wiresNeedSeparateLanes(wire,r.wire))
-        .flatMap(r=>r.segments);
+        .flatMap(r=>r.segments)
+        .concat(reservations.filter(r=>![wire.from,wire.to].includes(r.endpoint))
+          .map(r=>r.segment));
       const points = routeWire(from,to,rectangles,occupied);
       powerRoutes.push({ground,wire,
         segments:points.slice(1).map((p,i)=>[points[i],p])});
       const path = points.map((p,i)=>`${i===0?"M":"L"}${p.x},${p.y}`).join(" ");
-      const group = element("g",{class:"wire",tabindex:0,role:"button","data-wire-id":wire.id,"aria-label":wire.id+": "+wire.spec});
+      const group = element("g",{class:ground?"wire ground":"wire",tabindex:0,role:"button","data-wire-id":wire.id,"aria-label":wire.id+": "+wire.spec});
       group.append(element("path",{d:path,class:"hit"}));
       group.append(element("path",{d:path,class:"line",stroke:color,"stroke-dasharray":ground?"7 5":"none"}));
       activate(group, () => inspectWire(wire));
