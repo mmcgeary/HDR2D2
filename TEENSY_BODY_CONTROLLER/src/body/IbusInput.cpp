@@ -3,18 +3,24 @@
 
 namespace body {
 
-IbusInput::IbusInput() : bytes_{}, length_(0), started_ms_(0), latest_{}, counters_{} {}
+IbusInput::IbusInput() : bytes_{}, length_(0), arrived_ms_{}, latest_{}, counters_{} {}
 
 void IbusInput::tick(uint32_t now) {
-    if (length_ && uint32_t(now - started_ms_) >= 5) {
-        length_ = 0;
+    while (length_ && uint32_t(now - arrived_ms_[0]) >= 5) {
         ++counters_.partial_timeouts;
+        discard();
+        while (length_ &&
+               (bytes_[0] != 0x20 || (length_ >= 2 && bytes_[1] != 0x40))) {
+            ++counters_.header_errors;
+            discard();
+        }
     }
 }
 
 void IbusInput::discard() {
     --length_;
     memmove(bytes_, bytes_ + 1, length_);
+    memmove(arrived_ms_, arrived_ms_ + 1, length_ * sizeof arrived_ms_[0]);
 }
 
 bool IbusInput::accept(uint32_t now) {
@@ -47,7 +53,7 @@ bool IbusInput::accept(uint32_t now) {
 
 void IbusInput::feed(uint8_t byte, uint32_t now) {
     tick(now);
-    if (!length_) started_ms_ = now;
+    arrived_ms_[length_] = now;
     bytes_[length_++] = byte;
     while (length_) {
         if (bytes_[0] != 0x20 || (length_ >= 2 && bytes_[1] != 0x40)) {

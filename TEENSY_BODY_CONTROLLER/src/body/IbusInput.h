@@ -37,7 +37,7 @@ private:
     void discard();
     bool accept(uint32_t now_ms);
     uint8_t bytes_[32], length_;
-    uint32_t started_ms_;
+    uint32_t arrived_ms_[32];
     RcSnapshot latest_;
     IbusInputCounters counters_;
 };

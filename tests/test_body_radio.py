@@ -121,6 +121,37 @@ class BodyRadioTests(unittest.TestCase):
     assert(!r.snapshot(6).valid && r.counters().partial_timeouts==1);
 ''')
 
+    def test_recovered_overlap_keeps_header_arrival_time(self):
+        self.check(r'''
+    auto b = frame();
+    Bytes prefix{0x20,0x40,1,2,3,4,5};
+    IbusInput p;
+    feed(p,prefix,0);
+    p.feed(b.data(),1,2);
+    p.feed(b.data()+1,24,4);
+    assert(p.counters().valid_frames==0);
+    p.tick(5);
+    p.feed(b.data()+25,7,5);
+    assert(p.counters().valid_frames==1 && p.snapshot(5).sample_ms==5);
+    assert(p.counters().partial_timeouts==0);
+
+    IbusInput q;
+    feed(q,prefix,UINT32_MAX-3);
+    q.feed(b.data(),20,UINT32_MAX-1);
+    q.tick(1);
+    q.feed(b.data()+20,12,1);
+    assert(q.counters().valid_frames==1 && q.snapshot(1).sample_ms==1);
+    assert(q.counters().partial_timeouts==1);
+
+    IbusInput r;
+    feed(r,prefix,0);
+    r.feed(b.data(),20,2);
+    r.tick(5);
+    r.feed(0x55,6);
+    r.tick(7);
+    assert(r.counters().partial_timeouts==2);
+''')
+
     def test_golden_sensors_and_scheduler_boundaries(self):
         self.check(r'''
     const Bytes expected[] = {
