@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def run_cpp(program, std="c++11", extra_sources=(), include_dirs=()):
-    with tempfile.TemporaryDirectory() as directory:
+    with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1]) as directory:
         source = Path(directory) / "test.cpp"
         binary = Path(directory) / "test"
         source.write_text(program)
