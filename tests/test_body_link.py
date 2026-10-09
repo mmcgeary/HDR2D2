@@ -618,8 +618,10 @@ class EndpointTests(unittest.TestCase):
       assert(s.e.peerSession() == 0 && s.e.counters().session == 1); }
     { Solo s(true); s.hello(0, kRoleDome, 0x04); s.e.tick(s.now);                // session zero is reserved
       assert(s.e.peerSession() == 0 && s.e.counters().session == 1); }
-    { Solo s(true); s.hello(0xB0B0, kRoleDome, 0x04); s.e.tick(s.now);           // collides with our own
-      assert(s.e.peerSession() == 0 && s.e.counters().session == 1); }
+    { Solo s(true); s.hello(0xB0B0, kRoleDome, 0x04); s.e.tick(s.now);           // equal counters across roles are legal
+      assert(s.e.peerSession() == 0xB0B0 && s.e.counters().session == 0); }
+    { Solo s(true); s.hello(0xB0B0, kRoleBody, 0x1B); s.e.tick(s.now);           // loopback: same role is still refused
+      assert(s.e.peerSession() == 0 && s.e.stats().hello_rejected == 1); }
     { Solo s(true); s.hello(0xD0D0, kRoleDome, 0x04); s.e.tick(s.now);
       assert(s.e.peerSession() == 0xD0D0 && !s.e.connected(s.now)); }            // hello alone is not a heartbeat
     { Solo s(true); s.e.tick(s.now);                                              // sends HELLO with zero destination
@@ -748,17 +750,20 @@ class EndpointTests(unittest.TestCase):
     Frame got; assert(r.body.takeReceived(got)); assert(r.body.reply(got, Result::Accepted, 0));
     r.run(3);
     Frame changed = stamp(audioPlay(1, 3), seq, 0xD0D0, 0xB0B0, 1);   // same sequence, different track
-    size_t replies = r.countToDome(MessageType::Reply);
-    r.drop_to_dome[static_cast<int>(MessageType::Reply)] = 1;       // keep the dome's own request done
     inject(r.bport, changed); r.run(3);
-    assert(!r.body.takeReceived(got) && r.body.stats().sequence_conflicts == 1);
-    assert(r.countToDome(MessageType::Reply) == replies + 1);
+    assert(!r.body.takeReceived(got) && r.body.stats().sequence_conflicts == 1 && r.body.stats().protocol_failures == 1);
+    // A conflicting frame is answered with the ORIGINAL cached result, never a rejection of the executed action.
     Reply rp = as<Reply>(r.to_dome.back());
-    assert(rp.request_type == 0x21 && rp.request_seq == seq && rp.result == 1 && rp.detail == 15);
-    // the identical original still replays its cached accepted result, still without re-executing
+    assert(rp.request_type == 0x21 && rp.request_seq == seq && rp.result == 0);
     inject(r.bport, stamp(audioPlay(1, 2), seq, 0xD0D0, 0xB0B0, 1)); r.run(3);
     rp = as<Reply>(r.to_dome.back()); assert(rp.result == 0 && !r.body.takeReceived(got));
     assert(r.body.stats().duplicates == 1);
+    // While the original is still pending, a conflicting frame gets no reply on the shared key.
+    Solo s(true); s.connect();
+    s.from(audioPlay(1, 2), 40, 1); s.e.tick(s.now); assert(s.e.takeReceived(got)); s.sent();
+    s.from(audioPlay(1, 3), 40, 1); s.e.tick(s.now + 1);
+    assert(!s.e.takeReceived(got) && s.e.stats().protocol_failures == 1);
+    assert(countType(s.sent(), MessageType::Reply) == 0);
 ''')
 
     def test_streams_wraparound_retransmit_and_lease_not_refreshed(self):
@@ -863,8 +868,9 @@ class EndpointTests(unittest.TestCase):
     Event ev = {0, 0x21, 5, 3}; Frame f = frameOf(ev); uint16_t seq = 0;
     assert(r.body.request(f, r.now, seq));
     r.drop_to_body[static_cast<int>(MessageType::Reply)] = 1;
-    r.run(300);
+    r.run(3);
     Frame got; assert(r.dome.takeReceived(got) && got.type == MessageType::Event && !r.dome.takeReceived(got));
+    r.run(300);
     Completion c; assert(r.body.takeCompletion(c) && c.outcome == Outcome::Replied && c.result == 0);
     // malformed requests: never delivered, flagged ones answered with invalid-argument
     Solo s(true); s.connect();
@@ -964,6 +970,140 @@ class EndpointTests(unittest.TestCase):
     }
 ''')
 
+    def test_equal_boot_sessions_on_opposite_roles_connect(self):
+        self.check(r"""
+    Rig r(1, 1); r.connect();
+    assert(r.body.peerSession() == 1 && r.dome.peerSession() == 1);
+    Frame f = audioPlay(1, 2); uint16_t seq = 0;
+    assert(r.dome.request(f, r.now, seq)); r.run(3);
+    Frame got; assert(r.body.takeReceived(got) && got.sequence == seq);
+    assert(r.body.reply(got, Result::Accepted, 0)); r.run(3);
+    Completion c; assert(r.dome.takeCompletion(c) && c.outcome == Outcome::Replied);
+""")
+
+    def test_dropout_clears_state_and_blocks_old_replays(self):
+        self.check(r"""
+    Solo s(true); s.connect(); Frame got;
+    s.heartbeat(s.peer, s.local, 2, 1); s.e.tick(s.now);
+    assert(s.e.peerMode() == 2 && s.e.peerReady() == 1 && s.e.peerGeneration() == 1);
+    s.from(audioPlay(1, 2), 40, 1); s.e.tick(s.now);
+    assert(s.e.takeReceived(got) && got.sequence == 40);                  // delivered, never answered
+    s.from(audioPlay(1, 4), 42, 1); s.e.tick(s.now);                      // queued, not yet taken
+    DriveRequest d = {1, 1, 100, 0}; s.from(frameOf(d), 41, 0); s.e.tick(s.now);
+    s.sent();
+    s.now += 400; s.e.tick(s.now);
+    assert(!s.e.connected(s.now) && s.e.peerGeneration() == 2);
+    assert(s.e.peerMode() == 0 && s.e.peerReady() == 0);
+    assert(!s.e.takeReceived(got));                                      // queues and streams cleared
+    assert(!s.e.reply(got, Result::Accepted, 0));                         // old authority cannot answer later
+    s.heartbeat(s.peer, s.local); s.e.tick(s.now); assert(s.e.connected(s.now)); s.sent();
+    s.from(audioPlay(1, 2), 40, 1); s.from(audioPlay(1, 4), 42, 1); s.e.tick(s.now + 1);
+    assert(!s.e.takeReceived(got));                                      // same-session replay never executes
+    int wrong = 0; std::vector<Frame> out = s.sent();
+    for (size_t i = 0; i < out.size(); ++i)
+        if (out[i].type == MessageType::Reply && as<Reply>(out[i]).result == 7) ++wrong;
+    assert(wrong == 2 && s.e.stats().protocol_failures == 0);
+    s.from(frameOf(d), 41, 0); s.e.tick(s.now + 2);
+    assert(s.e.takeReceived(got) && got.type == MessageType::DriveRequest);   // stream sequence restarted
+    // a renewed same-session HELLO while down keeps the guard
+    s.now += 400; s.e.tick(s.now); assert(!s.e.connected(s.now));
+    s.hello(s.peer, kRoleDome, 0x04); s.heartbeat(s.peer, s.local); s.e.tick(s.now + 1); s.sent();
+    assert(s.e.connected(s.now + 1) && s.e.peerSession() == s.peer);
+    s.from(audioPlay(1, 4), 42, 1); s.e.tick(s.now + 2);
+    assert(!s.e.takeReceived(got));
+""")
+
+    def test_answered_but_unsent_reply_is_dropped_at_dropout(self):
+        self.check(r"""
+    Solo s(true); s.connect(); Frame got;
+    s.from(audioPlay(1, 2), 40, 1); s.e.tick(s.now); assert(s.e.takeReceived(got));
+    s.p.window = 0;
+    assert(s.e.reply(got, Result::Accepted, 0));
+    s.now += 400; s.e.tick(s.now);
+    s.p.window = 1u << 30; s.sent();
+    s.heartbeat(s.peer, s.local); s.e.tick(s.now + 1);
+    assert(countType(s.sent(), MessageType::Reply) == 0);               // no stale answer after the dropout
+    s.from(audioPlay(1, 2), 40, 1); s.e.tick(s.now + 2);
+    assert(!s.e.takeReceived(got));
+""")
+
+    def test_event_is_acknowledged_only_after_the_application_takes_it(self):
+        self.check(r"""
+    Solo s(true); s.connect(); Frame got;
+    Event ev = {0, 0x21, 5, 3};
+    s.from(frameOf(ev), 50, 1); s.e.tick(s.now);
+    assert(countType(s.sent(), MessageType::Reply) == 0);               // received, not yet applied
+    s.from(frameOf(ev), 50, 1); s.e.tick(s.now + 1);                     // sender retry while queued
+    assert(countType(s.sent(), MessageType::Reply) == 0 && s.e.stats().duplicates == 1);
+    assert(s.e.takeReceived(got) && got.type == MessageType::Event && !s.e.takeReceived(got));
+    s.e.tick(s.now + 2);
+    std::vector<Frame> out = s.sent(); Reply rp = {}; int n = 0;
+    for (size_t i = 0; i < out.size(); ++i) if (out[i].type == MessageType::Reply) { rp = as<Reply>(out[i]); ++n; }
+    assert(n == 1 && rp.request_type == static_cast<uint8_t>(MessageType::Event) && rp.request_seq == 50 && rp.result == 0);
+    s.from(frameOf(ev), 50, 1); s.e.tick(s.now + 3);                     // later retry replays the receipt only
+    assert(!s.e.takeReceived(got) && countType(s.sent(), MessageType::Reply) == 1);
+    // an event that was never taken is not acknowledged across a dropout and fails explicitly
+    s.from(frameOf(ev), 51, 1); s.e.tick(s.now + 4); s.sent();
+    s.now += 400; s.e.tick(s.now);
+    s.heartbeat(s.peer, s.local); s.e.tick(s.now + 1); s.sent();
+    s.from(frameOf(ev), 51, 1); s.e.tick(s.now + 2);
+    assert(!s.e.takeReceived(got));
+    out = s.sent(); n = 0;
+    for (size_t i = 0; i < out.size(); ++i) if (out[i].type == MessageType::Reply) { rp = as<Reply>(out[i]); ++n; }
+    assert(n == 1 && rp.result == 7);                                    // WrongEpoch, never Accepted
+""")
+
+    def test_partial_transmit_is_delimited_before_the_next_frame_after_reset(self):
+        self.check(r"""
+    for (int closed = 0; closed < 2; ++closed) {
+        Solo s(false); s.connect(); s.sent();
+        s.p.per_call = 3;
+        s.now += 100; s.e.tick(s.now);                                   // heartbeat due: 3 bytes leave
+        const size_t partial = s.p.tx.size();
+        assert(partial == 3);
+        s.p.per_call = 1u << 30;
+        if (closed) s.p.window = 0;
+        s.hello(0xB1B1, kRoleBody, 0x1B); s.e.tick(s.now + 1);           // peer rebooted: wire is dropped
+        if (closed) { assert(s.p.tx.size() == partial); s.p.window = 1u << 30; s.e.tick(s.now + 2); }
+        assert(s.p.tx.size() > partial && s.p.tx[partial] == 0);         // delimiter closes the fragment
+        std::vector<Frame> out = s.sent();
+        assert(countType(out, MessageType::Hello) >= 1 || countType(out, MessageType::Heartbeat) >= 1);
+    }
+""")
+
+    def test_dropout_closes_partial_transmit_too(self):
+        self.check(r"""
+    Solo s(false); s.connect(); s.sent();
+    s.p.per_call = 3; s.now += 100; s.e.tick(s.now);
+    assert(s.p.tx.size() == 3);
+    s.p.per_call = 1u << 30; s.now += 400; s.e.tick(s.now);
+    assert(s.p.tx.size() > 3 && s.p.tx[3] == 0);
+""")
+
+    def test_bootstrap_adapter_links_the_endpoint_without_hardware(self):
+        result = run_cpp(r"""
+#include "body/LinkBootstrap.h"
+#include <cassert>
+#include <cstdio>
+int main() {
+    body::LinkBootstrap link(0);
+    for (unsigned t = 0; t < 2000; t += 10) link.tick(t);
+    assert(!link.connected(2000) && link.endpoint().localSession() == 0);
+    body::LinkBootstrap on(5);
+    on.tick(1000);
+    assert(on.endpoint().localSession() == 5);
+    puts("ok"); return 0;
+}
+""", extra_sources=LINK_SOURCES + [BODY_SRC / "body/LinkBootstrap.cpp"], include_dirs=LINK_INCLUDES)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_teensy_main_references_the_bootstrap(self):
+        main = (BODY_SRC / "main.cpp").read_text()
+        self.assertIn("LinkBootstrap", main)
+        header = (BODY_SRC / "body/LinkBootstrap.h").read_text() + (BODY_SRC / "body/LinkBootstrap.cpp").read_text()
+        self.assertNotIn("Arduino.h", header)
+        self.assertNotIn("Serial", header)
+
 
 class ConfigStoreTests(unittest.TestCase):
     def check(self, body):
@@ -982,8 +1122,23 @@ static void fill(body::CommissioningProfile& p) {
     for (int wh = 0; wh < 2; ++wh)
         for (size_t i = 0; i < sizeof w / sizeof w[0]; ++i) assert(setField(p, w[i].id, wh, w[i].v) == FieldResult::Ok);
 }
+static body::AcceptanceEvidence evidence(const body::CommissioningProfile& p, uint8_t bit) {
+    body::AcceptanceEvidence e;
+    e.ch6_off = e.ch9_off = e.sticks_centered = e.stationary = e.operator_confirmed = true;
+    e.config_digest = body::acceptanceDigest(p, bit);
+    if (bit <= body::kAcceptAutoTiming) {
+        e.test_completed = true; e.observed_run_id = e.commanded_run_id = 7;
+        if (bit == body::kAcceptAutoTiming) e.cw_completed = e.ccw_completed = true;
+    } else {
+        e.vesc_operator_observed = true;
+    }
+    return e;
+}
+static body::AcceptResult accept(body::CommissioningProfile& p, uint8_t bit) {
+    return body::acceptBit(p, bit, evidence(p, bit));
+}
 static void acceptAll(body::CommissioningProfile& p) {
-    for (int b = 0; b <= 11; ++b) assert(body::acceptBit(p, b) == body::AcceptResult::Ok);
+    for (int b = 0; b <= 11; ++b) assert(accept(p, b) == body::AcceptResult::Ok);
 }
 '''
 
@@ -1081,6 +1236,148 @@ static void acceptAll(body::CommissioningProfile& p) {
     { ConfigStore cs(w); uint32_t t = 9; assert(cs.nextBootSession(t) && t == 1); }
 ''')
 
+    def test_acceptance_requires_explicit_operator_and_stationary_evidence(self):
+        self.check(r"""
+    using namespace body;
+    CommissioningProfile p; fill(p);
+    AcceptanceEvidence none;                                              // no permissive defaults
+    assert(!none.ch6_off && !none.ch9_off && !none.sticks_centered && !none.stationary && !none.operator_confirmed);
+    assert(!none.test_completed && !none.test_cancelled && !none.cw_completed && !none.ccw_completed && !none.vesc_operator_observed);
+    assert(none.observed_run_id == 0 && none.commanded_run_id == 0 && none.config_digest == 0);
+    for (int b = 0; b < 12; ++b) assert(acceptBit(p, b, none) != AcceptResult::Ok && p.acceptance == 0);
+    const uint8_t bits[] = {0, 4};
+    for (int field = 0; field < 5; ++field) {
+        for (int k = 0; k < 2; ++k) {
+            AcceptanceEvidence e = evidence(p, bits[k]);
+            if (field == 0) e.ch6_off = false;
+            if (field == 1) e.ch9_off = false;
+            if (field == 2) e.sticks_centered = false;
+            if (field == 3) e.stationary = false;
+            if (field == 4) e.operator_confirmed = false;
+            assert(acceptBit(p, bits[k], e) != AcceptResult::Ok && p.acceptance == 0);
+        }
+    }
+    assert(accept(p, 0) == AcceptResult::Ok && (p.acceptance & 1u));
+""")
+
+    def test_acceptance_neutral_reference_and_timing_need_matching_completed_runs(self):
+        self.check(r"""
+    using namespace body;
+    for (int bit = 0; bit <= 3; ++bit) {
+        CommissioningProfile p; fill(p);
+        if (bit > 0) assert(accept(p, 0) == AcceptResult::Ok);
+        AcceptanceEvidence e = evidence(p, bit);
+        e.test_completed = false; assert(acceptBit(p, bit, e) == AcceptResult::TestEvidence);
+        e = evidence(p, bit); e.test_cancelled = true; assert(acceptBit(p, bit, e) == AcceptResult::TestEvidence);
+        e = evidence(p, bit); e.observed_run_id = 8; assert(acceptBit(p, bit, e) == AcceptResult::TestEvidence);
+        e = evidence(p, bit); e.observed_run_id = e.commanded_run_id = 0; assert(acceptBit(p, bit, e) == AcceptResult::TestEvidence);
+        e = evidence(p, bit); e.vesc_operator_observed = true; e.test_completed = false;
+        assert(acceptBit(p, bit, e) == AcceptResult::TestEvidence);       // operator VESC observation is not a dome run
+        e = evidence(p, bit); e.config_digest ^= 1; assert(acceptBit(p, bit, e) == AcceptResult::ConfigMismatch);
+        if (bit == 3) {
+            e = evidence(p, bit); e.cw_completed = false; assert(acceptBit(p, bit, e) == AcceptResult::TestEvidence);
+            e = evidence(p, bit); e.ccw_completed = false; assert(acceptBit(p, bit, e) == AcceptResult::TestEvidence);
+        }
+        assert(((p.acceptance >> bit) & 1u) == 0);
+        const uint32_t before = acceptanceDigest(p, bit);
+        assert(accept(p, bit) == AcceptResult::Ok);
+        assert(acceptanceDigest(p, bit) == before);
+    }
+    // evidence collected for one stage config is stale after the staged values change
+    CommissioningProfile p; fill(p);
+    AcceptanceEvidence e = evidence(p, 0);
+    assert(setField(p, 1, 0, 1200) == FieldResult::Ok);
+    assert(acceptBit(p, 0, e) == AcceptResult::ConfigMismatch);
+    assert(accept(p, 0) == AcceptResult::Ok && accept(p, 3) == AcceptResult::Ok);
+    CommissioningProfile q = p; assert(setField(q, 3, 0, 11) == FieldResult::Ok);
+    assert(acceptBit(q, 3, evidence(p, 3)) == AcceptResult::ConfigMismatch);
+""")
+
+    def test_acceptance_external_vesc_checks_need_operator_observation(self):
+        self.check(r"""
+    using namespace body;
+    CommissioningProfile p; fill(p);
+    assert(accept(p, 4) == AcceptResult::Ok && accept(p, 5) == AcceptResult::Ok);
+    for (int bit = 4; bit <= 11; ++bit) {
+        AcceptanceEvidence e = evidence(p, bit);
+        e.vesc_operator_observed = false;
+        assert(acceptBit(p, bit, e) == AcceptResult::TestEvidence);
+        e = evidence(p, bit); e.config_digest ^= 1;
+        assert(acceptBit(p, bit, e) == AcceptResult::ConfigMismatch);
+    }
+    CommissioningProfile wheel1; fill(wheel1);
+    assert(accept(wheel1, 5) == AcceptResult::Ok && ((wheel1.acceptance >> 4) & 1u) == 0);   // wheel bits are independent
+    AcceptanceEvidence left = evidence(wheel1, 4);
+    assert(setField(wheel1, 9, 0, 30000) == FieldResult::Ok);          // staged record changed after observation
+    assert(acceptBit(wheel1, 4, left) == AcceptResult::ConfigMismatch);
+    assert(std::strcmp(acceptanceBitName(0), "servo_neutral") == 0 && std::strcmp(acceptanceBitName(11), "reversal_right") == 0);
+    assert(acceptanceBitName(12) == 0);
+""")
+
+    def test_vesc_values_layout_is_a_named_protocol_shape(self):
+        self.check(r"""
+    using namespace body;
+    assert(kLayoutUnknown == 0 && kLayoutLegacyGetValues == 1);
+    assert(!layoutSupported(0) && layoutSupported(1) && !layoutSupported(2));
+    CommissioningProfile p; fill(p);
+    assert(setField(p, 8, 0, kLayoutUnknown) == FieldResult::OutOfRange);
+    int32_t v; assert(getField(p, 8, 0, v) && v == kLayoutLegacyGetValues);
+    CommissioningProfile fresh; assert(!getField(fresh, 8, 0, v) && fresh.wheel[0].layout == kLayoutUnknown);
+    for (int b = 0; b <= 3; ++b) assert(accept(p, b) == AcceptResult::Ok);
+    p.wheel[0].layout = kLayoutUnknown;                                  // an unknown layout can never be drive-ready
+    assert(!validateProfile(p) || !readiness(p).drive);
+    for (int b = 4; b <= 11; ++b) accept(p, b);
+    assert(!readiness(p).drive);
+""")
+
+    def test_first_ever_torn_boot_write_recovers_with_a_safe_counter(self):
+        self.check(r"""
+    using namespace body;
+    for (int cut = 0; cut <= 32; ++cut) {
+        FakeStorage st; st.fail_write_after = cut;
+        uint32_t s0 = 0; { ConfigStore cs(st); if (cut < 32) assert(!cs.nextBootSession(s0)); else assert(cs.nextBootSession(s0)); }
+        st.fail_write_after = -1;
+        uint32_t s1 = 0; ConfigStore cs2(st);
+        assert(cs2.nextBootSession(s1) && s1 >= 1);
+        assert(cs2.bootResult() == BootResult::Ok);
+        uint32_t s2 = 0; ConfigStore cs3(st); assert(cs3.nextBootSession(s2) && s2 == s1 + 1);
+    }
+    // a torn rewrite beside a valid record never reuses the valid counter
+    FakeStorage st; uint32_t a = 0, b = 0, c = 0;
+    { ConfigStore cs(st); assert(cs.nextBootSession(a)); }
+    { ConfigStore cs(st); assert(cs.nextBootSession(b) && b == a + 1); }
+    for (int cut = 0; cut < 33; ++cut) {
+        FakeStorage t; t.mem = st.mem; t.fail_write_after = cut;
+        { ConfigStore cs(t); uint32_t x; cs.nextBootSession(x); }
+        t.fail_write_after = -1; ConfigStore cs2(t);
+        assert(cs2.nextBootSession(c) && c > b);
+    }
+    // two committed-but-corrupt records are real corruption: no recovery, explicit boot fault
+    FakeStorage k; { ConfigStore cs(k); uint32_t t; cs.nextBootSession(t); } { ConfigStore cs(k); uint32_t t; cs.nextBootSession(t); }
+    for (size_t i = 0; i < 64; ++i) if (i % 32 != 31) k.mem[i] ^= 0x33;
+    { ConfigStore cs(k); uint32_t t = 9; assert(!cs.nextBootSession(t) && t == 9 && cs.bootResult() == BootResult::Corrupt); }
+""")
+
+    def test_boot_storage_fault_is_separate_from_profile_diagnostics(self):
+        self.check(r"""
+    using namespace body;
+    FakeStorage st; ConfigStore cs(st); CommissioningProfile p; uint32_t t;
+    assert(cs.bootResult() == BootResult::NotAttempted);
+    assert(faultBits(ConfigResult::Ready) == 0 && faultBits(ConfigResult::Uncommissioned) == 1);
+    assert(faultBits(ConfigResult::Corrupt) == 2 && faultBits(ConfigResult::IoError) == 2);
+    assert(cs.load(p) == ConfigResult::Uncommissioned && cs.faultMask(ConfigResult::Uncommissioned) == 1);
+    st.fail_read_at = ConfigStore::bootSlotAddress(0); st.fail_read = true;
+    assert(!cs.nextBootSession(t) && cs.bootResult() == BootResult::IoError);
+    assert(cs.faultMask(ConfigResult::Ready) == 4 && cs.faultMask(ConfigResult::Corrupt) == 6);
+    st.fail_read = false;                                              // profile region was never touched
+    assert(cs.load(p) == ConfigResult::Uncommissioned);
+    assert(cs.faultMask(ConfigResult::Uncommissioned) == 5);           // missing profile + boot-session error
+    assert(cs.nextBootSession(t) && cs.bootResult() == BootResult::Ok && cs.faultMask(ConfigResult::Ready) == 0);
+    // a profile read error leaves boot diagnostics healthy
+    st.fail_read_at = ConfigStore::profileSlotAddress(0); st.fail_read = true;
+    assert(cs.load(p) == ConfigResult::IoError && cs.faultMask(ConfigResult::IoError) == 2);
+""")
+
     def test_field_envelopes_readiness_and_acceptance_prerequisites(self):
         self.check(r'''
     using namespace body;
@@ -1104,12 +1401,12 @@ static void acceptAll(body::CommissioningProfile& p) {
     assert(setField(p, 99, 0, 1) == FieldResult::UnknownField);
     // acceptance needs its prerequisites and distinct readiness
     p = CommissioningProfile();
-    assert(acceptBit(p, 0) == AcceptResult::Prerequisite && acceptBit(p, 12) == AcceptResult::UnsupportedBit);
+    assert(accept(p, 0) == AcceptResult::Prerequisite && accept(p, 12) == AcceptResult::UnsupportedBit);
     fill(p);
-    for (int b = 0; b <= 2; ++b) assert(acceptBit(p, b) == AcceptResult::Ok);
+    for (int b = 0; b <= 2; ++b) assert(accept(p, b) == AcceptResult::Ok);
     assert(readiness(p).manual_dome && !readiness(p).auto_dome && !readiness(p).drive);
-    assert(acceptBit(p, 3) == AcceptResult::Ok && readiness(p).auto_dome && !readiness(p).drive);
-    for (int b = 4; b <= 11; ++b) assert(acceptBit(p, b) == AcceptResult::Ok);
+    assert(accept(p, 3) == AcceptResult::Ok && readiness(p).auto_dome && !readiness(p).drive);
+    for (int b = 4; b <= 11; ++b) assert(accept(p, b) == AcceptResult::Ok);
     assert(readiness(p).drive && validateProfile(p));
     // changing a field clears only the acceptances it owns
     assert(setField(p, 4, 0, 250) == FieldResult::Ok && readiness(p).drive);
