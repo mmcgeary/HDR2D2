@@ -356,6 +356,89 @@ class PlusBehaviorTests(unittest.TestCase):
         """)
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_vesc_drive_mixing_and_can_forwarding(self):
+        source = SKETCH.read_text()
+        functions = "\n".join(function(source, name) for name in
+                              ("sendVescDuty", "stopVescMotors", "processVescDrive"))
+        definitions = "\n".join(line for line in source.splitlines()
+                                if line.startswith("#define VESC_") or
+                                   line.startswith("#define RC_CH_"))
+        crc_fn = source[source.index("static uint16_t vesc_crc16"):
+                        source.index("void sendVescDuty(")]
+        result = run_cpp("""
+            #include <cstdint>
+            #include <vector>
+            #include <cmath>
+            #define F(x) x
+            """ + definitions + """
+            uint32_t now = 100;
+            uint32_t millis() { return now; }
+            bool rc_connected = true;
+            bool otaInProgress = false;
+            enum { R2_NONE, R2_FAINT };
+            int active_macro = R2_NONE;
+            uint16_t rc_channels[10] = {1500, 1500, 1500, 1500, 2000, 1500, 1500, 1500, 1500, 1500};
+            float constrain(float val, float low, float high) {
+                return val < low ? low : val > high ? high : val;
+            }
+            struct MockSerial {
+                std::vector<std::vector<uint8_t>> packets;
+                void write(const uint8_t* data, uint8_t len) {
+                    packets.emplace_back(data, data + len);
+                }
+            } COMMAND_SERIAL;
+        """ + crc_fn + functions + """
+            int main() {
+                // 1. Deadband test: stick neutral (1500, 1500)
+                processVescDrive();
+                if (COMMAND_SERIAL.packets.size() != 2) return 1;
+                // Master packet (CAN ID 1): start=0x02, len=5, cmd=5, duty=0
+                auto p_m = COMMAND_SERIAL.packets[0];
+                if (p_m[0] != 0x02 || p_m[1] != 5 || p_m[2] != 5 ||
+                    p_m[3] != 0 || p_m[4] != 0 || p_m[5] != 0 || p_m[6] != 0 ||
+                    p_m.back() != 0x03) return 2;
+                // Slave packet (CAN ID 2): start=0x02, len=7, cmd=34 (FORWARD_CAN), id=2, cmd=5, duty=0
+                auto p_s = COMMAND_SERIAL.packets[1];
+                if (p_s[0] != 0x02 || p_s[1] != 7 || p_s[2] != 34 || p_s[3] != 2 || p_s[4] != 5 ||
+                    p_s[5] != 0 || p_s[6] != 0 || p_s[7] != 0 || p_s[8] != 0 ||
+                    p_s.back() != 0x03) return 3;
+
+                // 2. Tank spin in place: Steer full right (2000), Throttle neutral (1500), High speed (2000)
+                COMMAND_SERIAL.packets.clear();
+                now += 25;
+                rc_channels[RC_CH_STEER] = 2000;
+                rc_channels[RC_CH_THROTTLE] = 1500;
+                processVescDrive();
+                if (COMMAND_SERIAL.packets.size() != 2) return 4;
+                // Master left wheel should be positive duty (+95000)
+                int32_t left_duty = (int32_t(COMMAND_SERIAL.packets[0][3]) << 24) |
+                                    (int32_t(COMMAND_SERIAL.packets[0][4]) << 16) |
+                                    (int32_t(COMMAND_SERIAL.packets[0][5]) << 8) |
+                                    int32_t(COMMAND_SERIAL.packets[0][6]);
+                // Slave right wheel should be negative duty (-95000)
+                int32_t right_duty = (int32_t(COMMAND_SERIAL.packets[1][5]) << 24) |
+                                     (int32_t(COMMAND_SERIAL.packets[1][6]) << 16) |
+                                     (int32_t(COMMAND_SERIAL.packets[1][7]) << 8) |
+                                     int32_t(COMMAND_SERIAL.packets[1][8]);
+                if (left_duty <= 0 || right_duty >= 0) return 5;
+
+                // 3. Radio disconnect failsafe: Should force 0 duty
+                COMMAND_SERIAL.packets.clear();
+                now += 25;
+                rc_connected = false;
+                processVescDrive();
+                if (COMMAND_SERIAL.packets.size() != 2) return 6;
+                left_duty = (int32_t(COMMAND_SERIAL.packets[0][3]) << 24) |
+                            (int32_t(COMMAND_SERIAL.packets[0][4]) << 16) |
+                            (int32_t(COMMAND_SERIAL.packets[0][5]) << 8) |
+                            int32_t(COMMAND_SERIAL.packets[0][6]);
+                if (left_duty != 0) return 7;
+
+                return 0;
+            }
+        """)
+        self.assertEqual(result.returncode, 0, result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

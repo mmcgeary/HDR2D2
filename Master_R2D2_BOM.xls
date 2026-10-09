@@ -430,8 +430,8 @@
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Power Connectors &amp; Wire</Data></Cell>
     <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 pack</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Stranded copper10/12/14/16/18/20/22AWG; correct stud-size rings, insulated crimp splices/ferrules and genuine rated polarized connectors</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">POWER_HARNESS_GUIDE.md lists lengths and connector rules; motor phases six2m12AWG conductors, two2m five-core22AWG Hall cables. No CCA; distinguish12V input and5V output connector families.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Stranded copper 10/12/16/18/20/22AWG; ring lugs matching studs, insulated crimp splices, and ferrules</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Follows wire schedule in POWER_HARNESS_GUIDE.md: 12AWG for motor phases (6x 2m) and VESC power; 22AWG 5-core for motor Halls.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">39</Data></Cell>
@@ -439,8 +439,8 @@
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Servo Patch Cables</Data></Cell>
     <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">6 pcs</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Connector-matched servo/receiver extensions; verify actual header mating genders</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">VESC PPM uses signal+ground ONLY; remove/insulate+5V conductor. MG90S uses factoryS/V/G leads; verify normal-load ratings and routing. No5V device fuses by user decision; fault protection unverified.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Standard 3-pin male-to-male servo extensions</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">VESC PPM leads use signal and ground only (remove center red +5V wire). Standard 3-pin leads for receiver and PCA9685 connections.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">40</Data></Cell>
@@ -466,8 +466,8 @@
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Body 10A 5V Buck Converter</Data></Cell>
     <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Second matching verified B09T954ZV1-equivalent10-35V input/fixed5V10A converter</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">F3 7.5A input,16AWG input/12AWG output trunk extensions; body5V screw-terminal distribution has no output branch fuses by user decision. Relies on advertised converter protection; thin-wire fault protection unverified. Never join body/dome5V positives.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Second matching B09T954ZV1-equivalent 10-35V input / fixed 5V 10A converter</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Powers receiver, DFPlayer, and continuous dome servo. Fuse F3 (7.5A) on input. Never connect body and dome +5V rails together.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">43</Data></Cell>
@@ -475,26 +475,26 @@
     <Cell ss:StyleID="CellText"><Data ss:Type="String">3.3V / 5V Logic-Level Shifter</Data></Cell>
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Two5V-to-3.3V signal channels used; verify exact model/pinout and115200-baud operation</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome-side iBus and Hall downshift only; LV=3.3V, HV=regulated5V, common ground. PWM and DFPlayer TX bypass shifter at3.3V; extra channels unused. Never connect shifter supply to12V.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">4-channel bidirectional logic-level shifter (two channels used)</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Steps down 5V iBUS and Hall sensor signals to 3.3V for ESP32 inputs. LV=3.3V, HV=5V, common ground. Servo PWM and audio TX bypass shifter.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">44</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Covered12V Fuse Box with Integrated Negative Bus</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Covered 12V Fuse Box with Integrated Negative Bus</Data></Cell>
     <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 set</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">One box with+/- feed studs; six positive circuits, at least32V DC/30A total; F1 holder/circuit at least15A, others rated for selected fuses; integrated negative bus at least30A</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Battery+ through main fuse/cutoff to+ feed; battery- direct to- feed. F1 shared dualVESC15A on12AWG added pair, ONE factory input; F2 empty/unused, never parallel outputs. F3 bodybuck7.5A,F4 domefeed7.5A,F5 amp5A,F6 telemetry sense1A. All returns to integrated negative bus; no negative fuses. Verify connector and startup inrush.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">6-way blade fuse block with + and - feed studs and common negative bus</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Main 12V branch distribution. Battery feeds + stud through 25A main fuse and cutoff switch. F1: VESC (15A), F2: Empty, F3: Body buck (7.5A), F4: Dome buck (7.5A), F5: Amp (5A), F6: Telemetry sense (1A).</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">45</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Local5V Screw-Terminal Distribution</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Local 5V Screw-Terminal Distribution</Data></Cell>
     <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2 assemblies</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Screw-terminal strips, at least15A total; separate shared positive/negative buses; no branch fuses installed</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Existing item20 can form dome distribution if rated; not an extra duplicate strip. Body/dome5V positives stay separate. No5V output fuses by user decision; unverified wire/header fault protection is a residual limitation, not a fuse commissioning hold.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Screw-terminal distribution strips (rated &gt;=15A) for body and dome</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Distributes 5V and ground locally to nearby modules. Body and dome 5V rails stay separate; grounds connect together.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">46</Data></Cell>
@@ -502,8 +502,8 @@
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Harness Strain Relief &amp; Labels</Data></Cell>
     <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 kit</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Grommets, abrasion sleeve, screw-mounted clamps, adhesive heatshrink, terminal boots and permanent labels</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Support both sides of connectors; shoulder service loop, separate Hall/phase bundles, no axle-exit strain; individually insulate ringCH6/TEMP/unusedPPM+5V.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Grommets, abrasion split-loom, screw-mounted clamps, adhesive heatshrink, and wire labels</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Protects wiring through shell holes; provides service loops at shoulder pivots and secures connectors.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">47</Data></Cell>
@@ -511,8 +511,8 @@
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Commissioning Measurement Tools</Data></Cell>
     <Cell ss:StyleID="Pending"><Data ss:Type="String">Verify availability</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 set</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">DC voltmeter/continuity meter and DC-capable clamp or appropriately rated inline wattmeter</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Measure polarity, loaded5V and totalbattery current; never put ammeter across battery or whole20A system through typical10A meter input.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Digital multimeter and DC-capable clamp meter or inline wattmeter</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">For verifying rail voltages (12V and 5V), continuity, and total system current draw under load.</Data></Cell>
    </Row>
   </Table>
  </Worksheet>

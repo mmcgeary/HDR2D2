@@ -68,10 +68,11 @@
 /////////////////////////////////////////////////////////////////////////
 
 // Serial Communication Pins
-#define PIN_IBUS_RX          16    // Hardware Serial2 RX (115,200 baud): FlySky i-Bus Stream
+#define PIN_IBUS_RX          16    // Hardware Serial2 RX (115,200 baud): FlySky i-Bus Stream (Receiver in Dome)
 #define PIN_SOUND_TX         17    // Hardware Serial1 TX (9,600 baud): Body DFPlayer RX via Slip Ring Ch 4
+#define PIN_VESC_UART_TX     18    // Hardware Serial2 TX (115,200 baud): Dual VESC COMM RX via Slip Ring Ch 6
 #define SERIAL2_RX_PIN       16
-#define SERIAL2_TX_PIN       -1
+#define SERIAL2_TX_PIN       18
 #define COMMAND_SERIAL       Serial2
 
 // Dome Drive & Homing Pins
@@ -96,7 +97,7 @@
 #define PIN_AUX1             2
 #define PIN_AUX2             4     // Used for PIN_DOME_SERVO_PWM
 #define PIN_AUX3             5     // Unused
-#define PIN_AUX4             18
+#define PIN_AUX4             18    // Used for PIN_VESC_UART_TX (Slip Ring Ch 6)
 #define PIN_AUX5             19    // Used for PIN_DOME_HALL_SENS
 
 /////////////////////////////////////////////////////////////////////////
@@ -344,6 +345,8 @@ bool rc_connected = false;
 unsigned long last_rc_packet_ms = 0;
 
 // FlySky FS-i6X Channel Mapping
+#define RC_CH_STEER            0  // Right Stick X (CH1): Tank Differential Steering
+#define RC_CH_THROTTLE         1  // Right Stick Y (CH2): Forward / Reverse Throttle
 #define RC_CH_HOLO_TILT        2  // Left Stick Y (CH3): Manual Front Holo Tilt
 #define RC_CH_DOME_STEER       3  // Left Stick X (CH4): Manual Dome Rotation
 #define RC_CH_SPEED_MODE       4  // Switch SwB   (CH5): Transmitter Dual Rates
@@ -935,6 +938,122 @@ MARCDUINO_ACTION(Restart, #APRESTART, ({
 }))
 
 /////////////////////////////////////////////////////////////////////////
+// 15. DUAL VESC 4.20 UART & TANK MIXING CONTROLLER
+/////////////////////////////////////////////////////////////////////////
+
+#define VESC_COMM_SET_DUTY      5
+#define VESC_COMM_FORWARD_CAN   34
+#define VESC_CAN_ID_SLAVE       2
+
+static uint16_t vesc_crc16(const uint8_t *buf, uint32_t len) {
+    uint16_t crc = 0;
+    for (uint32_t i = 0; i < len; i++) {
+        crc ^= (uint16_t)buf[i] << 8;
+        for (uint8_t j = 0; j < 8; j++) {
+            if (crc & 0x8000) {
+                crc = (crc << 1) ^ 0x1021;
+            } else {
+                crc = crc << 1;
+            }
+        }
+    }
+    return crc;
+}
+
+void sendVescDuty(uint8_t can_id, float duty) {
+    duty = constrain(duty, -0.95f, 0.95f);
+    int32_t duty_int = (int32_t)(duty * 100000.0f);
+
+    uint8_t payload[8];
+    uint8_t p_len = 0;
+
+    if (can_id <= 1) {
+        // Direct command to Master (Controller ID 1)
+        payload[p_len++] = VESC_COMM_SET_DUTY;
+        payload[p_len++] = (duty_int >> 24) & 0xFF;
+        payload[p_len++] = (duty_int >> 16) & 0xFF;
+        payload[p_len++] = (duty_int >> 8) & 0xFF;
+        payload[p_len++] = duty_int & 0xFF;
+    } else {
+        // Forwarded over internal CAN bus to Slave (Controller ID can_id)
+        payload[p_len++] = VESC_COMM_FORWARD_CAN;
+        payload[p_len++] = can_id;
+        payload[p_len++] = VESC_COMM_SET_DUTY;
+        payload[p_len++] = (duty_int >> 24) & 0xFF;
+        payload[p_len++] = (duty_int >> 16) & 0xFF;
+        payload[p_len++] = (duty_int >> 8) & 0xFF;
+        payload[p_len++] = duty_int & 0xFF;
+    }
+
+    uint16_t crc = vesc_crc16(payload, p_len);
+
+    uint8_t frame[16];
+    uint8_t f_idx = 0;
+    frame[f_idx++] = 0x02;            // Packet start
+    frame[f_idx++] = p_len;           // Payload length
+    for (uint8_t i = 0; i < p_len; i++) {
+        frame[f_idx++] = payload[i];
+    }
+    frame[f_idx++] = (crc >> 8) & 0xFF;
+    frame[f_idx++] = crc & 0xFF;
+    frame[f_idx++] = 0x03;            // Packet end
+
+    COMMAND_SERIAL.write(frame, f_idx);
+}
+
+void stopVescMotors() {
+    sendVescDuty(1, 0.0f);
+    sendVescDuty(VESC_CAN_ID_SLAVE, 0.0f);
+}
+
+void processVescDrive() {
+    static uint32_t last_vesc_update_ms = 0;
+    uint32_t now = millis();
+    if (now - last_vesc_update_ms < 20) return; // 50Hz update rate
+    last_vesc_update_ms = now;
+
+    if (!rc_connected || otaInProgress || active_macro == R2_FAINT) {
+        stopVescMotors();
+        return;
+    }
+
+    uint16_t raw_throttle = rc_channels[RC_CH_THROTTLE];
+    uint16_t raw_steer    = rc_channels[RC_CH_STEER];
+
+    // Deadband between 1460us and 1540us
+    float throttle = 0.0f;
+    float steer = 0.0f;
+
+    if (raw_throttle < 1460) {
+        throttle = (float)(raw_throttle - 1460) / 460.0f; // -1.0 to 0.0
+    } else if (raw_throttle > 1540) {
+        throttle = (float)(raw_throttle - 1540) / 460.0f; // 0.0 to +1.0
+    }
+
+    if (raw_steer < 1460) {
+        steer = (float)(raw_steer - 1460) / 460.0f; // -1.0 to 0.0
+    } else if (raw_steer > 1540) {
+        steer = (float)(raw_steer - 1540) / 460.0f; // 0.0 to +1.0
+    }
+
+    // Dual Rates Speed Switch (Switch SwB / CH5)
+    // Low: 35%, Mid: 70%, High: 100%
+    float max_rate = 0.35f;
+    if (rc_channels[RC_CH_SPEED_MODE] > 1750) {
+        max_rate = 1.0f;
+    } else if (rc_channels[RC_CH_SPEED_MODE] > 1250) {
+        max_rate = 0.70f;
+    }
+
+    // Tank Differential Mixing
+    float left_duty  = constrain((throttle + steer) * max_rate, -1.0f, 1.0f);
+    float right_duty = constrain((throttle - steer) * max_rate, -1.0f, 1.0f);
+
+    sendVescDuty(1, left_duty);
+    sendVescDuty(VESC_CAN_ID_SLAVE, right_duty);
+}
+
+/////////////////////////////////////////////////////////////////////////
 // 16. SYSTEM INITIALIZATION (SETUP)
 /////////////////////////////////////////////////////////////////////////
 
@@ -1082,6 +1201,7 @@ void loop() {
 #endif
     if (otaInProgress) {
         stopDomeMotion();
+        stopVescMotors();
         WRITE_DOME_SERVO(0);
         return;
     }
@@ -1092,6 +1212,7 @@ void loop() {
     processRandomHolos();
     AnimatedEvent::process();
     processR2Macro();
+    processVescDrive();
     sMarcSound.idle();
     processAudioQueue();
 }

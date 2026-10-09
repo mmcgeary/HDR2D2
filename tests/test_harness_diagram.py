@@ -45,7 +45,7 @@ class HarnessDiagramTests(unittest.TestCase):
         routes = {(w["from"], w["to"]) for w in data["wires"]}
         self.assertIn(("battery:-", "fuseBlock:- FEED"), routes)
         for wire_id in ("drive-return", "body-input-return",
-                        "dome-feed-return", "amp-return", "telemetry-sense-return"):
+                        "dome-feed-return", "amp-return", "vesc-comm-ground"):
             wire = next(w for w in data["wires"] if w["id"] == wire_id)
             self.assertEqual(wire["to"], "fuseBlock:NEGATIVE BUS")
 
@@ -59,8 +59,8 @@ class HarnessDiagramTests(unittest.TestCase):
         ring_contacts = [wire for wire in data["wires"] if wire["cat"] == "ring"]
         self.assertEqual(len(ring_contacts), 5)
         for wire in data["wires"]:
-            self.assertNotIn("ringBody:CH6", (wire["from"], wire["to"]))
-            self.assertNotIn("ringDome:CH6", (wire["from"], wire["to"]))
+            self.assertNotIn("ringBody:CH3", (wire["from"], wire["to"]))
+            self.assertNotIn("ringDome:CH3", (wire["from"], wire["to"]))
 
     def test_five_volt_positive_rails_are_separate(self):
         data = self.load_data()
@@ -157,12 +157,12 @@ class HarnessDiagramTests(unittest.TestCase):
         data = self.load_data()
         self.assertNotIn("voltmeter", data["components"])
         routes = {(w["from"], w["to"]) for w in data["wires"]}
-        self.assertIn(("fuseBlock:F6 1A", "telemetry:SENSE+"), routes)
-        self.assertIn(("telemetry:SENSE-", "fuseBlock:NEGATIVE BUS"), routes)
+        self.assertIn(("ringDome:CH1", "telemetry:SENSE+"), routes)
+        self.assertIn(("telemetry:SENSE-", "ringDome:CH2"), routes)
         self.assertIn(("receiver:SENS 5V", "telemetry:SUPPLY 5V"), routes)
         self.assertIn(("receiver:SENS GND", "telemetry:GND"), routes)
         self.assertIn(("telemetry:DATA", "receiver:SENS DATA"), routes)
-        self.assertIn(("receiver:iBUS SIG", "ringBody:CH3"), routes)
+        self.assertIn(("receiver:iBUS SIG", "shifter:HV1 iBUS IN 5V"), routes)
 
     def test_routes_exit_terminals_and_avoid_every_component_box(self):
         page = (ROOT / "wiring_visualizer.html").read_text()
@@ -173,7 +173,7 @@ class HarnessDiagramTests(unittest.TestCase):
         program = engine.group(1) + "\nconst data=" + json.dumps(data) + r""";
             layoutComponents(data.components);
             for(const ids of [
-                ["pca-sda","pca-scl"],["left-ppm","right-ppm"],
+                ["pca-sda","pca-scl"],
                 ["left-h1","left-h2","left-h3"],["left-u","left-v","left-w"],
                 data.wires.filter(w=>/:CH\d S$/.test(w.from)).map(w=>w.id)
             ]) {
