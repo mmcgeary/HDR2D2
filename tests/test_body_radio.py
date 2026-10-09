@@ -312,20 +312,24 @@ int main() {
                          include_dirs=[ROOT / "tests/radio_fakes", BODY, SHARED])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_actual_main_starts_radio_only_without_waiting_or_actuators(self):
+    def test_actual_main_starts_radio_and_diagnostic_vesc_without_motion(self):
         program = PRELUDE + r'''
 #include "main.cpp"
 HardwareSerial Serial;
-HardwareSerialIMXRT Serial5, Serial6;
+HardwareSerialIMXRT Serial1, Serial2, Serial5, Serial6;
 uint32_t fake_ms=0, fake_us=0;
 int main() {
     setup();
     assert(fake_ms==0 && Serial5.baud==115200 && Serial6.baud==115200);
     assert(Serial6.open_drain_after_begin && Serial5.tx_pin==-1 && Serial6.rx_pin==-1);
+    assert(Serial1.baud==115200 && Serial1.rx_pin==0 && Serial1.tx_pin==1);
+    assert(Serial2.baud==115200 && Serial2.rx_pin==7 && Serial2.tx_pin==8);
     assert(!g_link.connected(0));
     auto b=frame(5,1000); Serial5.bytes.insert(Serial5.bytes.end(),b.begin(),b.end());
     auto request=poll(0x81); Serial6.bytes.insert(Serial6.bytes.end(),request.begin(),request.end());
     loop(); assert(g_input.snapshot(0).valid && Serial6.written==0);
+    assert(Serial1.written==6 && Serial2.written==6);
+    assert(!g_left.sample(0).valid && !g_right.sample(0).valid);
     fake_us=100; loop(); assert(Serial6.written==4);
     assert(g_telemetry.counters().responses==1);
     Serial.space=0; fake_ms=5000; fake_us=5000000; loop();
@@ -337,6 +341,7 @@ int main() {
         result = run_cpp(program,
                          extra_sources=SOURCES + [
                              BODY / "body/LinkBootstrap.cpp",
+                             BODY / "body/VescLink.cpp", BODY / "body/ConfigStore.cpp",
                              SHARED / "src/Endpoint.cpp", SHARED / "src/Codec.cpp"],
                          include_dirs=[ROOT / "tests/radio_fakes", BODY, SHARED])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

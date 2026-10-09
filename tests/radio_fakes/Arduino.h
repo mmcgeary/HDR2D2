@@ -21,7 +21,7 @@ struct HardwareSerialIMXRT : HardwareSerial {
     void setRX(int p) { rx_pin=p; }
     void setTX(int p, bool od=false) { tx_pin=p; open_drain=od; open_drain_after_begin=begun && od; }
 };
-extern HardwareSerialIMXRT Serial5, Serial6;
+extern HardwareSerialIMXRT Serial1, Serial2, Serial5, Serial6;
 extern HardwareSerial Serial;
 extern uint32_t fake_ms, fake_us;
 inline uint32_t millis() { return fake_ms; }

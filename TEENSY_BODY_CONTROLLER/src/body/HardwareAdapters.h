@@ -46,6 +46,20 @@ private:
     HardwareSerialIMXRT& uart_;
 };
 
+class VescPort : public HardwareSerialPort {
+public:
+    VescPort(HardwareSerialIMXRT& serial, uint8_t wheel) :
+        HardwareSerialPort(serial), uart_(serial), wheel_(wheel) {}
+    void begin() {
+        uart_.setRX(wheel_ == 0 ? body_pins::kLeftVescRx : body_pins::kRightVescRx);
+        uart_.setTX(wheel_ == 0 ? body_pins::kLeftVescTx : body_pins::kRightVescTx);
+        uart_.begin(115200, SERIAL_8N1);
+    }
+private:
+    HardwareSerialIMXRT& uart_;
+    uint8_t wheel_;
+};
+
 class TelemetryPort : public HardwareSerialPort {
 public:
     explicit TelemetryPort(HardwareSerialIMXRT& serial) : HardwareSerialPort(serial), uart_(serial) {}
