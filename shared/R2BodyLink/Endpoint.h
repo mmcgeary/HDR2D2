@@ -44,8 +44,20 @@ struct LinkStats {
     uint32_t hello_rejected, session_changes, link_losses, request_timeouts, unsent_expired;
     uint32_t retransmits, partial_writes, rx_queue_full, reply_queue_full, completion_overflow;
     uint32_t encode_failures, unmatched_replies, pending_expired, busy_local, rx_not_connected;
+    uint32_t protocol_failures;   // same (type, sequence) re-sent with different content
 };
 
+// Link-loss, replay and receipt semantics
+//  * Timeout (housekeeping): all pending requests complete PeerLost; stream sequence, rx queues, reply queue,
+//    peer mode/ready are cleared and generation() increments. Clients must reinitialise on a generation change.
+//    Unfinished cache entries become completed guards answering WrongEpoch(7); finished entries still replay
+//    their cached result, so an old retransmit never re-executes after a same-session handshake.
+//  * EVENT frames are acked (Accepted) only when the application takes them via takeReceived().
+//    Events still queued at link loss are dropped unacked, so the sender sees TimedOut/PeerLost, never a false ack.
+//  * Same (type, sequence) with different content: never replayed or executed; counts sequence_conflicts and
+//    protocol_failures; a flagged frame gets the original's cached result only if the original is complete.
+//    If the original is still pending the sender gets no reply and stays pending until TimedOut (outcome unknown).
+//  * A partial frame left on the wire by a reset/drop is terminated with a 0x00 delimiter before new data.
 class Endpoint {
 public:
     static const uint8_t kSlots = 8, kOrdinarySlots = 6, kStreamKeys = 10, kRxFifo = 8;
@@ -131,6 +143,8 @@ private:
     void failAll(Outcome outcome);
     void resetPeer(uint32_t new_peer);
     void clearRxState();
+    void dropWire();
+    void dropLink(uint32_t now);
     CacheEntry* findCache(uint8_t type, uint16_t seq);
     CacheEntry* allocCache(uint32_t now);
     uint16_t allocSequence();
@@ -169,7 +183,7 @@ private:
 
     uint8_t wire_[kMaxWire];
     size_t wire_len_, wire_off_;
-    bool wire_partial_counted_;
+    bool wire_partial_counted_, need_delim_;
 };
 
 }  // namespace r2link

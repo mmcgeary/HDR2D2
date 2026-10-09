@@ -32,7 +32,7 @@ Endpoint::Endpoint(BytePort& port, uint8_t role, uint32_t local_session)
       hb_seq_(0), last_hb_ms_(0), last_hello_ms_(0), last_hb_tx_ms_(0), last_now_(0), order_(0),
       next_seq_(0), stream_seq_(0), reject_(Reject::None),
       fifo_head_(0), fifo_count_(0), done_head_(0), done_count_(0),
-      wire_len_(0), wire_off_(0), wire_partial_counted_(false) {
+      wire_len_(0), wire_off_(0), wire_partial_counted_(false), need_delim_(false) {
     memset(&stats_, 0, sizeof stats_);
     memset(out_, 0, sizeof out_);
     memset(stream_out_, 0, sizeof stream_out_);
@@ -201,6 +201,18 @@ bool Endpoint::takeReceived(Frame& frame, uint32_t& ms) {
         ms = fifo_[fifo_head_].ms;
         fifo_head_ = static_cast<uint8_t>((fifo_head_ + 1) % kRxFifo);
         --fifo_count_;
+        if (frame.type == MessageType::Event) {
+            // The receipt is acknowledged only once the application owns the event.
+            CacheEntry* c = findCache(static_cast<uint8_t>(frame.type), frame.sequence);
+            if (c && !c->done) {
+                c->done = true;
+                c->result = static_cast<uint8_t>(Result::Accepted);
+                c->detail = 0;
+                c->ms = last_now_;
+                if (frame.flags & 1)
+                    queueReply(static_cast<uint8_t>(frame.type), frame.sequence, c->result, 0);
+            }
+        }
         return true;
     }
     for (uint8_t i = 0; i < kStreamKeys; ++i) {
@@ -335,7 +347,9 @@ void Endpoint::handleFrame(const Frame& f, uint32_t now) {
 
 void Endpoint::handleHello(const Frame& f) {
     if (local_ == 0) return;
-    if (f.destination_session != 0 || f.source_session == 0 || f.source_session == local_) { ++ec_.session; return; }
+    // Boot counters are per-board namespaces, so equal values across roles are legal; the role check below
+    // is what rejects a looped-back HELLO from ourselves.
+    if (f.destination_session != 0 || f.source_session == 0) { ++ec_.session; return; }
     Hello h;
     if (decode(f, h, ec_) != Status::Ok) { ++stats_.invalid_payload; return; }
     const uint8_t peer_role = role_ == kRoleBody ? kRoleDome : kRoleBody;
@@ -393,8 +407,12 @@ void Endpoint::handleDiscrete(const Frame& f, uint32_t now) {
             ++stats_.duplicates;
             if (c->done && flagged) queueReply(type, f.sequence, c->result, c->detail);
         } else {
+            // Same key, different content: never executed, and never answered with a rejection that
+            // the sender would attribute to the original request. An already-answered original keeps
+            // answering with its true result; a still-pending original gets no reply on the shared key.
             ++stats_.sequence_conflicts;
-            if (flagged) queueReply(type, f.sequence, static_cast<uint8_t>(Result::InvalidArgument), 15);
+            ++stats_.protocol_failures;
+            if (c->done && flagged) queueReply(type, f.sequence, c->result, c->detail);
         }
         return;
     }
@@ -412,14 +430,42 @@ void Endpoint::handleDiscrete(const Frame& f, uint32_t now) {
     c->length = f.length;
     memcpy(c->payload, f.payload, f.length);
     c->ms = now;
-    if (f.type == MessageType::Event) {
-        c->done = true;
-        if (flagged) queueReply(type, f.sequence, static_cast<uint8_t>(Result::Accepted), 0);
-    }
     RxItem& item = fifo_[(fifo_head_ + fifo_count_) % kRxFifo];
     item.frame = f;
     item.ms = now;
     ++fifo_count_;
+}
+
+// A fragment already on the wire is closed with a delimiter before anything else is sent, so the
+// next frame can never be glued onto it.
+void Endpoint::dropWire() {
+    if (wire_len_ > 0 && wire_off_ > 0) need_delim_ = true;
+    wire_len_ = wire_off_ = 0;
+    wire_partial_counted_ = false;
+}
+
+// Peer lost without a new session: every authority granted by the old link ends. Completed results
+// stay as replay guards; unanswered requests become explicit WrongEpoch failures so an old
+// retransmission can neither execute nor look accepted.
+void Endpoint::dropLink(uint32_t now) {
+    failAll(Outcome::PeerLost);
+    memset(stream_out_, 0, sizeof stream_out_);
+    memset(replies_, 0, sizeof replies_);
+    memset(seq_have_, 0, sizeof seq_have_);
+    clearRxState();
+    dropWire();
+    peer_mode_ = peer_ready_ = 0;
+    ++generation_;
+    for (uint8_t i = 0; i < kCache; ++i) {
+        CacheEntry& c = cache_[i];
+        if (!c.used) continue;
+        if (!c.done) {
+            c.done = true;
+            c.result = static_cast<uint8_t>(Result::WrongEpoch);
+            c.detail = 0;
+        }
+        c.ms = now;
+    }
 }
 
 void Endpoint::clearRxState() {
@@ -435,7 +481,7 @@ void Endpoint::resetPeer(uint32_t new_peer) {
     memset(cache_, 0, sizeof cache_);
     memset(seq_have_, 0, sizeof seq_have_);
     clearRxState();
-    wire_len_ = wire_off_ = 0;
+    dropWire();
     have_hb_ = false;
     was_connected_ = false;
     hb_sent_ = false;
@@ -448,11 +494,7 @@ void Endpoint::housekeeping(uint32_t now) {
     if (peer_ != 0 && was_connected_ && !connected(now)) {
         ++stats_.link_losses;
         was_connected_ = false;
-        failAll(Outcome::PeerLost);
-        memset(stream_out_, 0, sizeof stream_out_);
-        memset(replies_, 0, sizeof replies_);
-        clearRxState();
-        for (uint8_t i = 0; i < kCache; ++i) if (cache_[i].used && !cache_[i].done) cache_[i].used = false;
+        dropLink(now);
     }
     for (uint8_t i = 0; i < kSlots; ++i) {
         Out& o = out_[i];
@@ -577,6 +619,12 @@ bool Endpoint::startNext(uint32_t now) {
 
 void Endpoint::txPump(uint32_t now) {
     for (;;) {
+        if (need_delim_) {
+            if (port_.writable() == 0) return;
+            const uint8_t zero = 0;
+            if (port_.write(&zero, 1) != 1) return;
+            need_delim_ = false;
+        }
         if (wire_len_ > 0) {
             const size_t remaining = wire_len_ - wire_off_;
             const size_t room = port_.writable();

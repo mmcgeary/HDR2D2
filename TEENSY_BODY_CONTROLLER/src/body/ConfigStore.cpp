@@ -195,12 +195,13 @@ void decodeProfile(const uint8_t* img, CommissioningProfile& p) {
     }
 }
 
-enum class SlotState : uint8_t { Blank, Valid, Invalid };
+enum class SlotState : uint8_t { Blank, Valid, Invalid, Torn };
 
 SlotState classify(const uint8_t* buf, size_t n, uint32_t magic, size_t body_len) {
     bool blank = true;
     for (size_t i = 0; i < n && blank; ++i) blank = buf[i] == kBlank;
     if (blank) return SlotState::Blank;
+    if (buf[n - 1] == kBlank) return SlotState::Torn;   // body started, commit marker never written
     if (buf[n - 1] != kCommitted) return SlotState::Invalid;
     r2link::Reader r(buf, 5);
     if (r.u32() != magic || r.u8() != kRecordVersion) return SlotState::Invalid;
@@ -232,7 +233,7 @@ struct Scan {
     uint32_t generation[2];
     uint8_t newest;       // index of newest valid slot, 2 when none
     uint8_t target;       // slot a new record should be written to
-    bool any_invalid;
+    bool any_invalid;     // Invalid or Torn
     bool io_error;
 };
 
@@ -249,7 +250,7 @@ Scan scanSlots(RawStorage& s, bool profile) {
         const size_t addr = profile ? ConfigStore::profileSlotAddress(i) : ConfigStore::bootSlotAddress(i);
         if (s.read(addr, buf, n) != StorageResult::Ok) { sc.io_error = true; continue; }
         sc.state[i] = classify(buf, n, profile ? kProfileMagic : kBootMagic, profile ? kProfileBodyLen : kBootBodyLen);
-        if (sc.state[i] == SlotState::Invalid) sc.any_invalid = true;
+        if (sc.state[i] == SlotState::Invalid || sc.state[i] == SlotState::Torn) sc.any_invalid = true;
         if (sc.state[i] == SlotState::Valid) {
             sc.generation[i] = u32At(buf, 5);
             if (sc.newest == 2 || sc.generation[i] > sc.generation[sc.newest]) sc.newest = i;
@@ -285,9 +286,57 @@ bool getField(const CommissioningProfile& p, uint8_t id, uint8_t wheel, int32_t&
     return true;
 }
 
-AcceptResult acceptBit(CommissioningProfile& p, uint8_t bit) {
+const char* acceptanceBitName(uint8_t bit) {
+    static const char* const names[kAcceptBitCount] = {
+        "servo_neutral", "front_reference", "rear_reference", "auto_timing",
+        "vesc_config_left", "vesc_config_right", "timeout_brake_left", "timeout_brake_right",
+        "direction_left", "direction_right", "reversal_left", "reversal_right"};
+    return bit < kAcceptBitCount ? names[bit] : 0;
+}
+
+bool layoutSupported(uint8_t layout) { return layout == kLayoutLegacyGetValues; }
+
+AcceptanceEvidence::AcceptanceEvidence()
+    : ch6_off(false), ch9_off(false), sticks_centered(false), stationary(false), operator_confirmed(false),
+      test_completed(false), test_cancelled(false), cw_completed(false), ccw_completed(false),
+      vesc_operator_observed(false), observed_run_id(0), commanded_run_id(0), config_digest(0) {}
+
+uint32_t acceptanceDigest(const CommissioningProfile& p, uint8_t bit) {
+    const uint8_t* ids = 0;
+    size_t n = 0;
+    if (bit <= kAcceptRearRef) { ids = kServoIds; n = 3; }
+    else if (bit == kAcceptAutoTiming) { ids = kAutoIds; n = 3; }
+    else if (bit < kAcceptTimeoutBrake) { ids = kConfigIds; n = 9; }
+    else if (bit < kAcceptDirection) { ids = kBrakeIds; n = 2; }
+    else if (bit < kAcceptReversal) { ids = kDirIds; n = 1; }
+    else if (bit < kAcceptBitCount) { ids = kRevIds; n = 2; }
+    else return 0;
+    const uint8_t w = bit >= kAcceptVescConfig ? (bit & 1) : 0;
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < n; ++i) {
+        const uint32_t v = static_cast<uint32_t>(rawGet(p, ids[i], w));
+        const uint8_t bytes[6] = {ids[i], static_cast<uint8_t>(isSet(p, ids[i], w)),
+                                  static_cast<uint8_t>(v), static_cast<uint8_t>(v >> 8),
+                                  static_cast<uint8_t>(v >> 16), static_cast<uint8_t>(v >> 24)};
+        for (size_t k = 0; k < sizeof bytes; ++k) h = (h ^ bytes[k]) * 16777619u;
+    }
+    return h == 0 ? 1 : h;
+}
+
+AcceptResult acceptBit(CommissioningProfile& p, uint8_t bit, const AcceptanceEvidence& e) {
     if (bit >= kAcceptBitCount) return AcceptResult::UnsupportedBit;
+    if (!e.ch6_off || !e.ch9_off || !e.sticks_centered || !e.stationary) return AcceptResult::NotStationary;
+    if (!e.operator_confirmed) return AcceptResult::NotConfirmed;
     if (!prerequisites(p, bit)) return AcceptResult::Prerequisite;
+    if (bit <= kAcceptAutoTiming) {
+        const bool run = e.test_completed && !e.test_cancelled && e.observed_run_id != 0 &&
+                         e.observed_run_id == e.commanded_run_id;
+        const bool both = bit != kAcceptAutoTiming || (e.cw_completed && e.ccw_completed);
+        if (!run || !both) return AcceptResult::TestEvidence;
+    } else if (!e.vesc_operator_observed) {
+        return AcceptResult::TestEvidence;
+    }
+    if (e.config_digest == 0 || e.config_digest != acceptanceDigest(p, bit)) return AcceptResult::ConfigMismatch;
     p.acceptance |= 1u << bit;
     return AcceptResult::Ok;
 }
@@ -327,14 +376,20 @@ uint8_t faultBits(ConfigResult r) {
     switch (r) {
         case ConfigResult::Ready: return 0;
         case ConfigResult::Uncommissioned: return 1;
-        default: return 2;
+        default: return 2;   // corrupt or unreadable profile; boot storage is separate (faultMask)
     }
 }
 
 // ---- store ----
 ConfigStore::ConfigStore(RawStorage& storage)
     : storage_(storage), gate_ch6_off_(false), gate_inactive_(false), boot_cached_(false),
-      boot_session_(0), generation_(0), last_save_(SaveResult::Ok) {}
+      boot_session_(0), generation_(0), last_save_(SaveResult::Ok), boot_result_(BootResult::NotAttempted) {}
+
+uint8_t ConfigStore::faultMask(ConfigResult profile) const {
+    const bool boot_fault = boot_result_ == BootResult::IoError || boot_result_ == BootResult::Corrupt ||
+                            boot_result_ == BootResult::CounterExhausted;
+    return static_cast<uint8_t>(faultBits(profile) | (boot_fault ? 4 : 0));
+}
 
 void ConfigStore::encodeBootSlot(uint32_t generation, uint32_t counter, uint8_t out[kBootSlotSize]) {
     memset(out, 0, kBootSlotSize);
@@ -363,24 +418,35 @@ ConfigResult ConfigStore::load(CommissioningProfile& profile) {
 bool ConfigStore::nextBootSession(uint32_t& session) {
     if (boot_cached_) { session = boot_session_; return true; }
     const Scan sc = scanSlots(storage_, false);
-    if (sc.io_error) return false;
-    if (sc.newest == 2 && sc.any_invalid) return false;
+    if (sc.io_error) { boot_result_ = BootResult::IoError; return false; }
+    if (sc.newest == 2 && sc.any_invalid) {
+        // Only a torn first-ever write (one uncommitted slot beside a blank one) is recoverable:
+        // no session was ever issued. Any committed-but-bad record means the counter is unknown.
+        const bool torn_first = (sc.state[0] == SlotState::Torn && sc.state[1] == SlotState::Blank) ||
+                                (sc.state[1] == SlotState::Torn && sc.state[0] == SlotState::Blank);
+        if (!torn_first) { boot_result_ = BootResult::Corrupt; return false; }
+    }
     uint32_t generation = 0, counter = 0;
     if (sc.newest != 2) {
         uint8_t buf[kBootSlotSize];
-        if (storage_.read(bootSlotAddress(sc.newest), buf, kBootSlotSize) != StorageResult::Ok) return false;
+        if (storage_.read(bootSlotAddress(sc.newest), buf, kBootSlotSize) != StorageResult::Ok) {
+            boot_result_ = BootResult::IoError;
+            return false;
+        }
         generation = sc.generation[sc.newest];
         counter = u32At(buf, 9);
     }
-    if (generation == 0xFFFFFFFFu) return false;
+    if (generation == 0xFFFFFFFFu) { boot_result_ = BootResult::CounterExhausted; return false; }
     uint32_t next = counter + 1;
     if (next == 0) next = 1;
     uint8_t img[kBootSlotSize];
     encodeBootSlot(generation + 1, next, img);
-    if (commitSlot(storage_, bootSlotAddress(sc.target), img, kBootSlotSize,
-                   sc.state[sc.target] != SlotState::Blank) != Commit::Ok) return false;
+    const Commit commit = commitSlot(storage_, bootSlotAddress(sc.target), img, kBootSlotSize,
+                                     sc.state[sc.target] != SlotState::Blank);
+    if (commit != Commit::Ok) { boot_result_ = BootResult::IoError; return false; }
     boot_session_ = next;
     boot_cached_ = true;
+    boot_result_ = BootResult::Ok;
     session = next;
     return true;
 }
