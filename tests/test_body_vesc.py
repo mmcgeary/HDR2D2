@@ -19,12 +19,12 @@ using namespace body;
 using Bytes = std::vector<uint8_t>;
 struct Port : r2link::BytePort {
     Bytes tx; std::deque<uint8_t> rx;
-    size_t capacity=100, per_call=100, calls=0;
+    size_t capacity=100, per_call=100, calls=0, budget=SIZE_MAX;
     int read() override { if(rx.empty()) return -1; int b=rx.front();rx.pop_front();return b; }
-    size_t writable() const override { return capacity; }
+    size_t writable() const override { return capacity<budget?capacity:budget; }
     size_t write(const uint8_t* b,size_t n) override {
-        assert(n<=capacity); ++calls; size_t k=n<per_call?n:per_call;
-        tx.insert(tx.end(),b,b+k); return k;
+        assert(n<=writable()); ++calls; size_t k=n<per_call?n:per_call;
+        tx.insert(tx.end(),b,b+k); if(budget!=SIZE_MAX) budget-=k; return k;
     }
 };
 // Independent reference CRC and byte packing, not calls to the production codec.
@@ -60,6 +60,71 @@ static CommissioningProfile saved() {
                         (1u<<(kAcceptDirection+w))|(1u<<(kAcceptReversal+w));
     }
     assert(validateProfile(p));return p; // Test-only injected acceptance, not a commissioning observation.
+}
+// Reference wire parser: valid short-frame payloads in order; invalid bytes skipped.
+static std::vector<Bytes> frames(const Bytes& w) {
+    std::vector<Bytes> out; size_t i=0;
+    while(i<w.size()) {
+        if(w[i]!=2 || i+2>w.size()) { ++i; continue; }
+        size_t n=w[i+1]; if(i+n+5>w.size()) { ++i; continue; }
+        Bytes pl(w.begin()+i+2,w.begin()+i+2+n);
+        if(n && crc(pl)==((uint16_t(w[i+n+2])<<8)|w[i+n+3]) && w[i+n+4]==3) {
+            out.push_back(pl); i+=n+5;
+        } else ++i;
+    }
+    return out;
+}
+static size_t count(const Bytes& w,uint8_t cmd) {
+    size_t k=0; for(auto& f:frames(w)) k+=f[0]==cmd; return k;
+}
+// Live duplex fake: a TX FIFO drained at 115200 8N1 (11.52 bytes/ms) into a
+// reference VESC that replies to FW/GET_VALUES after a latency.
+struct Duplex : r2link::BytePort {
+    size_t fifo=64; double credit=0; uint32_t now=0, latency=3; bool reply=true;
+    Bytes pending, wirebuf; std::deque<uint8_t> rx;
+    struct Event { uint32_t t; Bytes payload; };
+    std::vector<Event> got; std::deque<std::pair<uint32_t,Bytes>> replies;
+    int read() override { if(rx.empty()) return -1; int b=rx.front();rx.pop_front();return b; }
+    size_t writable() const override { return pending.size()<fifo?fifo-pending.size():0; }
+    size_t write(const uint8_t* b,size_t n) override {
+        assert(n<=writable()); pending.insert(pending.end(),b,b+n); return n;
+    }
+    void advance(uint32_t t) {
+        credit += (t-now)*11.52; now=t;
+        while(credit>=1 && !pending.empty()) {
+            wirebuf.push_back(pending.front()); pending.erase(pending.begin()); credit-=1;
+            if(wirebuf[0]!=2) { wirebuf.erase(wirebuf.begin()); continue; }
+            if(wirebuf.size()<2 || wirebuf.size()<size_t(wirebuf[1])+5) continue;
+            auto f=frames(wirebuf);
+            if(!f.empty()) {
+                got.push_back({t,f[0]});
+                if(reply && f[0][0]==0) replies.push_back({t+latency,wire({0,42,19})});
+                if(reply && f[0][0]==4) replies.push_back({t+latency,wire(values())});
+            }
+            wirebuf.clear(); // a valid or rejected candidate is consumed
+        }
+        if(pending.empty()) credit=0;
+        while(!replies.empty() && replies.front().first<=t) {
+            auto& r=replies.front().second; rx.insert(rx.end(),r.begin(),r.end()); replies.pop_front();
+        }
+    }
+};
+static void step(Duplex& d,VescLink& l,uint32_t t) { d.advance(t); l.tick(t); }
+static void duplexReady(Duplex& d,VescLink& l) {
+    l.setProfile(VescProfile::fromSaved(saved(),0));
+    for(uint32_t t=0;t<=300;++t) step(d,l,t);
+    assert(l.sample(300).valid); d.got.clear();
+}
+static std::vector<uint32_t> times(const Duplex& d,bool queries,uint8_t cmd=0xff) {
+    std::vector<uint32_t> v;
+    for(auto& e:d.got) {
+        const bool q=e.payload[0]==0 || e.payload[0]==4;
+        if(queries ? q : (!q && (cmd==0xff || e.payload[0]==cmd))) v.push_back(e.t);
+    }
+    return v;
+}
+static uint32_t maxGap(const std::vector<uint32_t>& v) {
+    uint32_t g=0; for(size_t i=1;i<v.size();++i) if(v[i]-v[i-1]>g) g=v[i]-v[i-1]; return g;
 }
 static void inject(Port& p,const Bytes& b) { p.rx.insert(p.rx.end(),b.begin(),b.end()); }
 static void feed(Port& p,VescLink& l,const Bytes& b,uint32_t t) {
@@ -194,7 +259,9 @@ class VescTests(unittest.TestCase):
         self.check(r'''
     Port p;VescLink l(p,0);ready(p,l);
     p.capacity=0;l.setDuty(100);l.tick(200);l.setDuty(200);l.setBrake(1500);
-    p.capacity=100;l.tick(201);assert(p.tx==wire({7,0,0,5,0xdc}));
+    p.capacity=100;l.tick(201);
+    Bytes both=wire({7,0,0,5,0xdc}),due=wire({4});both.insert(both.end(),due.begin(),due.end());
+    assert(p.tx==both); // brake first, then the due query in the same tick
     p.tx.clear();l.setDuty(100);l.setDuty(-350);l.tick(202);
     assert(p.tx==wire({5,0xff,0xff,0x77,0x48}));
     p.tx.clear();p.per_call=2;l.setDuty(300);l.tick(203);assert(p.tx.size()==2);
@@ -318,6 +385,112 @@ class VescTests(unittest.TestCase):
     assert(l.sample(201).sample_ms==101);
     p.capacity=100;l.tick(202);feed(p,l,wire(values()),203);
     assert(l.sample(203).sample_ms==203);
+''')
+
+    def test_live_duplex_continuous_duty_never_starves_polls(self):
+        # loop step ms, duty renewal period ms (0 = every tick)
+        for loop, renew in ((1, 0), (1, 20), (5, 0), (7, 0), (5, 20)):
+            with self.subTest(loop=loop, renew=renew):
+                self.check(r'''
+    const uint32_t loop=%d, renew=%d;
+    Duplex d;VescLink l(d,0);duplexReady(d,l);
+    uint32_t last_renew=0;
+    for(uint32_t t=301;t<=2400;t+=loop) {
+        d.advance(t);
+        if(!renew || t-last_renew>=renew) { l.setDuty(300); last_renew=t; }
+        l.tick(t);
+        assert(l.sample(t).valid && l.sample(t).source_age_ms<=250);
+    }
+    auto q=times(d,true), duty=times(d,false,5);
+    assert(q.size()>=19 && q.front()<=301+100+loop);
+    assert(maxGap(q)<=100+2*loop+3);
+    assert(!duty.empty() && duty.back()+(renew?renew:loop)+loop+3>=2400);
+    assert(maxGap(duty)<=(renew?renew:loop)+loop+3);
+    assert(l.counters().query_timeouts==0 && l.counters().aborted_commands==0);
+''' % (loop, renew))
+
+    def test_live_duplex_small_fifo_brake_urgent_and_due_query_both_progress(self):
+        self.check(r'''
+    Duplex d;d.fifo=12;VescLink l(d,0);duplexReady(d,l);
+    uint32_t brake_req=0;bool brake_seen=false;
+    for(uint32_t t=301;t<=1800;++t) {
+        d.advance(t);
+        if(t%100==0 && t>=1000 && t<1500) { l.setBrake(1500); brake_req=t; }
+        else l.setDuty(300);
+        l.tick(t);
+        assert(l.sample(t).valid);
+    }
+    auto q=times(d,true),brakes=times(d,false,7);
+    assert(maxGap(q)<=100+6 && q.size()>=14);
+    assert(brakes.size()==5);
+    for(size_t i=0;i<brakes.size();++i) assert(brakes[i]>=1000+100*i && brakes[i]<=1000+100*i+4);
+    (void)brake_req;(void)brake_seen;
+    // Same tick: urgent brake precedes the due query, query still sent.
+    Port p;VescLink m(p,0);ready(p,m);p.budget=32;m.setBrake(1500);m.tick(200);
+    auto f=frames(p.tx);assert(f.size()==2 && f[0]==Bytes({7,0,0,5,0xdc}) && f[1]==Bytes{4});
+    // Partial capacity: brake first, the due query follows next tick.
+    Port r;VescLink n(r,0);ready(r,n);r.budget=12;n.setDuty(300);n.tick(150);
+    r.tx.clear();r.budget=12;n.setBrake(1500);n.setDuty(300);n.tick(200);
+    assert(frames(r.tx)==std::vector<Bytes>({Bytes({7,0,0,5,0xdc})}));
+    r.budget=12;n.setDuty(300);n.tick(201);
+    f=frames(r.tx);assert(f.size()>=2 && f[1]==Bytes{4});
+    // Fairness: a duty renewal that consumed the room once cannot hold off
+    // the waiting query again; the query (6 bytes) goes first next tick.
+    Port s;VescLink o(s,0);ready(s,o);
+    for(uint32_t t=200;t<=205;++t) { s.budget=10;o.setDuty(300);o.tick(t); }
+    assert(count(s.tx,4)==1 && count(s.tx,5)>=4);
+''')
+
+    def test_stale_rx_brake_still_sent_but_duty_blocked(self):
+        self.check(r'''
+    Bytes brake=wire({7,0,0,5,0xdc});
+    Port p;VescLink l(p,0);ready(p,l);
+    l.tick(700);assert(!l.sample(700).valid && l.sample(700).stale);p.tx.clear();
+    l.setDuty(300);l.tick(701);assert(count(p.tx,5)==0);
+    l.setBrake(1500);l.tick(702);assert(count(p.tx,7)==1);
+    p.tx.clear();l.setDuty(0);l.tick(703);assert(count(p.tx,7)==1 && count(p.tx,5)==0);
+    // Stale with NO RX ever after FW: brake still available.
+    Port q;VescLink m(q,0);m.setProfile(VescProfile::fromSaved(saved(),0));m.tick(0);
+    feed(q,m,wire({0,42,19}),1);q.tx.clear();m.setBrake(1500);m.tick(2);
+    assert(frames(q.tx).at(0)==Bytes({7,0,0,5,0xdc}));
+    // Staged partial duty goes stale: old duty poisoned, brake replaces it.
+    for(size_t off=1;off<10;++off) {
+        Port r;VescLink n(r,0);ready(r,n);r.per_call=off;n.setDuty(-350);n.tick(102);
+        r.per_call=100;n.setBrake(1500);n.tick(700);n.tick(701);
+        assert(count(r.tx,5)==0 && count(r.tx,7)==1);
+        assert(!memcmp(r.tx.data()+10,brake.data(),10));
+    }
+    // Partial brake in flight when data goes stale is completed intact.
+    for(size_t off=1;off<10;++off) {
+        Port r;VescLink n(r,0);ready(r,n);r.per_call=off;n.setBrake(1500);n.tick(102);
+        r.per_call=100;n.tick(700);
+        assert(!memcmp(r.tx.data(),brake.data(),10));
+    }
+''')
+
+    def test_brake_requires_accepted_profile_and_matching_firmware(self):
+        self.check(r'''
+    // Firmware change: no brake, and a partial brake is poisoned.
+    Port p;VescLink l(p,0);ready(p,l);feed(p,l,wire({0,42,20}),102);p.tx.clear();
+    l.setBrake(1500);l.tick(103);l.setDuty(0);l.tick(104);assert(count(p.tx,7)==0);
+    for(size_t off=1;off<10;++off) {
+        Port r;VescLink n(r,0);ready(r,n);r.per_call=off;n.setBrake(1500);n.tick(102);
+        r.per_call=100;feed(r,n,wire({0,42,20}),103);n.setBrake(1500);n.tick(104);
+        assert(count(r.tx,7)==0);
+    }
+    // Profile becomes unaccepted mid-brake: poisoned, no guessed current.
+    for(size_t off=1;off<10;++off) {
+        Port r;VescLink n(r,0);ready(r,n);r.per_call=off;n.setBrake(1500);n.tick(102);
+        r.per_call=100;n.setProfile(VescProfile());n.setBrake(1500);n.setDuty(0);
+        n.tick(103);n.tick(104);assert(count(r.tx,7)==0);
+    }
+    // Firmware never observed: no brake even with accepted profile.
+    Port q;VescLink m(q,0);m.setProfile(VescProfile::fromSaved(saved(),0));
+    m.setBrake(1500);m.tick(0);m.setDuty(0);m.tick(1);assert(count(q.tx,7)==0);
+    // Missing actuator acceptance: no brake.
+    auto cfg=saved();cfg.acceptance &= ~(1u<<kAcceptReversal);
+    Port s;VescLink o(s,0);o.setProfile(VescProfile::fromSaved(cfg,0));o.tick(0);
+    feed(s,o,wire({0,42,19}),1);o.setBrake(1500);o.tick(2);assert(count(s.tx,7)==0);
 ''')
 
     def test_main_target_serial_pins_and_capture_diagnostic_only(self):

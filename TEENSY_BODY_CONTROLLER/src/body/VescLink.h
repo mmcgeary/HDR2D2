@@ -56,7 +56,13 @@ struct VescCapture {
     uint8_t bytes[263]; // 256 payload + long header + CRC + terminator
 };
 
-// Loop-context only, at most 64 RX bytes and one <=16-byte TX write per tick.
+// Loop-context only. Each tick consumes at most 64 RX bytes and writes at most
+// kTxBudget (32) bytes: finish any partial frame, then start at most two new
+// frames; a frame after the first write of the tick starts only if it fits
+// whole. Order: brake > waiting query > duty > due query, so a due query goes
+// out in the same tick after control when room allows, and a query deferred by
+// control once goes ahead of a duty renewal next tick (<=6 bytes, <1ms at
+// 115200). Brake never waits on an unstarted query or an outstanding reply.
 // FW query first; 100ms query cadence, one outstanding, 150ms reply timeout.
 // Frame expiry 50ms from header (not last byte). Values fresh through 500ms.
 // Control is replaceable live demand, not a FIFO. An in-flight query finishes
@@ -64,8 +70,10 @@ struct VescCapture {
 // its terminator so a receiver cannot execute the old command. Brake takes
 // priority until completed; intervening duty requests are dropped. Identical
 // live renewals preserve a partial frame. Unrenewed duty expires after 20ms
-// (setters use the last tick time; call tick regularly). Brake must equal the
-// saved approved brake magnitude; no arbitrary current override is allowed.
+// (setters use the last tick time; call tick regularly). Duty requires fresh
+// valid unfaulted telemetry. Brake requires only actuator-accepted profile and
+// observed matching firmware (it stays available when telemetry is stale) and
+// must equal the saved approved brake magnitude; no guessed current is sent.
 class VescLink {
 public:
     VescLink(r2link::BytePort&, uint8_t wheel);
@@ -83,9 +91,14 @@ private:
     void parse(uint32_t);
     void discard(size_t);
     void handle(const uint8_t*, size_t, uint32_t);
-    void invalidateCommand();
+    static const size_t kTxBudget = 32;
+    void invalidateCommand(bool brake);
     void resetSample();
     bool match() const;
+    bool brakePermitted() const;
+    bool dutyPermitted(uint32_t) const;
+    bool queryDue(uint32_t) const;
+    bool stage(uint32_t, size_t room);
     void pumpTx(uint32_t);
     void startQuery(uint8_t, uint32_t);
     r2link::BytePort& port_;
@@ -102,7 +115,7 @@ private:
     uint8_t tx_[16], tx_length_, tx_offset_, tx_command_;
     bool tx_aborted_;
     uint8_t outstanding_;
-    bool queried_;
+    bool queried_, query_waiting_;
     uint32_t last_query_, query_ms_, last_fw_, now_;
     uint8_t demand_;
     int16_t duty_;

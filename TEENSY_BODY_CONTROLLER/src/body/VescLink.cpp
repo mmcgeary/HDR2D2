@@ -121,7 +121,7 @@ VescLink::VescLink(r2link::BytePort& port, uint8_t wheel) : port_(port), wheel_(
     profile_(), cached_{}, counters_{}, have_sample_(false), have_firmware_(false),
     major_(0), minor_(0), rx_{}, rx_ms_{}, rx_length_(0), recovering_(false), tx_{}, tx_length_(0),
     tx_offset_(0), tx_command_(0), tx_aborted_(false), outstanding_(255),
-    queried_(false), last_query_(0), query_ms_(0), last_fw_(0), now_(0),
+    queried_(false), query_waiting_(false), last_query_(0), query_ms_(0), last_fw_(0), now_(0),
     demand_(0), duty_(0), brake_(0), demand_ms_(0), capture_armed_(false),
     capture_ready_(false), capture_command_(255), capture_{} {}
 
@@ -131,8 +131,9 @@ bool VescLink::match() const {
         profile_.layout_ == kLayoutLegacyGetValues && major_ == profile_.major_ && minor_ == profile_.minor_;
 }
 
-void VescLink::invalidateCommand() {
-    if (tx_length_ && !tx_offset_ && (tx_command_ == 0 || tx_command_ == 4)) {
+void VescLink::invalidateCommand(bool brake) {
+    // Only an urgent brake displaces an unstarted query; duty waits <=6 bytes.
+    if (brake && tx_length_ && !tx_offset_ && (tx_command_ == 0 || tx_command_ == 4)) {
         tx_length_ = 0; outstanding_ = 255; queried_ = false;
     }
     if (tx_length_ && (tx_command_ == 5 || tx_command_ == 7) && !tx_aborted_) {
@@ -148,7 +149,7 @@ void VescLink::invalidateCommand() {
     }
 }
 void VescLink::setProfile(const VescProfile& profile) {
-    invalidateCommand();
+    invalidateCommand(true);
     profile_ = profile; resetSample(); have_firmware_ = false;
     major_ = minor_ = 0; outstanding_ = 255; queried_ = false; rx_length_ = 0; recovering_ = false;
     // A partially emitted query must finish before the new FW request.
@@ -162,12 +163,12 @@ void VescLink::setDuty(int16_t duty) {
     if (tx_length_ && tx_command_ == 5 && !tx_aborted_ && duty_ == duty) {
         demand_ms_ = now_; return;
     }
-    invalidateCommand();
+    invalidateCommand(false);
     duty_ = duty; demand_ = 5; demand_ms_ = now_;
 }
 void VescLink::setBrake(uint32_t brake) {
     if (tx_length_ && tx_command_ == 7 && !tx_aborted_ && brake_ == brake) return;
-    invalidateCommand();
+    invalidateCommand(true);
     brake_ = brake; demand_ = 7; demand_ms_ = now_;
 }
 VescSample VescLink::sample(uint32_t now) const {
@@ -192,7 +193,7 @@ void VescLink::handle(const uint8_t* b, size_t n, uint32_t now) {
     if (b[0] == 0) {
         if (n < 3) { ++counters_.unsupported_packets; return; }
         if (!have_firmware_ || major_ != b[1] || minor_ != b[2]) {
-            invalidateCommand(); resetSample();
+            invalidateCommand(true); resetSample();
         }
         major_ = b[1]; minor_ = b[2]; have_firmware_ = true; last_fw_ = now;
         if (outstanding_ == 0) outstanding_ = 255;
@@ -266,44 +267,69 @@ void VescLink::startQuery(uint8_t command, uint32_t now) {
     tx_offset_ = 0; tx_command_ = command; tx_aborted_ = false;
     outstanding_ = command; queried_ = true; last_query_ = query_ms_ = now;
 }
-void VescLink::pumpTx(uint32_t now) {
-    if (tx_length_ && tx_command_ == 5 && !tx_aborted_ &&
-        (uint32_t(now - demand_ms_) > 20 || !sample(now).valid || sample(now).fault)) invalidateCommand();
-    if (tx_length_ && tx_command_ == 7 && !tx_aborted_ && !sample(now).valid) invalidateCommand();
-    if (!tx_length_) {
-        if (demand_) {
-            const VescSample s = sample(now);
-            const bool permitted = profile_.control_accepted_ && s.valid &&
-                (demand_ == 7 || (!s.fault && uint32_t(now - demand_ms_) <= 20));
-            tx_length_ = permitted ? uint8_t(demand_ == 5 ?
-                VescCodec::encodeDuty(duty_, tx_, sizeof(tx_)) :
-                (brake_ == profile_.brake_ma_ ? VescCodec::encodeBrake(brake_, tx_, sizeof(tx_)) : 0)) : 0;
-            if (!tx_length_) ++counters_.inhibited_commands;
-            tx_command_ = demand_; tx_offset_ = 0; tx_aborted_ = false; demand_ = 0;
-        }
-        if (!tx_length_ && outstanding_ == 255 && (!queried_ || uint32_t(now - last_query_) >= 100)) {
-            startQuery(!have_firmware_ || uint32_t(now - last_fw_) >= 1000 ? 0 : 4, now);
-        }
+bool VescLink::brakePermitted() const {
+    return profile_.control_accepted_ && match() && brake_ && brake_ == profile_.brake_ma_;
+}
+bool VescLink::dutyPermitted(uint32_t now) const {
+    const VescSample s = sample(now);
+    return profile_.control_accepted_ && s.valid && !s.fault && uint32_t(now - demand_ms_) <= 20;
+}
+bool VescLink::queryDue(uint32_t now) const {
+    return outstanding_ == 255 && (!queried_ || uint32_t(now - last_query_) >= 100);
+}
+bool VescLink::stage(uint32_t now, size_t room) {
+    const bool due = queryDue(now);
+    if (demand_ == 7 || (demand_ == 5 && !(due && query_waiting_))) {
+        if (room < 10) return false; // demand stays staged for the next tick
+        const bool brake = demand_ == 7;
+        tx_length_ = uint8_t(brake ? (brakePermitted() ? VescCodec::encodeBrake(brake_, tx_, sizeof(tx_)) : 0) :
+            (dutyPermitted(now) ? VescCodec::encodeDuty(duty_, tx_, sizeof(tx_)) : 0));
+        if (!tx_length_) ++counters_.inhibited_commands;
+        tx_command_ = demand_; tx_offset_ = 0; tx_aborted_ = false; demand_ = 0;
+        if (tx_length_) return true;
     }
-    if (!tx_length_) return;
-    size_t n = size_t(tx_length_ - tx_offset_);
-    const size_t room = port_.writable();
-    if (n > room) n = room;
-    if (!n) return;
-    const size_t written = port_.write(tx_ + tx_offset_, n);
-    if (written > n) return; // a transport contract violation cannot advance state
-    if (written < size_t(tx_length_ - tx_offset_)) ++counters_.partial_writes;
-    tx_offset_ += uint8_t(written);
-    if (tx_offset_ == tx_length_) {
+    if (!due || room < 6) return false;
+    startQuery(!have_firmware_ || uint32_t(now - last_fw_) >= 1000 ? 0 : 4, now);
+    query_waiting_ = false;
+    return true;
+}
+void VescLink::pumpTx(uint32_t now) {
+    if (tx_length_ && tx_command_ == 5 && !tx_aborted_ && !dutyPermitted(now)) invalidateCommand(false);
+    if (tx_length_ && tx_command_ == 7 && !tx_aborted_ && !brakePermitted()) invalidateCommand(false);
+    size_t budget = kTxBudget;
+    uint8_t started = 0;
+    bool wrote = false;
+    for (;;) {
+        if (!tx_length_) {
+            size_t room = port_.writable();
+            if (room > budget) room = budget;
+            if (started == 2 || !stage(now, wrote ? room : SIZE_MAX)) break;
+            ++started;
+        }
+        const size_t remaining = size_t(tx_length_ - tx_offset_);
+        size_t n = remaining;
+        size_t room = port_.writable();
+        if (room > budget) room = budget;
+        if (n > room) n = room;
+        if (!n) break;
+        const size_t written = port_.write(tx_ + tx_offset_, n);
+        if (written > n) break; // a transport contract violation cannot advance state
+        if (written) wrote = true;
+        budget -= written;
+        tx_offset_ += uint8_t(written);
+        if (written < remaining) { ++counters_.partial_writes; break; }
         tx_length_ = tx_offset_ = 0;
         if (tx_command_ == 0 || tx_command_ == 4) query_ms_ = now;
     }
+    // A due query that control kept off the wire goes ahead of duty next tick.
+    query_waiting_ = queryDue(now);
 }
 void VescLink::tick(uint32_t now) {
     now_ = now;
     // Expire BEFORE consuming queued RX; a reply after a stalled loop cannot
     // hide a missed query deadline or freshen the old telemetry sample.
-    if (!tx_length_ && outstanding_ != 255 && uint32_t(now - query_ms_) >= 150) {
+    const bool query_in_tx = tx_length_ && (tx_command_ == 0 || tx_command_ == 4);
+    if (!query_in_tx && outstanding_ != 255 && uint32_t(now - query_ms_) >= 150) {
         ++counters_.query_timeouts; outstanding_ = 255;
     }
     parse(now);
