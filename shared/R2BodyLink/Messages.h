@@ -24,6 +24,11 @@ inline bool isKnownType(uint8_t t) {
     return false;
 }
 
+// Framing accepts any type in 0x01..0x3F so the endpoint can answer an
+// in-range type it does not implement with an UNSUPPORTED reply. Types outside
+// this bounded range are still rejected and counted at framing.
+inline bool isFramingType(uint8_t t) { return t >= 0x01 && t <= 0x3F; }
+
 enum class Status : uint8_t {
     Ok, NullArgument, BadLength, BadCapacity, BadEnum, BadReserved, BadRange, BadType
 };
@@ -273,7 +278,9 @@ inline Status validate(const CommissionRequest& m) {
     return zero(static_cast<uint32_t>(m.value));
 }
 inline Status validate(const Reply& m) {
-    if (!isKnownType(m.request_type)) return Status::BadType;
+    // An UNSUPPORTED reply (result 5) echoes any bounded raw request type.
+    const bool unsupported = m.result == 5 && isFramingType(m.request_type);
+    if (!isKnownType(m.request_type) && !unsupported) return Status::BadType;
     R2_CHECK(enumLE(m.result, 8));
     return enumLE(m.detail, 15);
 }

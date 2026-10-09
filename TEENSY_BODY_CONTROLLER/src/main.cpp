@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include "Codec.h"
+#include "Endpoint.h"
+#include "body/ConfigStore.h"
 #include "body/Pins.h"
 
 // Commissioning-first target: no actuator pin is configured and no motor,

@@ -443,3 +443,677 @@ class TypedPayloadTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# Task 2: reliable endpoint and persistent profiles
+# ---------------------------------------------------------------------------
+TESTS_DIR = ROOT / "tests"
+SHARED_LIB = SHARED / "R2BodyLink"
+BODY_SRC = ROOT / "TEENSY_BODY_CONTROLLER/src"
+ENDPOINT = SHARED_LIB / "src/Endpoint.cpp"
+CONFIG_STORE = BODY_SRC / "body/ConfigStore.cpp"
+LINK_INCLUDES = [SHARED, SHARED_LIB, TESTS_DIR, BODY_SRC]
+LINK_SOURCES = [CODEC, ENDPOINT, CONFIG_STORE]
+
+LINK_PRELUDE = PRELUDE + r'''
+#include "body_fakes.h"
+using namespace fakes;
+static Frame audioPlay(uint8_t folder, uint16_t track) {
+    AudioRequest a = {0, folder, track, 0, 0}; return frameOf(a);
+}
+static Frame stopAll() { ControlRequest c = {0, 0, 0, 0}; return frameOf(c); }
+static void inject(FakePort& p, const Frame& f) { p.push(wireOf(f)); }
+template <class T> static T as(const Frame& f) {
+    T m; ErrorCounters c; Status s = decode(f, m, c); assert(s == Status::Ok); (void)s; return m;
+}
+// Endpoint alone on a port; the peer is scripted by injected frames.
+struct Solo {
+    FakePort p; Endpoint e; uint32_t now; uint16_t seq; bool is_body; uint32_t peer; uint32_t local;
+    Solo(bool body_role, uint32_t local_session = 0)
+        : p(), e(p, body_role ? kRoleBody : kRoleDome, local_session ? local_session : (body_role ? 0xB0B0 : 0xD0D0)), now(1000), seq(1),
+          is_body(body_role), peer(body_role ? 0xD0D0 : 0xB0B0), local(local_session ? local_session : (body_role ? 0xB0B0 : 0xD0D0)) {}
+    void hello(uint32_t src, uint8_t role, uint32_t caps) {
+        Hello h = {role, caps, 1};
+        inject(p, stamp(frameOf(h), seq++, src, 0, 0));
+    }
+    void heartbeat(uint32_t src, uint32_t dst, uint8_t mode = 1, uint8_t ready = 1) {
+        Heartbeat h = {mode, ready};
+        inject(p, stamp(frameOf(h), seq++, src, dst, 0));
+    }
+    void connect() {
+        hello(peer, is_body ? kRoleDome : kRoleBody, is_body ? 0x04 : 0x1B);
+        e.tick(now);
+        heartbeat(peer, local);
+        e.tick(now);
+        assert(e.connected(now));
+    }
+    // Frame from the scripted peer addressed to this endpoint.
+    void from(const Frame& f, uint16_t s, uint8_t flags) { inject(p, stamp(f, s, peer, local, flags)); }
+    std::vector<Frame> sent() {
+        std::vector<Frame> out; Codec c; Frame f;
+        for (size_t i = 0; i < p.tx.size(); ++i)
+            if (c.feed(p.tx[i], now, f) == DecodeResult::FrameReady) out.push_back(f);
+        p.tx.clear();
+        return out;
+    }
+};
+static size_t countType(const std::vector<Frame>& v, MessageType t) {
+    size_t n = 0; for (size_t i = 0; i < v.size(); ++i) if (v[i].type == t) ++n; return n;
+}
+'''
+
+
+def run_link(body, sources=None, helpers="", **kw):
+    program = LINK_PRELUDE + helpers + "int main() {\n" + body + "\nputs(\"ok\"); return 0; }\n"
+    return run_cpp(program, extra_sources=sources or LINK_SOURCES, include_dirs=LINK_INCLUDES, **kw)
+
+
+class EndpointTests(unittest.TestCase):
+    def check(self, body):
+        result = run_link(body)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_handshake_request_retry_and_cached_reply(self):
+        self.check(r'''
+    Rig r;
+    Frame f = audioPlay(1, 2); uint16_t seq = 99;
+    assert(!r.dome.request(f, r.now, seq) && seq == 99);
+    assert(r.dome.lastReject() == Reject::NotConnected);
+    r.connect();
+    assert(r.body.peerSession() == 0xD0D0 && r.dome.peerSession() == 0xB0B0);
+    assert(r.dome.request(f, r.now, seq));
+    assert(f.flags == 1 && f.sequence == seq && f.source_session == 0xD0D0 && f.destination_session == 0xB0B0);
+    assert(r.dome.pendingCount() == 1);
+    r.drop_to_dome[static_cast<int>(MessageType::Reply)] = 1;     // first reply is lost
+    r.run(3);
+    Frame got;
+    assert(r.body.takeReceived(got) && got.type == MessageType::AudioRequest && got.sequence == seq);
+    assert(r.body.reply(got, Result::Accepted, 0));
+    r.run(300);
+    assert(!r.body.takeReceived(got));                                // exactly one action
+    assert(r.body.stats().duplicates == 1);
+    assert(r.countToBody(MessageType::AudioRequest) == 2);            // original + one retry
+    assert(r.countToDome(MessageType::Reply) == 2);                   // lost reply + cached replay
+    Completion c;
+    assert(r.dome.takeCompletion(c) && c.outcome == Outcome::Replied && c.sequence == seq);
+    assert(c.type == MessageType::AudioRequest && c.result == 0 && c.detail == 0);
+    assert(!r.dome.takeCompletion(c) && r.dome.pendingCount() == 0);
+''')
+
+    def test_peer_restart_changes_session_and_clears_pending(self):
+        self.check(r'''
+    Rig r; r.connect();
+    Event ev = {0, 0x21, 5, 0};
+    Frame f = frameOf(ev); uint16_t seq = 0;
+    r.drop_to_body[static_cast<int>(MessageType::Reply)] = 100;
+    assert(r.body.request(f, r.now, seq));
+    r.step(3);
+    assert(r.body.pendingCount() == 1);
+    uint32_t now = r.now;
+    assert(r.body.connected(now));
+    const uint32_t oldPeer = r.body.peerSession();
+    const uint32_t newDomeSession = 0xD1D1;
+    r.dport.tx.clear();
+    Endpoint newDome(r.dport, kRoleDome, newDomeSession);
+    assert(newDomeSession != oldPeer);
+    newDome.tick(now + 1);
+    r.bport.push(r.dport.tx); r.dport.tx.clear();
+    r.body.tick(now + 1);
+    assert(r.body.peerSession() == newDomeSession);
+    assert(r.body.pendingCount() == 0);
+    assert(!r.body.connected(now + 1));
+    Completion c; assert(r.body.takeCompletion(c) && c.outcome == Outcome::SessionChanged && c.sequence == seq);
+    assert(r.body.peerGeneration() == 2 && r.body.stats().session_changes == 1);
+    // The restarted dome and body complete a fresh handshake.
+    for (int i = 0; i < 400 && !(newDome.connected(now + 400) && r.body.connected(now + 400)); ++i) {
+        ++now;
+        r.dport.tx.clear();
+        newDome.tick(now); r.bport.push(r.dport.tx); r.dport.tx.clear();
+        r.body.tick(now); r.dport.push(r.bport.tx); r.bport.tx.clear();
+        if (newDome.connected(now) && r.body.connected(now)) break;
+    }
+    assert(newDome.connected(now) && r.body.connected(now));
+''')
+
+    def test_heartbeat_cadence_timeout_and_reconnect(self):
+        self.check(r'''
+    Rig r; r.connect();
+    size_t before = r.countToBody(MessageType::Heartbeat);
+    size_t hellos = r.countToBody(MessageType::Hello);
+    r.run(1000);
+    size_t beats = r.countToBody(MessageType::Heartbeat) - before;
+    assert(beats >= 9 && beats <= 11);
+    assert(r.countToBody(MessageType::Hello) == hellos);               // handshake complete: no more HELLO
+    // exact 300ms boundary with scripted heartbeats
+    Solo s(true); s.connect();
+    s.now = 1100; s.heartbeat(0xD0D0, 0xB0B0); s.e.tick(s.now);
+    assert(s.e.connected(1100 + 299) && !s.e.connected(1100 + 300));
+    // state is carried by the heartbeat
+    s.heartbeat(0xD0D0, 0xB0B0, 2, 0); s.e.tick(s.now);
+    assert(s.e.peerMode() == 2 && s.e.peerReady() == 0);
+    // pending requests fail visibly and the queue is cleared when the link drops
+    Solo d(false); d.connect();
+    Frame f = audioPlay(1, 1); uint16_t q = 0;
+    assert(d.e.request(f, d.now, q)); d.e.tick(d.now);
+    d.now += 400; d.e.tick(d.now);
+    assert(!d.e.connected(d.now) && d.e.pendingCount() == 0 && d.e.stats().link_losses == 1);
+    Completion c; assert(d.e.takeCompletion(c) && c.outcome == Outcome::PeerLost && c.sequence == q);
+    d.heartbeat(d.peer, d.local); d.e.tick(d.now);
+    assert(d.e.connected(d.now));
+''')
+
+    def test_hello_role_capability_and_session_checks(self):
+        self.check(r'''
+    { Solo s(true); s.hello(0xD0D0, kRoleBody, 0x1B); s.e.tick(s.now);          // same role
+      assert(s.e.peerSession() == 0 && s.e.stats().hello_rejected == 1); }
+    { Solo s(true); s.hello(0xD0D0, kRoleDome, 0x1B); s.e.tick(s.now);          // wrong capabilities
+      assert(s.e.peerSession() == 0 && s.e.stats().hello_rejected == 1); }
+    { Solo s(true); Hello h = {kRoleDome, 0x04, 1};                              // other safety revision
+      Frame bad = stamp(frameOf(h), 1, 0xD0D0, 0, 0); bad.payload[5] = 2;
+      inject(s.p, bad); s.e.tick(s.now);
+      assert(s.e.peerSession() == 0 && s.e.counters().range == 1); }
+    { Solo s(true); Hello h = {kRoleDome, 0x04, 1};                              // destination must be zero
+      inject(s.p, stamp(frameOf(h), 1, 0xD0D0, 0xB0B0, 0)); s.e.tick(s.now);
+      assert(s.e.peerSession() == 0 && s.e.counters().session == 1); }
+    { Solo s(true); s.hello(0, kRoleDome, 0x04); s.e.tick(s.now);                // session zero is reserved
+      assert(s.e.peerSession() == 0 && s.e.counters().session == 1); }
+    { Solo s(true); s.hello(0xB0B0, kRoleDome, 0x04); s.e.tick(s.now);           // collides with our own
+      assert(s.e.peerSession() == 0 && s.e.counters().session == 1); }
+    { Solo s(true); s.hello(0xD0D0, kRoleDome, 0x04); s.e.tick(s.now);
+      assert(s.e.peerSession() == 0xD0D0 && !s.e.connected(s.now)); }            // hello alone is not a heartbeat
+    { Solo s(true); s.e.tick(s.now);                                              // sends HELLO with zero destination
+      std::vector<Frame> v = s.sent(); assert(v.size() == 1 && v[0].type == MessageType::Hello);
+      Hello h = as<Hello>(v[0]); assert(h.role == kRoleBody && h.capabilities == 0x1B && h.safety_revision == 1);
+      assert(v[0].destination_session == 0 && v[0].source_session == 0xB0B0);
+      s.now += 499; s.e.tick(s.now); assert(s.sent().empty());
+      s.now += 1; s.e.tick(s.now); assert(countType(s.sent(), MessageType::Hello) == 1); }
+    { Solo s(false); s.e.tick(s.now); Hello h = as<Hello>(s.sent()[0]);
+      assert(h.role == kRoleDome && h.capabilities == 0x04); }
+''')
+
+    def test_retry_limit_deadline_and_unsent_expiry(self):
+        self.check(r'''
+    Rig r; r.connect();
+    Frame f = audioPlay(1, 2); uint16_t seq = 0;
+    assert(r.dome.request(f, r.now, seq));
+    r.run(340);
+    assert(r.dome.pendingCount() == 1 && r.countToBody(MessageType::AudioRequest) == 3);
+    r.run(20);
+    Completion c; assert(r.dome.takeCompletion(c) && c.outcome == Outcome::TimedOut && c.sequence == seq);
+    assert(r.dome.pendingCount() == 0 && r.countToBody(MessageType::AudioRequest) == 3);
+    assert(r.dome.stats().retransmits == 2 && r.dome.stats().request_timeouts == 1);
+    // retries are byte-identical
+    std::vector<Frame> ws;
+    for (size_t i = 0; i < r.to_body.size(); ++i) if (r.to_body[i].type == MessageType::AudioRequest) ws.push_back(r.to_body[i]);
+    assert(wireOf(ws[0]) == wireOf(ws[1]) && wireOf(ws[1]) == wireOf(ws[2]));
+    // a request that never gets a transmit window fails visibly and never executes
+    Rig q; q.connect();
+    q.dport.window = 0;
+    Frame g = audioPlay(1, 3);
+    assert(q.dome.request(g, q.now, seq));
+    q.run(345);
+    assert(q.dome.pendingCount() == 1);
+    q.run(10);
+    assert(q.dome.takeCompletion(c) && c.outcome == Outcome::Unsent && c.sequence == seq && q.dome.stats().unsent_expired == 1);
+    q.dport.window = 1u << 30;
+    q.run(50);
+    assert(q.countToBody(MessageType::AudioRequest) == 0);
+    Frame h; assert(!q.body.takeReceived(h));
+''')
+
+    def test_queue_limits_and_safety_priority(self):
+        self.check(r'''
+    Rig r; r.connect();
+    r.dport.window = 0;
+    uint16_t seq; uint16_t first_audio = 0, first_stop = 0;
+    for (int i = 0; i < 6; ++i) { Frame f = audioPlay(1, 10 + i); assert(r.dome.request(f, r.now, seq)); if (!i) first_audio = seq; }
+    Frame over = audioPlay(1, 99);
+    assert(!r.dome.request(over, r.now, seq) && r.dome.lastReject() == Reject::Busy);
+    assert(r.dome.counters().queue == 1 && r.dome.stats().busy_local == 1);
+    Frame s1 = stopAll(); assert(r.dome.request(s1, r.now, seq)); first_stop = seq;
+    DomeRequest cancel = {0, 0, 0, 0, 0, 0, 0}; Frame s2 = frameOf(cancel);
+    assert(r.dome.request(s2, r.now, seq));
+    Frame s3 = stopAll(); assert(!r.dome.request(s3, r.now, seq) && r.dome.lastReject() == Reject::Busy);
+    assert(r.dome.pendingCount() == 8);
+    assert(newer16(first_stop, first_audio));      // safety items were queued later...
+    r.dport.window = 1u << 30;
+    r.run(5);
+    std::vector<MessageType> order;                // ...but are transmitted first
+    for (size_t i = 0; i < r.to_body.size(); ++i) {
+        MessageType t = r.to_body[i].type;
+        if (t == MessageType::ControlRequest || t == MessageType::DomeRequest || t == MessageType::AudioRequest) order.push_back(t);
+    }
+    assert(order.size() == 8 && order[0] == MessageType::ControlRequest && order[1] == MessageType::DomeRequest);
+    for (size_t i = 2; i < 8; ++i) assert(order[i] == MessageType::AudioRequest);
+    // streaming velocity and discrete types are not interchangeable
+    DriveRequest dr = {0, 0, 10, 0}; Frame df = frameOf(dr);
+    assert(!r.dome.request(df, r.now, seq) && r.dome.lastReject() == Reject::WrongKind);
+    assert(!r.dome.publishLatest(audioPlay(1, 1)));
+    DomeRequest vel = {1, 5, 100, 0, 0, 0, 0}; Frame vf = frameOf(vel);
+    assert(!r.dome.request(vf, r.now, seq) && r.dome.lastReject() == Reject::WrongKind);
+    // semantic validation happens before queueing
+    AudioRequest bad = {0, 1, 1, 0, 0}; Frame bf = frameOf(bad); bf.payload[4] = 99;
+    assert(!r.dome.request(bf, r.now, seq) && r.dome.lastReject() == Reject::BadFrame);
+''')
+
+    def test_reply_matching_expected_type_sequence_and_session(self):
+        self.check(r'''
+    Rig r; r.connect();
+    Frame f = audioPlay(1, 2); uint16_t seq = 0;
+    assert(r.dome.request(f, r.now, seq));
+    r.step(1);
+    Reply wrongType = {0x24, seq, 0, 0}, wrongSeq = {0x21, static_cast<uint16_t>(seq + 1), 0, 0};
+    Reply good = {0x21, seq, 6, 12};
+    inject(r.dport, stamp(frameOf(wrongType), 50, 0xB0B0, 0xD0D0, 0));
+    inject(r.dport, stamp(frameOf(wrongSeq), 51, 0xB0B0, 0xD0D0, 0));
+    inject(r.dport, stamp(frameOf(good), 52, 0xBAD, 0xD0D0, 0));     // wrong source session
+    inject(r.dport, stamp(frameOf(good), 53, 0xB0B0, 0xBAD, 0));     // wrong destination
+    r.dome.tick(r.now);
+    assert(r.dome.pendingCount() == 1 && r.dome.stats().unmatched_replies == 2 && r.dome.counters().session == 2);
+    Completion c; assert(!r.dome.takeCompletion(c));
+    inject(r.dport, stamp(frameOf(good), 54, 0xB0B0, 0xD0D0, 0));
+    r.dome.tick(r.now);
+    assert(r.dome.takeCompletion(c) && c.outcome == Outcome::Replied && c.result == 6 && c.detail == 12);
+    inject(r.dport, stamp(frameOf(good), 55, 0xB0B0, 0xD0D0, 0));    // duplicate reply
+    r.dome.tick(r.now);
+    assert(!r.dome.takeCompletion(c) && r.dome.stats().unmatched_replies == 3);
+    // a reply never asks for acknowledgement and none is generated
+    size_t before = r.countToBody(MessageType::Reply);
+    r.run(50); assert(r.countToBody(MessageType::Reply) == before);
+''')
+
+    def test_malformed_wrong_session_and_stale_frames_do_not_refresh_link(self):
+        self.check(r'''
+    Solo s(true); s.connect();
+    s.now = 1100; s.heartbeat(0xD0D0, 0xB0B0); s.e.tick(s.now);        // last valid heartbeat at 1100
+    uint16_t good_seq = s.seq - 1;
+    s.now = 1250;
+    s.heartbeat(0xD0D0, 0xBAD); s.heartbeat(0xBAD, 0xB0B0);              // wrong sessions
+    Frame mal = stamp(frameOf(Heartbeat{1, 1}), s.seq++, 0xD0D0, 0xB0B0, 0); mal.payload[0] = 9; inject(s.p, mal);
+    Frame trunc = stamp(frameOf(Heartbeat{1, 1}), s.seq++, 0xD0D0, 0xB0B0, 0); trunc.length = 1; inject(s.p, trunc);
+    inject(s.p, stamp(frameOf(Heartbeat{1, 1}), good_seq, 0xD0D0, 0xB0B0, 0));   // not newer
+    Bytes crc = wireOf(stamp(frameOf(Heartbeat{1, 1}), s.seq++, 0xD0D0, 0xB0B0, 0)); crc[crc.size() - 3] ^= 1; s.p.push(crc);
+    s.e.tick(s.now);
+    assert(s.e.counters().session == 2 && s.e.counters().enum_value == 1 && s.e.counters().payload_length == 1);
+    assert(s.e.counters().crc == 1 && s.e.stats().stale_streams == 1);
+    assert(s.e.connected(1399) && !s.e.connected(1400));                 // still timed from 1100
+''')
+
+    def test_changed_content_duplicate_is_rejected_without_replay(self):
+        self.check(r'''
+    Rig r; r.connect();
+    Frame f = audioPlay(1, 2); uint16_t seq = 0;
+    assert(r.dome.request(f, r.now, seq)); r.run(3);
+    Frame got; assert(r.body.takeReceived(got)); assert(r.body.reply(got, Result::Accepted, 0));
+    r.run(3);
+    Frame changed = stamp(audioPlay(1, 3), seq, 0xD0D0, 0xB0B0, 1);   // same sequence, different track
+    size_t replies = r.countToDome(MessageType::Reply);
+    r.drop_to_dome[static_cast<int>(MessageType::Reply)] = 1;       // keep the dome's own request done
+    inject(r.bport, changed); r.run(3);
+    assert(!r.body.takeReceived(got) && r.body.stats().sequence_conflicts == 1);
+    assert(r.countToDome(MessageType::Reply) == replies + 1);
+    Reply rp = as<Reply>(r.to_dome.back());
+    assert(rp.request_type == 0x21 && rp.request_seq == seq && rp.result == 1 && rp.detail == 15);
+    // the identical original still replays its cached accepted result, still without re-executing
+    inject(r.bport, stamp(audioPlay(1, 2), seq, 0xD0D0, 0xB0B0, 1)); r.run(3);
+    rp = as<Reply>(r.to_dome.back()); assert(rp.result == 0 && !r.body.takeReceived(got));
+    assert(r.body.stats().duplicates == 1);
+''')
+
+    def test_streams_wraparound_retransmit_and_lease_not_refreshed(self):
+        self.check(r'''
+    Solo s(true); s.connect();
+    DriveRequest d = {100, 100, 100, 0}; Frame f = frameOf(d);
+    uint16_t seqs[] = {0xFFFE, 0xFFFF, 0, 1};
+    Frame got;
+    for (int i = 0; i < 4; ++i) { s.from(f, seqs[i], 0); s.e.tick(s.now); assert(s.e.takeReceived(got) && got.sequence == seqs[i]); }
+    s.from(f, 1, 0); s.from(f, 0, 0); s.from(f, 0xFFFF, 0); s.e.tick(s.now);     // retransmission, older, wrapped-older
+    assert(!s.e.takeReceived(got) && s.e.stats().stale_streams == 3);
+    s.from(f, 2, 0); s.e.tick(s.now); assert(s.e.takeReceived(got));
+    // separate records per message type
+    HallState h = {3, 1, 5, 0}; s.from(frameOf(h), 2, 0); s.e.tick(s.now); assert(s.e.takeReceived(got) && got.type == MessageType::HallState);
+    // a flagged stream frame is answered, never retried or cached
+    s.from(f, 3, 1); s.e.tick(s.now); assert(s.e.takeReceived(got));
+    assert(s.e.reply(got, Result::Inhibited, 0));
+    s.e.tick(s.now + 1);
+    std::vector<Frame> out = s.sent(); size_t n = countType(out, MessageType::Reply);
+    assert(n == 1); Reply rp; for (size_t i = 0; i < out.size(); ++i) if (out[i].type == MessageType::Reply) rp = as<Reply>(out[i]);
+    assert(rp.request_type == 0x22 && rp.request_seq == 3 && rp.result == 4);
+    // an unread newer snapshot supersedes an unread older one
+    s.from(f, 4, 0); s.from(f, 5, 0); s.e.tick(s.now);
+    assert(s.e.takeReceived(got) && got.sequence == 5 && !s.e.takeReceived(got));
+''')
+
+    def test_per_wheel_keys_coalescing_and_stream_sequences(self):
+        self.check(r'''
+    Rig r; r.connect();
+    VescStatus l = {}; l.wheel = 0; l.valid_fields = 0xFF; l.pack_cV = 1200;
+    VescStatus rt = l; rt.wheel = 1;
+    r.bport.window = 0;
+    l.pack_cV = 1100; assert(r.body.publishLatest(frameOf(l)));
+    rt.pack_cV = 1201; assert(r.body.publishLatest(frameOf(rt)));
+    l.pack_cV = 1102; assert(r.body.publishLatest(frameOf(l)));          // replaces the first left snapshot
+    RcStatus rc = {}; rc.sample_counter = 1; assert(r.body.publishLatest(frameOf(rc)));
+    rc.sample_counter = 2; assert(r.body.publishLatest(frameOf(rc)));
+    r.bport.window = 1u << 30; r.run(5);
+    std::vector<VescStatus> got; std::vector<RcStatus> rcs; Frame f;
+    while (r.dome.takeReceived(f)) {
+        if (f.type == MessageType::VescStatus) got.push_back(as<VescStatus>(f));
+        if (f.type == MessageType::RcStatus) rcs.push_back(as<RcStatus>(f));
+    }
+    assert(got.size() == 2 && rcs.size() == 1 && rcs[0].sample_counter == 2);
+    assert(got[0].wheel != got[1].wheel);
+    for (size_t i = 0; i < 2; ++i) assert(got[i].wheel == 0 ? got[i].pack_cV == 1102 : got[i].pack_cV == 1201);
+    assert(r.countToDome(MessageType::VescStatus) == 2);               // replaced snapshot never reached the wire
+    // sustained traffic: both wheels keep arriving
+    int seen[2] = {0, 0};
+    for (int i = 0; i < 100; ++i) {
+        l.pack_cV = 1000 + i; rt.pack_cV = 2000 + i;
+        r.body.publishLatest(frameOf(l)); r.body.publishLatest(frameOf(rt));
+        rc.sample_counter = 10 + i; r.body.publishLatest(frameOf(rc));
+        ControlRequest none = {0, 0, 0, 0}; (void)none;
+        r.step();
+        while (r.dome.takeReceived(f)) if (f.type == MessageType::VescStatus) ++seen[as<VescStatus>(f).wheel];
+    }
+    assert(seen[0] >= 95 && seen[1] >= 95);
+    // transmitted stream sequences increase wrap-safely
+    uint16_t last = 0; bool have = false;
+    for (size_t i = 0; i < r.to_dome.size(); ++i) if (r.to_dome[i].type == MessageType::VescStatus) {
+        if (have) assert(newer16(r.to_dome[i].sequence, last));
+        last = r.to_dome[i].sequence; have = true;
+    }
+''')
+
+    def test_age_saturation_and_queue_residence(self):
+        self.check(r'''
+    Rig r; r.connect();
+    r.bport.window = 0;
+    VescStatus v = {}; v.wheel = 0; v.valid_fields = 0xFF; v.source_age_ms = 65400;
+    assert(r.body.publishLatest(frameOf(v)));
+    HallState h = {3, 1, 7, 100}; assert(r.body.publishLatest(frameOf(h)));
+    r.run(300);
+    r.bport.window = 1u << 30; r.run(5);
+    Frame f; bool sv = false, sh = false;
+    while (r.dome.takeReceived(f)) {
+        if (f.type == MessageType::VescStatus) { assert(as<VescStatus>(f).source_age_ms == 65535); sv = true; }
+        if (f.type == MessageType::HallState) { uint16_t a = as<HallState>(f).source_age_ms; assert(a >= 400 && a < 420); sh = true; }
+    }
+    assert(sv && sh);
+''')
+
+    def test_unknown_type_replies_unsupported_and_framing_rejects_out_of_range(self):
+        self.check(r'''
+    Solo s(true); s.connect();
+    Frame u; memset(&u, 0, sizeof u); u.version = 1; u.type = static_cast<MessageType>(0x3F); u.length = 0;
+    s.from(u, 20, 1); s.e.tick(s.now);
+    Frame got; assert(!s.e.takeReceived(got));
+    assert(s.e.stats().unsupported == 1 && s.e.counters().type == 1);
+    std::vector<Frame> out = s.sent(); Reply rp = {}; bool found = false;
+    for (size_t i = 0; i < out.size(); ++i) if (out[i].type == MessageType::Reply) { rp = as<Reply>(out[i]); found = true; }
+    assert(found && rp.request_type == 0x3F && rp.request_seq == 20 && rp.result == 5);
+    Frame bad = u; bad.type = static_cast<MessageType>(0x77);
+    // out-of-range types are refused by framing and by the encoder, never by the endpoint
+    uint8_t buf[200]; assert(Codec::encode(bad, buf, sizeof buf) == 0);
+''')
+
+    def test_event_reliability_and_semantic_validation(self):
+        self.check(r'''
+    Rig r; r.connect();
+    Event ev = {0, 0x21, 5, 3}; Frame f = frameOf(ev); uint16_t seq = 0;
+    assert(r.body.request(f, r.now, seq));
+    r.drop_to_body[static_cast<int>(MessageType::Reply)] = 1;
+    r.run(300);
+    Frame got; assert(r.dome.takeReceived(got) && got.type == MessageType::Event && !r.dome.takeReceived(got));
+    Completion c; assert(r.body.takeCompletion(c) && c.outcome == Outcome::Replied && c.result == 0);
+    // malformed requests: never delivered, flagged ones answered with invalid-argument
+    Solo s(true); s.connect();
+    Frame bad = stamp(audioPlay(1, 1), 30, s.peer, s.local, 1); bad.payload[4] = 200;   // volume enum
+    inject(s.p, bad); s.e.tick(s.now);
+    assert(!s.e.takeReceived(got) && s.e.stats().invalid_payload == 1);
+    std::vector<Frame> out = s.sent(); Reply rp = {};
+    for (size_t i = 0; i < out.size(); ++i) if (out[i].type == MessageType::Reply) rp = as<Reply>(out[i]);
+    assert(rp.request_seq == 30 && rp.result == 1);
+    Frame hall = stamp(frameOf(HallState{3, 1, 1, 0}), 31, s.peer, s.local, 0); hall.length = 7;   // obsolete layout
+    inject(s.p, hall); s.e.tick(s.now); assert(!s.e.takeReceived(got) && s.e.stats().invalid_payload == 2);
+''')
+
+    def test_reply_handle_semantics(self):
+        self.check(r'''
+    Solo s(true); s.connect(); Frame got;
+    s.from(audioPlay(1, 2), 40, 1); s.e.tick(s.now); assert(s.e.takeReceived(got));
+    assert(s.e.reply(got, Result::Busy, 7));
+    assert(!s.e.reply(got, Result::Accepted, 0));                       // second answer refused
+    Frame other = got; other.source_session = 0x1234;
+    assert(!s.e.reply(other, Result::Accepted, 0));                     // wrong session
+    assert(!s.e.reply(got, static_cast<Result>(99), 0));
+    s.e.tick(s.now); std::vector<Frame> out = s.sent();
+    // replays after an answer use the stored result
+    s.from(audioPlay(1, 2), 40, 1); s.e.tick(s.now + 1);
+    out = s.sent(); Reply rp = {};
+    for (size_t i = 0; i < out.size(); ++i) if (out[i].type == MessageType::Reply) rp = as<Reply>(out[i]);
+    assert(rp.result == 6 && rp.detail == 7 && !s.e.takeReceived(got));
+''')
+
+    def test_session_change_invalidates_cache_queues_and_streams(self):
+        self.check(r'''
+    Solo s(true); s.connect(); Frame got;
+    s.from(audioPlay(1, 2), 40, 1); s.e.tick(s.now);
+    DriveRequest d = {1, 1, 100, 0}; s.from(frameOf(d), 41, 0); s.e.tick(s.now);
+    s.hello(0xD1D1, kRoleDome, 0x04); s.e.tick(s.now);
+    assert(s.e.peerSession() == 0xD1D1 && !s.e.takeReceived(got) && !s.e.connected(s.now));
+    s.peer = 0xD1D1; s.heartbeat(0xD1D1, s.local); s.e.tick(s.now); assert(s.e.connected(s.now));
+    // the same sequence is fresh in the new session
+    s.from(audioPlay(1, 2), 40, 1); s.from(frameOf(d), 41, 0); s.e.tick(s.now);
+    assert(s.e.takeReceived(got) && s.e.takeReceived(got) && s.e.stats().duplicates == 0);
+''')
+
+    def test_partial_tx_and_coalesced_streams(self):
+        self.check(r'''
+    for (int per = 1; per <= 3; per += 2) {
+        Rig r; r.connect(); r.dport.per_call = per; r.bport.per_call = per;
+        Frame f = audioPlay(1, 2); uint16_t seq;
+        assert(r.dome.request(f, r.now, seq));
+        r.run(120);
+        Frame got; assert(r.body.takeReceived(got) && got.sequence == seq);
+        assert(r.body.stats().partial_writes + r.dome.stats().partial_writes > 0);
+        assert(r.body.reply(got, Result::Accepted, 0)); r.run(120);
+        Completion c; assert(r.dome.takeCompletion(c) && c.outcome == Outcome::Replied);
+    }
+    // two frames in one chunk plus a fragment
+    Solo s(true); s.connect();
+    Bytes a = wireOf(stamp(frameOf(HallState{3, 1, 1, 0}), 60, s.peer, s.local, 0));
+    Bytes b = wireOf(stamp(audioPlay(1, 2), 61, s.peer, s.local, 1));
+    Bytes both = a; both.insert(both.end(), b.begin(), b.end());
+    s.p.push(both); s.e.tick(s.now);
+    Frame got; assert(s.e.takeReceived(got) && s.e.takeReceived(got) && !s.e.takeReceived(got));
+''')
+
+    def test_cache_expiry_and_receive_queue_full(self):
+        self.check(r'''
+    Solo s(true); s.connect(); Frame got;
+    s.from(audioPlay(1, 2), 70, 1); s.e.tick(s.now); assert(s.e.takeReceived(got)); assert(s.e.reply(got, Result::Accepted, 0));
+    s.now += 2100; s.heartbeat(s.peer, s.local); s.e.tick(s.now);
+    s.from(audioPlay(1, 2), 70, 1); s.e.tick(s.now);
+    assert(s.e.takeReceived(got));                                      // expired: treated as new
+    Solo q(true); q.connect();
+    for (int i = 0; i < 10; ++i) q.from(audioPlay(1, 10 + i), 80 + i, 1);
+    q.e.tick(q.now);
+    int n = 0; while (q.e.takeReceived(got)) ++n;
+    assert(n == 8 && q.e.stats().rx_queue_full == 2);
+    std::vector<Frame> out = q.sent(); int busy = 0;
+    for (size_t i = 0; i < out.size(); ++i) if (out[i].type == MessageType::Reply && as<Reply>(out[i]).result == 6) ++busy;
+    assert(busy == 2);
+''')
+
+    def test_sender_sequence_wraps(self):
+        self.check(r'''
+    Solo s(false); s.connect();
+    Frame f = audioPlay(1, 2); uint16_t q = 0, prev = 0; bool have = false;
+    for (int i = 0; i < 70000; ++i) {
+        f = audioPlay(1, 2);
+        assert(s.e.request(f, s.now, q));
+        if (have) assert(newer16(q, prev));
+        prev = q; have = true;
+        s.e.tick(s.now);
+        Reply rp = {0x21, q, 0, 0};
+        s.from(frameOf(rp), static_cast<uint16_t>(1000 + i), 0);
+        s.p.tx.clear(); s.e.tick(s.now);
+        if (i % 20 == 0) { s.now += 50; s.heartbeat(s.peer, s.local); s.e.tick(s.now); }
+        Completion c; while (s.e.takeCompletion(c)) {}
+    }
+''')
+
+
+class ConfigStoreTests(unittest.TestCase):
+    def check(self, body):
+        result = run_link(body, helpers=self.PROFILE)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    PROFILE = r'''
+static void fill(body::CommissioningProfile& p) {
+    using namespace body;
+    p = CommissioningProfile();
+    struct F { uint8_t id, wheel; int32_t v; };
+    const F g[] = {{0,0,1500},{1,0,1100},{2,0,1900},{3,0,10},{4,0,300},{19,0,9000},{20,0,9000}};
+    for (size_t i = 0; i < sizeof g / sizeof g[0]; ++i) assert(setField(p, g[i].id, g[i].wheel, g[i].v) == FieldResult::Ok);
+    const F w[] = {{5,0,1},{6,0,6},{7,0,7},{8,0,1},{9,0,40000},{10,0,10000},{11,0,5000},{12,0,40000},{13,0,1100},
+                   {14,0,1500},{15,0,150},{16,0,40000},{17,0,2000},{18,0,200}};
+    for (int wh = 0; wh < 2; ++wh)
+        for (size_t i = 0; i < sizeof w / sizeof w[0]; ++i) assert(setField(p, w[i].id, wh, w[i].v) == FieldResult::Ok);
+}
+static void acceptAll(body::CommissioningProfile& p) {
+    for (int b = 0; b <= 11; ++b) assert(body::acceptBit(p, b) == body::AcceptResult::Ok);
+}
+'''
+
+    def test_blank_corrupt_and_io_error_are_distinct(self):
+        self.check(r'''
+    using namespace body;
+    FakeStorage st; ConfigStore cs(st); CommissioningProfile p;
+    assert(cs.load(p) == ConfigResult::Uncommissioned);
+    assert(!readiness(p).drive && !readiness(p).manual_dome && !readiness(p).auto_dome && p.allow_remote_drive == 0);
+    st.fail_read = true; assert(cs.load(p) == ConfigResult::IoError);
+    st.fail_read = false;
+    fill(p); acceptAll(p);
+    assert(!cs.save(p));                                                // gate closed by default
+    assert(cs.lastSave() == SaveResult::GateClosed);
+    assert(cs.trySave(p, true, true) == SaveResult::Ok);
+    CommissioningProfile q; assert(cs.load(q) == ConfigResult::Ready && readiness(q).drive && q.generation == 1);
+    for (size_t i = 0; i < st.mem.size(); ++i) if (st.mem[i] != 0xFF) st.mem[i] ^= 0x5A;
+    assert(cs.load(q) == ConfigResult::Corrupt);
+    assert(!readiness(q).drive);
+    st.fail_read = true; assert(cs.load(q) == ConfigResult::IoError);
+''')
+
+    def test_save_gate_validation_and_verify(self):
+        self.check(r'''
+    using namespace body;
+    FakeStorage st; ConfigStore cs(st); CommissioningProfile p; fill(p);
+    assert(cs.trySave(p, false, true) == SaveResult::GateClosed && cs.trySave(p, true, false) == SaveResult::GateClosed);
+    assert(st.writes == 0);
+    CommissioningProfile bad = p; bad.allow_remote_drive = 1;
+    assert(cs.trySave(bad, true, true) == SaveResult::InvalidProfile);
+    bad = p; bad.servo_min = 1600; assert(cs.trySave(bad, true, true) == SaveResult::InvalidProfile);
+    bad = p; bad.acceptance = 1u << 4;                                    // accepted bit without its prerequisites
+    bad.wheel[0].set_mask = 0; assert(cs.trySave(bad, true, true) == SaveResult::InvalidProfile);
+    st.drop_writes = true; assert(cs.trySave(p, true, true) == SaveResult::VerifyFailed);
+    st.drop_writes = false; st.fail_write_after = 3; assert(cs.trySave(p, true, true) == SaveResult::IoError);
+    CommissioningProfile q; st.fail_write_after = -1;
+    assert(cs.load(q) != ConfigResult::Ready);                            // a torn first save never becomes a profile
+    assert(cs.trySave(p, true, true) == SaveResult::Ok && cs.load(q) == ConfigResult::Ready);
+    assert(!readiness(q).drive);                                         // saving is not acceptance
+''')
+
+    def test_torn_write_sweep_keeps_previous_profile(self):
+        self.check(r'''
+    using namespace body;
+    FakeStorage st; ConfigStore cs(st); CommissioningProfile a, b, q; fill(a); b = a;
+    assert(cs.trySave(a, true, true) == SaveResult::Ok);
+    assert(setField(b, 4, 0, 400) == FieldResult::Ok);
+    std::vector<uint8_t> snapshot = st.mem;
+    int saw_old = 0, saw_new = 0;
+    for (int cut = 0; cut < 400; ++cut) {
+        st.mem = snapshot; st.fail_write_after = cut;
+        ConfigStore c2(st); CommissioningProfile cur;
+        assert(c2.load(cur) == ConfigResult::Ready);
+        SaveResult r = c2.trySave(b, true, true);
+        st.fail_write_after = -1;
+        ConfigStore c3(st);
+        assert(c3.load(q) == ConfigResult::Ready);                        // never corrupt, never blank
+        if (q.duty_slew_permille_per_s == 300) ++saw_old; else { assert(q.duty_slew_permille_per_s == 400); ++saw_new; }
+        if (r == SaveResult::Ok) { assert(q.duty_slew_permille_per_s == 400); break; }
+    }
+    assert(saw_old > 0 && saw_new > 0);
+    // alternation: two saves occupy different slots
+    st.mem = snapshot; ConfigStore c4(st); CommissioningProfile cur; assert(c4.load(cur) == ConfigResult::Ready);
+    uint32_t g0 = c4.generation();
+    assert(c4.trySave(b, true, true) == SaveResult::Ok && c4.generation() == g0 + 1);
+    assert(c4.trySave(a, true, true) == SaveResult::Ok && c4.generation() == g0 + 2);
+    assert(c4.load(q) == ConfigResult::Ready && q.duty_slew_permille_per_s == 300);
+''')
+
+    def test_boot_counter_double_buffered(self):
+        self.check(r'''
+    using namespace body;
+    FakeStorage st; uint32_t s1 = 0, s2 = 0, s3 = 0;
+    { ConfigStore cs(st); assert(cs.nextBootSession(s1) && s1 == 1); size_t w = st.writes; assert(cs.nextBootSession(s2) && s2 == 1 && st.writes == w); }
+    { ConfigStore cs(st); assert(cs.nextBootSession(s2) && s2 == 2); }
+    { ConfigStore cs(st); assert(cs.nextBootSession(s3) && s3 == 3); }
+    // torn counter write: next boot still gets a session that moves forward or repeats at most the older value
+    std::vector<uint8_t> snap = st.mem;
+    for (int cut = 0; cut < 40; ++cut) {
+        st.mem = snap; st.fail_write_after = cut;
+        { ConfigStore cs(st); uint32_t t; cs.nextBootSession(t); }
+        st.fail_write_after = -1; ConfigStore cs2(st); uint32_t u = 0;
+        assert(cs2.nextBootSession(u) && u >= 3 && u != 0);
+    }
+    // unreadable: no session
+    st.mem = snap; st.fail_read = true; { ConfigStore cs(st); uint32_t t = 77; assert(!cs.nextBootSession(t) && t == 77); }
+    st.fail_read = false;
+    // both slots corrupt but non-blank: refuse rather than reuse a session
+    for (size_t i = 0; i < 64; ++i) st.mem[i] ^= 0x33;
+    { ConfigStore cs(st); uint32_t t = 77; assert(!cs.nextBootSession(t)); }
+    // wrap skips zero
+    FakeStorage w; { ConfigStore cs(w); uint32_t t; cs.nextBootSession(t); }
+    { uint8_t slot[ConfigStore::kBootSlotSize]; ConfigStore::encodeBootSlot(1000, 0xFFFFFFFFu, slot);
+      for (size_t i = 0; i < sizeof slot; ++i) w.mem[ConfigStore::bootSlotAddress(0) + i] = slot[i]; }
+    { ConfigStore cs(w); uint32_t t = 9; assert(cs.nextBootSession(t) && t == 1); }
+''')
+
+    def test_field_envelopes_readiness_and_acceptance_prerequisites(self):
+        self.check(r'''
+    using namespace body;
+    CommissioningProfile p;
+    struct E { uint8_t id; bool wheel; int32_t lo, hi; };
+    const E t[] = {{0,0,1400,1600},{1,0,1000,1499},{2,0,1501,2000},{3,0,1,25},{4,0,1,1000},{19,0,1,36000},{20,0,1,36000},
+                   {6,1,0,255},{7,1,0,255},{9,1,1,100000},{10,1,1,20000},{11,1,0,20000},{12,1,1,100000},{13,1,1000,1500},
+                   {14,1,1300,1600},{16,1,1,100000},{17,1,1,10000},{18,1,20,1000}};
+    for (size_t i = 0; i < sizeof t / sizeof t[0]; ++i) {
+        CommissioningProfile x;
+        assert(setField(x, t[i].id, 0, t[i].lo) == FieldResult::Ok);
+        assert(setField(x, t[i].id, 0, t[i].hi) == FieldResult::Ok);
+        assert(setField(x, t[i].id, 0, t[i].lo - 1) == FieldResult::OutOfRange);
+        assert(setField(x, t[i].id, 0, t[i].hi + 1) == FieldResult::OutOfRange);
+        assert(setField(x, t[i].id, t[i].wheel ? 1 : 0, t[i].lo) == FieldResult::Ok);
+        assert(setField(x, t[i].id, t[i].wheel ? 2 : 1, t[i].lo) == FieldResult::BadWheel);
+    }
+    assert(setField(p, 15, 0, 150) == FieldResult::Ok && setField(p, 15, 0, 149) == FieldResult::OutOfRange && setField(p, 15, 0, 151) == FieldResult::OutOfRange);
+    assert(setField(p, 5, 0, 1) == FieldResult::Ok && setField(p, 5, 0, -1) == FieldResult::Ok && setField(p, 5, 0, 0) == FieldResult::OutOfRange);
+    assert(setField(p, 8, 0, 1) == FieldResult::Ok && setField(p, 8, 0, 2) == FieldResult::OutOfRange);
+    assert(setField(p, 99, 0, 1) == FieldResult::UnknownField);
+    // acceptance needs its prerequisites and distinct readiness
+    p = CommissioningProfile();
+    assert(acceptBit(p, 0) == AcceptResult::Prerequisite && acceptBit(p, 12) == AcceptResult::UnsupportedBit);
+    fill(p);
+    for (int b = 0; b <= 2; ++b) assert(acceptBit(p, b) == AcceptResult::Ok);
+    assert(readiness(p).manual_dome && !readiness(p).auto_dome && !readiness(p).drive);
+    assert(acceptBit(p, 3) == AcceptResult::Ok && readiness(p).auto_dome && !readiness(p).drive);
+    for (int b = 4; b <= 11; ++b) assert(acceptBit(p, b) == AcceptResult::Ok);
+    assert(readiness(p).drive && validateProfile(p));
+    // changing a field clears only the acceptances it owns
+    assert(setField(p, 4, 0, 250) == FieldResult::Ok && readiness(p).drive);
+    assert(setField(p, 9, 1, 30000) == FieldResult::Ok && !readiness(p).drive && readiness(p).manual_dome && readiness(p).auto_dome);
+    assert(setField(p, 0, 0, 1510) == FieldResult::Ok && !readiness(p).manual_dome && !readiness(p).auto_dome);
+    int32_t v; assert(getField(p, 9, 1, v) && v == 30000);
+''')

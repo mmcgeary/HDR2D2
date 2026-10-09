@@ -65,7 +65,7 @@ size_t Codec::encode(const Frame& f, uint8_t* out, size_t capacity) {
     if (f.version != kVersion) { ++c.version; return 0; }
     if (f.length > kMaxPayload) { ++c.length; return 0; }
     if ((f.flags & ~1u) != 0) { ++c.reserved; return 0; }
-    if (!isKnownType(static_cast<uint8_t>(f.type))) { ++c.type; return 0; }
+    if (!isFramingType(static_cast<uint8_t>(f.type))) { ++c.type; return 0; }
     uint8_t raw[kMaxRaw];
     Writer w(raw, sizeof(raw));
     w.u8(f.version);
@@ -141,7 +141,7 @@ DecodeResult Codec::finish(Frame& out) {
         return DecodeResult::Error;
     }
     if ((f.flags & ~1u) != 0 || reserved != 0) { ++counters_.reserved; return DecodeResult::Error; }
-    if (!isKnownType(type)) { ++counters_.type; return DecodeResult::Error; }
+    if (!isFramingType(type)) { ++counters_.type; return DecodeResult::Error; }
     f.type = static_cast<MessageType>(type);
     for (size_t i = 0; i < kMaxPayload; ++i) f.payload[i] = i < f.length ? buffer_[kHeaderSize + i] : 0;
     out = f;

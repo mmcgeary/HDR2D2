@@ -3,6 +3,10 @@
 #include <stdint.h>
 #include "Messages.h"
 
+// Unknown-type policy: framing accepts raw types 0x01..0x3F (isFramingType). Types outside
+// that range are rejected and counted at framing; encode() returns 0 and bumps the static
+// encode counters. In-range but undefined types reach the Endpoint, which counts them and
+// answers Result::Unsupported when a reply is requested.
 namespace r2link {
 
 const uint8_t kVersion = 1;
