@@ -68,12 +68,14 @@
 /////////////////////////////////////////////////////////////////////////
 
 // Serial Communication Pins
-#define PIN_IBUS_RX          16    // Hardware Serial2 RX (115,200 baud): FlySky i-Bus Stream (Receiver in Dome)
-#define PIN_SOUND_TX         17    // Hardware Serial1 TX (9,600 baud): Body DFPlayer RX via Slip Ring Ch 4
-#define PIN_VESC_UART_TX     18    // Hardware Serial2 TX (115,200 baud): Dual VESC COMM RX via Slip Ring Ch 6
-#define SERIAL2_RX_PIN       16
-#define SERIAL2_TX_PIN       18
-#define COMMAND_SERIAL       Serial2
+#define PIN_IBUS_RX          16    // Hardware Serial1 RX (115,200 baud): FlySky i-Bus Stream (Receiver in Dome)
+#define PIN_SOUND_TX         17    // Simplex Audio TX (9,600 baud): Body DFPlayer RX via Slip Ring Ch 4
+#define PIN_VESC_UART_TX     18    // Hardware Serial2 TX (115,200 baud): Dual VESC COMM RX via Slip Ring Ch 6 (AUX 4)
+#define PIN_VESC_UART_RX     5     // Hardware Serial2 RX (115,200 baud): Dual VESC COMM TX via Slip Ring Ch 3 (AUX 3)
+
+#define VESC_SERIAL          Serial2
+#define COMMAND_SERIAL       VESC_SERIAL
+#define IBUS_SERIAL          Serial1
 
 // Dome Drive & Homing Pins
 #define PIN_DOME_SERVO_PWM   4     // LEDC PWM: 35kg 360° Dome Continuous Servo (via LLC LV3->HV3, Ch 5)
@@ -96,7 +98,7 @@
 // Spare AUX Pins
 #define PIN_AUX1             2
 #define PIN_AUX2             4     // Used for PIN_DOME_SERVO_PWM
-#define PIN_AUX3             5     // Unused
+#define PIN_AUX3             5     // Used for PIN_VESC_UART_RX (Slip Ring Ch 3)
 #define PIN_AUX4             18    // Used for PIN_VESC_UART_TX (Slip Ring Ch 6)
 #define PIN_AUX5             19    // Used for PIN_DOME_HALL_SENS
 
@@ -104,9 +106,41 @@
 // 2. AUDIO SERIAL CONFIGURATION (DFPLAYER MINI)
 /////////////////////////////////////////////////////////////////////////
 
-#define SOUND_SERIAL         Serial1
-#define SOUND_RX_PIN         -1    // Simplex 1-wire connection down slip ring (No RX needed)
-#define SOUND_TX_PIN         PIN_SOUND_TX
+#ifndef SOUND_SERIAL
+class DfPlayerSerial : public Stream {
+private:
+    int _pin;
+    static const uint32_t BIT_TIME_US = 104; // 9600 baud = 104.16 us per bit
+public:
+    DfPlayerSerial(int pin) : _pin(pin) {}
+    void begin(uint32_t baud = 9600) {
+        pinMode(_pin, OUTPUT);
+        digitalWrite(_pin, HIGH);
+    }
+    int available() override { return 0; }
+    int read() override { return -1; }
+    int peek() override { return -1; }
+    void flush() override {}
+    size_t write(uint8_t byte) override {
+        digitalWrite(_pin, LOW);
+        delayMicroseconds(BIT_TIME_US);
+        for (uint8_t i = 0; i < 8; i++) {
+            digitalWrite(_pin, (byte & (1 << i)) ? HIGH : LOW);
+            delayMicroseconds(BIT_TIME_US);
+        }
+        digitalWrite(_pin, HIGH);
+        delayMicroseconds(BIT_TIME_US);
+        return 1;
+    }
+    size_t write(const uint8_t *buffer, size_t size) override {
+        for (size_t i = 0; i < size; i++) write(buffer[i]);
+        return size;
+    }
+};
+
+static DfPlayerSerial soundSerial(PIN_SOUND_TX);
+#define SOUND_SERIAL soundSerial
+#endif
 #define SOUND_BAUD           9600
 
 #define MARC_SOUND_PLAYER    MarcSound::kDFMini
@@ -590,7 +624,7 @@ void processAudioQueue() {
     cmd[7] = (uint8_t)(sum >> 8);
     cmd[8] = (uint8_t)(sum & 0xFF);
 
-    Serial1.write(cmd, 10);
+    SOUND_SERIAL.write(cmd, 10);
     last_played_track = (uint8_t)track_num;
     last_audio_cmd_ms = millis();
 }
@@ -756,8 +790,8 @@ void processIBusFrames() {
     static uint8_t ibus_buffer[32];
     static uint8_t ibus_idx = 0;
 
-    while (Serial2.available() > 0) {
-        uint8_t byte_in = Serial2.read();
+    while (IBUS_SERIAL.available() > 0) {
+        uint8_t byte_in = IBUS_SERIAL.read();
 
         if (ibus_idx == 0) {
             if (byte_in == 0x20) { // Header Byte 1 (Length: 32 bytes)
@@ -1001,6 +1035,114 @@ void sendVescDuty(uint8_t can_id, float duty) {
     COMMAND_SERIAL.write(frame, f_idx);
 }
 
+#define VESC_COMM_GET_VALUES    4
+
+struct VescTelemetry {
+    float battery_volts;
+    float motor_current;
+    float battery_current;
+    float mosfet_temp;
+    float motor_temp;
+    int32_t erpm;
+    uint8_t fault_code;
+    uint32_t last_update_ms;
+};
+
+VescTelemetry vesc_telemetry = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0, 0 };
+
+void requestVescTelemetry() {
+    uint8_t payload[1] = { VESC_COMM_GET_VALUES };
+    uint16_t crc = vesc_crc16(payload, 1);
+    uint8_t frame[6];
+    frame[0] = 0x02;
+    frame[1] = 0x01;
+    frame[2] = VESC_COMM_GET_VALUES;
+    frame[3] = (crc >> 8) & 0xFF;
+    frame[4] = crc & 0xFF;
+    frame[5] = 0x03;
+    COMMAND_SERIAL.write(frame, 6);
+}
+
+void parseVescValuesPayload(const uint8_t* payload, uint16_t len) {
+    if (len < 54) return;
+    if (payload[0] != VESC_COMM_GET_VALUES) return;
+
+    int16_t raw_temp_mos = (int16_t)((payload[1] << 8) | payload[2]);
+    int16_t raw_temp_mot = (int16_t)((payload[3] << 8) | payload[4]);
+    int32_t raw_curr_mot = (int32_t)((payload[5] << 24) | (payload[6] << 16) | (payload[7] << 8) | payload[8]);
+    int32_t raw_curr_in  = (int32_t)((payload[9] << 24) | (payload[10] << 16) | (payload[11] << 8) | payload[12]);
+    int32_t raw_erpm     = (int32_t)((payload[23] << 24) | (payload[24] << 16) | (payload[25] << 8) | payload[26]);
+    int16_t raw_vin      = (int16_t)((payload[27] << 8) | payload[28]);
+    uint8_t fault        = payload[53];
+
+    vesc_telemetry.mosfet_temp     = (float)raw_temp_mos / 10.0f;
+    vesc_telemetry.motor_temp      = (float)raw_temp_mot / 10.0f;
+    vesc_telemetry.motor_current   = (float)raw_curr_mot / 100.0f;
+    vesc_telemetry.battery_current = (float)raw_curr_in / 100.0f;
+    vesc_telemetry.erpm            = raw_erpm;
+    vesc_telemetry.battery_volts   = (float)raw_vin / 10.0f;
+    vesc_telemetry.fault_code      = fault;
+    vesc_telemetry.last_update_ms  = millis();
+}
+
+void processVescTelemetry() {
+    static uint8_t rx_buffer[128];
+    static uint8_t rx_state = 0;
+    static uint16_t payload_len = 0;
+    static uint16_t payload_idx = 0;
+    static uint16_t rx_crc = 0;
+    static uint32_t last_request_ms = 0;
+
+    uint32_t now = millis();
+    if (now - last_request_ms >= 200) {
+        last_request_ms = now;
+        requestVescTelemetry();
+    }
+
+    while (COMMAND_SERIAL.available() > 0) {
+        uint8_t b = COMMAND_SERIAL.read();
+        switch (rx_state) {
+            case 0:
+                if (b == 0x02) {
+                    rx_state = 1;
+                    payload_idx = 0;
+                }
+                break;
+            case 1:
+                payload_len = b;
+                if (payload_len > 0 && payload_len < sizeof(rx_buffer)) {
+                    rx_state = 2;
+                    payload_idx = 0;
+                } else {
+                    rx_state = 0;
+                }
+                break;
+            case 2:
+                rx_buffer[payload_idx++] = b;
+                if (payload_idx >= payload_len) {
+                    rx_state = 3;
+                }
+                break;
+            case 3:
+                rx_crc = ((uint16_t)b) << 8;
+                rx_state = 4;
+                break;
+            case 4:
+                rx_crc |= b;
+                rx_state = 5;
+                break;
+            case 5:
+                if (b == 0x03) {
+                    if (vesc_crc16(rx_buffer, payload_len) == rx_crc) {
+                        parseVescValuesPayload(rx_buffer, payload_len);
+                    }
+                }
+                rx_state = 0;
+                break;
+        }
+    }
+}
+
 void stopVescMotors() {
     sendVescDuty(1, 0.0f);
     sendVescDuty(VESC_CAN_ID_SLAVE, 0.0f);
@@ -1015,6 +1157,18 @@ void processVescDrive() {
     if (!rc_connected || otaInProgress || active_macro == R2_FAINT) {
         stopVescMotors();
         return;
+    }
+
+    // Hardware fault or low battery cutoff
+    if (vesc_telemetry.last_update_ms > 0) {
+        if (vesc_telemetry.fault_code != 0) {
+            stopVescMotors();
+            return;
+        }
+        if (vesc_telemetry.battery_volts > 5.0f && vesc_telemetry.battery_volts < 10.5f) {
+            stopVescMotors();
+            return;
+        }
     }
 
     uint16_t raw_throttle = rc_channels[RC_CH_THROTTLE];
@@ -1073,11 +1227,14 @@ void setup() {
     wifiEnabled = wifiActive = preferences.getBool(PREFERENCE_WIFI_ENABLED, WIFI_ENABLED);
 #endif
 
-    // 1. Initialize Hardware UART2 for FlySky i-Bus (115,200 baud on GPIO 16)
-    COMMAND_SERIAL.begin(115200, SERIAL_8N1, SERIAL2_RX_PIN, SERIAL2_TX_PIN);
+    // 1. Initialize Hardware UART2 for Dual VESC COMM (115,200 baud, TX on GPIO 18, RX on GPIO 5)
+    VESC_SERIAL.begin(115200, SERIAL_8N1, PIN_VESC_UART_RX, PIN_VESC_UART_TX);
 
-    // 2. Initialize Hardware UART1 for Body DFPlayer Mini (9,600 baud on GPIO 17)
-    SOUND_SERIAL.begin(SOUND_BAUD, SERIAL_8N1, SOUND_RX_PIN, SOUND_TX_PIN);
+    // 2. Initialize Hardware UART1 for FlySky i-Bus (115,200 baud on GPIO 16)
+    IBUS_SERIAL.begin(115200, SERIAL_8N1, PIN_IBUS_RX, -1);
+
+    // 3. Initialize Simplex Audio Serial for Body DFPlayer Mini (9,600 baud on GPIO 17)
+    soundSerial.begin(SOUND_BAUD);
 
     // 3. Mount SPIFFS Filesystem for Web Images & Data
     if (!mountReadOnlyFileSystem()) {
@@ -1213,6 +1370,7 @@ void loop() {
     AnimatedEvent::process();
     processR2Macro();
     processVescDrive();
+    processVescTelemetry();
     sMarcSound.idle();
     processAudioQueue();
 }

@@ -57,10 +57,13 @@ class HarnessDiagramTests(unittest.TestCase):
         self.assertEqual(wires["dome-input"]["from"], "ringDome:CH1")
         self.assertEqual(wires["dome-input"]["to"], "domeBuck:IN+")
         ring_contacts = [wire for wire in data["wires"] if wire["cat"] == "ring"]
-        self.assertEqual(len(ring_contacts), 5)
-        for wire in data["wires"]:
-            self.assertNotIn("ringBody:CH3", (wire["from"], wire["to"]))
-            self.assertNotIn("ringDome:CH3", (wire["from"], wire["to"]))
+        self.assertEqual(len(ring_contacts), 6)
+        self.assertEqual(wires["ring3"]["from"], "ringBody:CH3")
+        self.assertEqual(wires["ring3"]["to"], "ringDome:CH3")
+        self.assertEqual(wires["vesc-telem-body"]["from"], "leftVesc:COMM TX")
+        self.assertEqual(wires["vesc-telem-body"]["to"], "ringBody:CH3")
+        self.assertEqual(wires["vesc-telem-dome"]["from"], "ringDome:CH3")
+        self.assertEqual(wires["vesc-telem-dome"]["to"], "esp:GPIO5 RX")
 
     def test_five_volt_positive_rails_are_separate(self):
         data = self.load_data()

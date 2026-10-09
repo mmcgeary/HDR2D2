@@ -31,7 +31,7 @@ flowchart TB
     subgraph RING [6-CHANNEL SLIP RING]
         R1[CH1: Fused 12V to Dome]
         R2[CH2: Common Ground]
-        R3[CH3: Spare]
+        R3[CH3: VESC Telemetry to Dome]
         R4[CH4: Audio Serial from Dome]
         R5[CH5: Dome Servo PWM from Dome]
         R6[CH6: VESC Drive UART from Dome]
@@ -60,6 +60,7 @@ flowchart TB
 
     FBOX -->|7.5A Fused 12V| R1 --> BUCK_D
     FBOX -->|Negative Bus| R2 --> BUCK_D
+    VESC -->|Telemetry TX 3.3V (Port 3 Pin 5)| R3 -->|GPIO5 RX (AUX 3)| ESP
     ESP -->|Audio TX 3.3V| R4 --> AUDIO
     ESP -->|Dome PWM 3.3V| R5 --> DOME_SERVO
     ESP -->|VESC UART 3.3V (AUX 4)| R6 -->|Port 3 COMM RX| VESC
@@ -86,7 +87,8 @@ flowchart TB
 ### Foot Drive (Dual VESC 4.20)
 * **Single-Brain Drive:** The dome ESP32 reads your right joystick throttle and steering over iBUS, calculates tank differential mixing, applies speed limits (switch SwB), and sends VESC UART packets down Slip Ring CH6 to the body.
 * **Internal CAN Bus:** The Flipsky Dual 4.20 hardware switch is set to `ON: dual`. The Master controller (Left wheel, ID 1) forwards commands to the Slave controller (Right wheel, ID 2) over internal CAN bus via `COMM_FORWARD_CAN`. No body microcontroller is needed.
-* **Connection:** Only one 3.3V signal wire connects to the VESC: Slip Ring CH6 &rarr; Port 3 (`COMM`) Pin 6 (`RX`), plus common ground on Pin 3.
+* **Full-Duplex VESC Telemetry:** In addition to sending drive commands on Slip Ring CH6 &rarr; Port 3 `RX`, the Master VESC transmits live telemetry packets (`COMM_GET_VALUES`) on Port 3 `TX` &rarr; Slip Ring CH3 &rarr; ESP32 `GPIO5 (AUX 3)`. The ESP32 monitors actual battery voltage, motor currents, ERPM, and hardware fault codes, cutting throttle automatically if a fault occurs or the pack drops below 10.5V.
+* **Connection:** Dual VESC Port 3 (`COMM`): Pin 6 (`RX`) receives drive from CH6; Pin 5 (`TX`) transmits telemetry up CH3; Pin 3 (`GND`) links to negative bus. Pins 1 (5V), 2 (3.3V), and 4 (ADC) remain disconnected.
 * **Power:** A single 12AWG power pair feeds the Dual VESC through fuse F1 (15A).
 
 ### Sound System
@@ -104,7 +106,7 @@ A 6-channel through-bore slip ring passes all power and signals between the body
 | :---: | :--- | :---: | :--- |
 | **CH 1** | Fused 12V Power | Body &rarr; Dome | 12V battery power from Fuse F4 (7.5A) to dome buck converter |
 | **CH 2** | Common Ground | Body &harr; Dome | Shared power return and signal ground reference |
-| **CH 3** | Spare | &mdash; | Unconnected spare channel; insulate both ends |
+| **CH 3** | VESC Telemetry UART | Body &rarr; Dome | 115,200-baud serial telemetry from Dual VESC Port 3 TX to ESP32 GPIO5 (AUX 3) |
 | **CH 4** | Sound Commands | Dome &rarr; Body | 9,600-baud serial from ESP32 GPIO17 to DFPlayer RX (via 1k resistor) |
 | **CH 5** | Dome Servo Signal | Dome &rarr; Body | 3.3V PWM from ESP32 GPIO4 to continuous-rotation dome servo |
 | **CH 6** | VESC Drive UART | Dome &rarr; Body | 115,200-baud serial from ESP32 GPIO18 (AUX 4) to Dual VESC Port 3 RX |

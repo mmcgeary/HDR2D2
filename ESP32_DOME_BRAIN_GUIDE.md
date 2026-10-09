@@ -29,7 +29,7 @@ flowchart TB
     subgraph RING [6-CHANNEL SLIP RING]
         CH1["CH1: Fused 12V to Dome Buck"]
         CH2["CH2: Common Ground"]
-        CH3["CH3: Spare"]
+        CH3["CH3: VESC Telemetry UART (115,200 baud)"]
         CH4["CH4: Sound Serial (9,600 baud)"]
         CH5["CH5: Dome Servo PWM (3.3V)"]
         CH6["CH6: VESC Drive UART (115,200 baud)"]
@@ -49,6 +49,7 @@ flowchart TB
         BATTERY -->|"Common Ground"| CH2 --> DOME_BUCK
 
         RX -->|"iBUS (5V to Shifter to GPIO16)"| ESP32
+        VESC -->|"Telemetry TX (Port 3 Pin 5)"| CH3 -->|"GPIO5 RX (AUX 3)"| ESP32
         ESP32 -->|"UART TX (GPIO17)"| CH4 -->|"1k Resistor"| DFPLAYER
         ESP32 -->|"LEDC PWM (GPIO4)"| CH5 --> DOME_SERVO
         ESP32 -->|"VESC UART (GPIO18 AUX 4)"| CH6 -->|"Port 3 COMM RX"| VESC

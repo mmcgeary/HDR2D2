@@ -12,6 +12,7 @@ Follow [DOME_WIRING_DIAGRAM.md](../DOME_WIRING_DIAGRAM.md) for full circuit sche
 | :---: | :--- | :--- |
 | **GPIO 16** | FlySky iBUS Serial (115,200 baud) | Receiver in dome &rarr; Level shifter HV1 &rarr; LV1 &rarr; GPIO16 |
 | **GPIO 18** | Dual VESC Drive UART (115,200 baud) | Direct 3.3V UART (AUX 4) &rarr; Slip ring CH6 &rarr; Dual VESC Port 3 RX |
+| **GPIO 5** | Dual VESC Telemetry UART (115,200 baud) | Direct 3.3V UART (AUX 3) &larr; Slip ring CH3 &larr; Dual VESC Port 3 TX |
 | **GPIO 19** | KY-003 Hall Homing Sensor | Hall signal &rarr; Level shifter HV2 &rarr; LV2 &rarr; GPIO19 |
 | **GPIO 4** | 35kg Continuous Dome Servo PWM | Direct 3.3V PWM &rarr; Slip ring CH5 &rarr; Servo signal lead (no shifter) |
 | **GPIO 17** | DFPlayer Serial Commands (9,600 baud)| Direct 3.3V UART &rarr; Slip ring CH4 &rarr; 1k&Omega; resistor &rarr; DFPlayer RX (no shifter) |
@@ -22,7 +23,7 @@ Follow [DOME_WIRING_DIAGRAM.md](../DOME_WIRING_DIAGRAM.md) for full circuit sche
 
 ### Level Shifter & Logic Voltages
 * **Level Shifter:** Connect **HV** to dome 5V, **LV** to ESP32 3.3V, and **GND** to common ground. Only 5V inputs (receiver iBUS and Hall sensor) pass through the shifter.
-* **Direct 3.3V Outputs:** VESC Drive UART (GPIO18 / AUX 4), Dome servo PWM (GPIO4), and DFPlayer TX (GPIO17) originate from the ESP32 at 3.3V and bypass the shifter.
+* **Direct 3.3V I/O:** VESC Drive UART (GPIO18 / AUX 4), VESC Telemetry UART (GPIO5 / AUX 3), Dome servo PWM (GPIO4), and DFPlayer TX (GPIO17) operate at native 3.3V and bypass the shifter.
 * **PCA9685 Servo Driver:** Logic power (**VCC**) runs on 3.3V from the ESP32. Servo power (**V+** green terminal) connects directly to the dome 5V distribution block. Servos 0–5 control Front (0/1), Rear (2/3), and Top (4/5) pan and tilt.
 
 ---
@@ -33,7 +34,7 @@ The dome ESP32 serves as the unified central brain for the entire droid, decodin
 
 ### Transmitter Controls (FlySky FS-i6X)
 | Radio Control | Channel | Function in Plus Firmware |
-| :--- | :---: | :--- |
+| :--- | :--- | :--- |
 | **Right Stick Vertical** | CH 2 | **Throttle:** Forward and reverse foot motor drive. |
 | **Right Stick Horizontal** | CH 1 | **Steering:** Differential tank steering for foot motors. |
 | **Left Stick Horizontal** | CH 4 | **Dome Rotation:** Proportional continuous speed; stops dead at center. |
@@ -44,6 +45,7 @@ The dome ESP32 serves as the unified central brain for the entire droid, decodin
 
 ### Motion & Safety Failsafes
 * **Missing iBUS Signal (>250ms):** Automatically stops foot drive (sends 0 duty to VESC), cancels homing, stops dome rotation, and disables holoprojector servo outputs.
+* **VESC Telemetry & Battery Cutoff:** Decodes live battery voltage and fault codes at 5Hz. If battery voltage drops below 10.5V or a hardware fault code occurs, motor drive cuts immediately.
 * **Startup & Failsafe Lockout:** Dome rotation starts disabled. Centering the dome joystick rearms manual control.
 * **Wi-Fi STOP Button:** Immediately halts foot motors, dome rotation, and active routines.
 

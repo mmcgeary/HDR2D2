@@ -58,7 +58,7 @@
   <header>
     <h1>R2-D2 Power Harness and Pin-to-Pin Inspector</h1>
     <p class="notice">Schematic layout. Always verify physical connector pin markings before wiring.</p>
-    <p class="notice"><strong>Level shifting & Serial:</strong> The FlySky receiver is mounted in the dome. Receiver iBUS and dome Hall signals step down from 5V to 3.3V before entering the ESP32. VESC Drive UART (GPIO18 / AUX 4), dome PWM, and audio TX originate from the ESP32 at 3.3V and bypass the shifter.</p>
+    <p class="notice"><strong>Level shifting & Serial:</strong> The FlySky receiver is mounted in the dome. Receiver iBUS and dome Hall signals step down from 5V to 3.3V before entering the ESP32. VESC bidirectional UART (GPIO18 TX down CH6, GPIO5 RX up CH3), dome PWM, and audio TX operate at native 3.3V logic and bypass the shifter.</p>
     <div class="controls">
       <label for="filter">Circuit</label>
       <select id="filter">
@@ -93,7 +93,7 @@
         <h2>Harness inspector</h2>
         <p>Click any wire or component to inspect its terminals, gauge, fuse protection, and assembly notes. Selected wires are highlighted in the diagram. Drag the canvas to pan; use the zoom buttons or mouse wheel to zoom.</p>
         <p>Red: battery positive. Purple: body 5V. Pink: dome 5V. Dashed grey: ground return. I2C SDA/SCL: blue/green. Motor phases U/V/W: orange/violet/blue. Hall H1/H2/H3: yellow/blue/green. Holo CH0-5: yellow/blue/green/violet/orange/pink. Cyan: slip-ring paths. Colors identify diagram circuits, not required physical wire jackets.</p>
-        <p><strong>Do not join the two 5V positive rails. Do not fuse ground. Leave ring CH3 (spare), VESC COMM 5V/3.3V/TX, and motor temperature leads unconnected.</strong></p>
+        <p><strong>Do not join the two 5V positive rails. Do not fuse ground. Ring CH3 carries live VESC telemetry up to dome ESP32 AUX 3 (GPIO 5). Leave VESC COMM 5V/3.3V/ADC and motor temperature leads unconnected.</strong></p>
       </aside>
     </div>
     <section id="schedule">
@@ -224,12 +224,12 @@
       "ports": [
         "CH1",
         "CH2",
-        "CH3 UNUSED",
+        "CH3",
         "CH4",
         "CH5",
         "CH6"
       ],
-      "note": "6 contacts, 10A/contact, 17AWG leads. CH1 12V feed, CH2 ground, CH3 spare (insulated), CH4 audio TX, CH5 dome PWM, CH6 VESC UART."
+      "note": "6 contacts, 10A/contact, 17AWG leads. CH1 12V feed, CH2 ground, CH3 VESC telemetry RX, CH4 audio TX, CH5 dome PWM, CH6 VESC UART TX."
     },
     "ringDome": {
       "name": "Slip ring: DOME ends",
@@ -239,12 +239,12 @@
       "ports": [
         "CH1",
         "CH2",
-        "CH3 UNUSED",
+        "CH3",
         "CH4",
         "CH5",
         "CH6"
       ],
-      "note": "Single contact each for power and signals. CH3 spare (insulated), CH6 VESC UART."
+      "note": "Single contact each for power and signals. CH3 VESC telemetry up to ESP32 AUX 3, CH6 VESC drive UART down to Master VESC."
     },
     "domeBuck": {
       "name": "Dome fixed 5V / 10A buck",
@@ -375,6 +375,7 @@
       "y": 2050,
       "ports": [
         "COMM RX",
+        "COMM TX",
         "COMM GND",
         "COMM 5V UNUSED",
         "PHASE U",
@@ -387,7 +388,7 @@
         "H3",
         "TEMP UNUSED"
       ],
-      "note": "Master VESC (CAN ID 1). Receives digital UART drive packets from Slip Ring CH6 on Port 3 COMM RX. Internal CAN switch set to ON: dual."
+      "note": "Master VESC (CAN ID 1). Receives digital UART drive packets from Slip Ring CH6 on Port 3 COMM RX; transmits live telemetry up Slip Ring CH3 via Port 3 COMM TX. Internal CAN switch set to ON: dual."
     },
     "rightVesc": {
       "name": "Right VESC (independent)",
@@ -481,6 +482,7 @@
         "3.3V",
         "GPIO16 RX",
         "GPIO19 HALL",
+        "GPIO5 RX",
         "GPIO18 TX",
         "GPIO4 PWM",
         "GPIO17 TX",
@@ -498,12 +500,14 @@
       ],
       "portLabels": {
         "3.3V": "3V3 header supply",
+        "GPIO5 RX": "AUX 3 / GPIO5 VESC RX",
+        "GPIO18 TX": "AUX 4 / GPIO18 VESC TX",
         "GPIO21 SDA": "I2C D / GPIO21 SDA",
         "GPIO22 SCL": "I2C C / GPIO22 SCL",
         "I2C G": "I2C G / ground",
         "I2C V UNUSED": "I2C V: LEAVE UNCONNECTED"
       },
-      "note": "AstroPixels Plus unified brain. Receives iBUS on GPIO16, homing Hall on GPIO19. Transmits VESC UART on GPIO18 (AUX 4), dome PWM on GPIO4, audio TX on GPIO17. Direct 3.3V outputs bypass shifter."
+      "note": "AstroPixels Plus unified brain. Receives iBUS on GPIO16, homing Hall on GPIO19, VESC telemetry on GPIO5 (AUX 3). Transmits VESC UART on GPIO18 (AUX 4), dome PWM on GPIO4, audio TX on GPIO17. Direct 3.3V I/O bypasses shifter."
     },
     "pca": {
       "name": "PCA9685 at default0x40",
@@ -730,6 +734,14 @@
       "note": "Common ground return. No parallel spare-ground path."
     },
     {
+      "id": "ring3",
+      "from": "ringBody:CH3",
+      "to": "ringDome:CH3",
+      "cat": "ring",
+      "spec": "Internal contact: 115200-baud VESC telemetry",
+      "note": "Body-to-dome telemetry return line (Master Port 3 TX to ESP32 RX)."
+    },
+    {
       "id": "ring4",
       "from": "ringBody:CH4",
       "to": "ringDome:CH4",
@@ -743,7 +755,7 @@
       "to": "ringDome:CH5",
       "cat": "ring",
       "spec": "Internal contact:50Hz domePWM",
-      "note": "Dome-to-body signal only; servo power stays in body. CH6unused and insulated at both ends."
+      "note": "Dome-to-body signal only; servo power stays in body."
     },
     {
       "id": "dome-input",
@@ -1504,6 +1516,22 @@
       "note": "Drives Master directly and Slave over internal CAN."
     },
     {
+      "id": "vesc-telem-body",
+      "from": "leftVesc:COMM TX",
+      "to": "ringBody:CH3",
+      "cat": "logic",
+      "spec": "22AWG 3.3V UART from Master VESC COMM TX",
+      "note": "Sends live battery voltage, currents, RPM, and fault codes to dome."
+    },
+    {
+      "id": "vesc-telem-dome",
+      "from": "ringDome:CH3",
+      "to": "esp:GPIO5 RX",
+      "cat": "logic",
+      "spec": "22AWG 3.3V UART into ESP32 AUX 3 (GPIO 5)",
+      "note": "Feeds VESC telemetry stream into dome brain."
+    },
+    {
       "id": "vesc-comm-ground",
       "from": "leftVesc:COMM GND",
       "to": "fuseBlock:NEGATIVE BUS",
@@ -1574,7 +1602,7 @@
       if (component.endsWith("Vesc"))
         return /^(B[+-]|COMM|CAN)/.test(port) ? "left" : "right";
       if (component === "esp")
-        return /^(5V|GND|GPIO16|GPIO19)/.test(port) ? "left" : "right";
+        return /^(5V|GND|GPIO16|GPIO19|GPIO5)/.test(port) ? "left" : "right";
       if (component === "pca") return port.startsWith("CH") ? "right" : "left";
       if (component === "amp") return /^L[+-]$/.test(port) ? "right" : "left";
       if (component === "dfplayer") return port.startsWith("DAC") ? "right" : "left";

@@ -153,6 +153,7 @@ The ESP32 runs at 3.3V logic and is **not 5V tolerant**. Use a bidirectional log
 
 ### Signals Bypassing the Shifter
 * **VESC Drive UART:** ESP32 GPIO18 (AUX 4) outputs 3.3V serial directly through slip ring CH6 into Dual VESC Port 3 Pin 6 (`RX`). The VESC STM32 MCU inputs 3.3V logic natively.
+* **VESC Telemetry UART:** Dual VESC Port 3 Pin 5 (`TX`) outputs 3.3V serial directly through slip ring CH3 into ESP32 GPIO5 (AUX 3). Both sides operate at native 3.3V logic; no shifter needed.
 * **Dome Servo PWM:** ESP32 GPIO4 outputs a 3.3V PWM signal directly through slip ring CH5 to the servo signal wire in the body. The TD-8135MG-360 servo reliably accepts 3.3V control pulses.
 * **Audio Commands:** ESP32 GPIO17 outputs 3.3V UART directly through slip ring CH4 and a 1k&Omega; series resistor into the DFPlayer RX pin.
 
@@ -163,9 +164,10 @@ The ESP32 runs at 3.3V logic and is **not 5V tolerant**. Use a bidirectional log
 
 ### Dual VESC 4.20 COMM & Hall Sensors (In Body)
 * **Port 3 (`COMM`) Wiring:**
-  * **Pin 6 (`RX`):** Connect to **Slip Ring CH6** (from ESP32 GPIO18 AUX 4).
-  * **Pin 3 (`-` / GND):** Connect to the fuse box negative bus for common signal ground.
-  * **Pins 1 (5V), 2 (3.3V), 4 (ADC), 5 (TX), 7 (ADC2):** **LEAVE DISCONNECTED.** Never backfeed power from the VESC to the slip ring or ESP32.
+  * **Pin 6 (`RX`):** Connect to **Slip Ring CH6** (drive packets from ESP32 GPIO18 AUX 4).
+  * **Pin 5 (`TX`):** Connect to **Slip Ring CH3** (live telemetry to ESP32 GPIO5 AUX 3).
+  * **Pin 3 (`-` / GND):** Connect to the fuse box negative bus for common signal ground reference.
+  * **Pins 1 (5V), 2 (3.3V), 4 (ADC), 7 (ADC2):** **LEAVE DISCONNECTED.** Never backfeed power from the VESC to the slip ring or ESP32.
 * **CAN Switch:** Set the onboard toggle switch to **`ON: dual`**.
 * **Motor Hall Sensors:** Each motor's 5-wire Hall cable plugs into Port 2 (`SENSE`) on its respective controller channel. The VESC provides 5V and ground to the Hall sensors. Wire initial signal leads as H1 = Yellow, H2 = Blue, H3 = Green. Leave the temperature pin (TMP) disconnected and insulated.
 

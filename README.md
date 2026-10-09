@@ -31,8 +31,8 @@ If an older document conflicts with the harness guide or BOM, follow the harness
 ## Repository Contents
 
 ### Primary Firmware
-* [`ASTROPIXELS_PLUS_UNIFIED/`](ASTROPIXELS_PLUS_UNIFIED/): The primary PlatformIO firmware for the dome ESP32. It builds on AstroPixels Plus and ReelTwo, adding FlySky iBUS input, dome homing, PCA9685 servo control, serial sound triggers, a mobile-friendly Wi-Fi dashboard, and digital VESC UART packet transmission for differential foot drive.
-* The ESP32 acts as the central brain for the entire droid, decoding FlySky iBUS input, coordinating dome lighting and servos, and sending digital drive commands down Slip Ring CH6 to the Dual VESC over internal CAN bus.
+* [`ASTROPIXELS_PLUS_UNIFIED/`](ASTROPIXELS_PLUS_UNIFIED/): The primary PlatformIO firmware for the dome ESP32. It builds on AstroPixels Plus and ReelTwo, adding FlySky iBUS input, dome homing, PCA9685 servo control, serial sound triggers, a mobile-friendly Wi-Fi dashboard, and digital VESC UART packet transmission with live telemetry return for differential foot drive.
+* The ESP32 acts as the central brain for the entire droid, decoding FlySky iBUS input, coordinating dome lighting and servos, streaming digital drive commands down Slip Ring CH6 to the Dual VESC over internal CAN bus, and reading live battery voltage/fault telemetry back up Slip Ring CH3.
 
 ### Wiring & Power
 * [`POWER_HARNESS_GUIDE.md`](POWER_HARNESS_GUIDE.md) and [`DOME_WIRING_DIAGRAM.md`](DOME_WIRING_DIAGRAM.md) detail the entire electrical layout, wire sizes, fusing, and testing steps.

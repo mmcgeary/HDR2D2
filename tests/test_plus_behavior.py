@@ -113,6 +113,7 @@ class PlusBehaviorTests(unittest.TestCase):
                     bytes.insert(bytes.end(),data,data+size);
                 }
             } Serial1;
+            #define SOUND_SERIAL Serial1
         """ + functions + """
             int main() {
                 playDFPlayerTrack(109);
@@ -156,6 +157,7 @@ class PlusBehaviorTests(unittest.TestCase):
                     uint8_t value=bytes.front(); bytes.pop_front(); return value;
                 }
             } Serial2;
+            #define IBUS_SERIAL Serial2
             struct { void println(const char*) {} } Serial;
             struct {
                 void stop() {}
@@ -365,6 +367,8 @@ class PlusBehaviorTests(unittest.TestCase):
                                    line.startswith("#define RC_CH_"))
         crc_fn = source[source.index("static uint16_t vesc_crc16"):
                         source.index("void sendVescDuty(")]
+        telem_struct = source[source.index("struct VescTelemetry {"):
+                              source.index("void requestVescTelemetry(")]
         result = run_cpp("""
             #include <cstdint>
             #include <vector>
@@ -387,7 +391,7 @@ class PlusBehaviorTests(unittest.TestCase):
                     packets.emplace_back(data, data + len);
                 }
             } COMMAND_SERIAL;
-        """ + crc_fn + functions + """
+        """ + crc_fn + telem_struct + functions + """
             int main() {
                 // 1. Deadband test: stick neutral (1500, 1500)
                 processVescDrive();
@@ -433,6 +437,93 @@ class PlusBehaviorTests(unittest.TestCase):
                             (int32_t(COMMAND_SERIAL.packets[0][5]) << 8) |
                             int32_t(COMMAND_SERIAL.packets[0][6]);
                 if (left_duty != 0) return 7;
+
+                // 4. Low battery protection (< 10.5V): Should force 0 duty even when radio is connected
+                COMMAND_SERIAL.packets.clear();
+                now += 25;
+                rc_connected = true;
+                vesc_telemetry.last_update_ms = now;
+                vesc_telemetry.battery_volts = 10.2f; // Low battery!
+                processVescDrive();
+                if (COMMAND_SERIAL.packets.size() != 2) return 8;
+                left_duty = (int32_t(COMMAND_SERIAL.packets[0][3]) << 24) |
+                            (int32_t(COMMAND_SERIAL.packets[0][4]) << 16) |
+                            (int32_t(COMMAND_SERIAL.packets[0][5]) << 8) |
+                            int32_t(COMMAND_SERIAL.packets[0][6]);
+                if (left_duty != 0) return 9;
+
+                // 5. Hardware fault code protection: Should force 0 duty
+                COMMAND_SERIAL.packets.clear();
+                now += 25;
+                vesc_telemetry.battery_volts = 12.4f; // Normal voltage
+                vesc_telemetry.fault_code = 3;         // DRV fault!
+                processVescDrive();
+                if (COMMAND_SERIAL.packets.size() != 2) return 10;
+                left_duty = (int32_t(COMMAND_SERIAL.packets[0][3]) << 24) |
+                            (int32_t(COMMAND_SERIAL.packets[0][4]) << 16) |
+                            (int32_t(COMMAND_SERIAL.packets[0][5]) << 8) |
+                            int32_t(COMMAND_SERIAL.packets[0][6]);
+                if (left_duty != 0) return 11;
+
+                return 0;
+            }
+        """)
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_vesc_telemetry_request_and_payload_decoding(self):
+        source = SKETCH.read_text()
+        functions = "\n".join(function(source, name) for name in
+                              ("requestVescTelemetry", "parseVescValuesPayload"))
+        definitions = "\n".join(line for line in source.splitlines()
+                                if line.startswith("#define VESC_"))
+        crc_fn = source[source.index("static uint16_t vesc_crc16"):
+                        source.index("void sendVescDuty(")]
+        telem_struct = source[source.index("struct VescTelemetry {"):
+                              source.index("void requestVescTelemetry(")]
+        result = run_cpp("""
+            #include <cstdint>
+            #include <vector>
+            #define F(x) x
+            """ + definitions + """
+            uint32_t now = 500;
+            uint32_t millis() { return now; }
+            struct MockSerial {
+                std::vector<std::vector<uint8_t>> packets;
+                void write(const uint8_t* data, uint8_t len) {
+                    packets.emplace_back(data, data + len);
+                }
+            } COMMAND_SERIAL;
+        """ + crc_fn + telem_struct + functions + """
+            int main() {
+                // 1. Verify request packet framing
+                requestVescTelemetry();
+                if (COMMAND_SERIAL.packets.empty()) return 1;
+                auto req = COMMAND_SERIAL.packets[0];
+                // Start: 0x02, Len: 1, Payload: COMM_GET_VALUES (4), CRC_H, CRC_L, Stop: 0x03
+                if (req.size() != 6 || req[0] != 0x02 || req[1] != 1 || req[2] != 4 || req[5] != 0x03) return 2;
+
+                // 2. Build mock COMM_GET_VALUES response payload (54 bytes)
+                uint8_t payload[54] = {0};
+                payload[0] = 4; // COMM_GET_VALUES
+                // Temp MOS: 35.5 C (355)
+                payload[1] = 0x01; payload[2] = 0x63;
+                // Temp Motor: 28.0 C (280)
+                payload[3] = 0x01; payload[4] = 0x18;
+                // Motor Current: 5.25 A (525)
+                payload[5] = 0; payload[6] = 0; payload[7] = 0x02; payload[8] = 0x0D;
+                // Battery Voltage: 12.4 V (124) -> bytes 27, 28
+                payload[27] = 0x00; payload[28] = 0x7C;
+                // Fault code: 0 -> byte 53
+                payload[53] = 0;
+
+                parseVescValuesPayload(payload, sizeof(payload));
+
+                if (vesc_telemetry.last_update_ms != 500) return 3;
+                if (vesc_telemetry.battery_volts < 12.39f || vesc_telemetry.battery_volts > 12.41f) return 4;
+                if (vesc_telemetry.mosfet_temp < 35.4f || vesc_telemetry.mosfet_temp > 35.6f) return 5;
+                if (vesc_telemetry.motor_temp < 27.9f || vesc_telemetry.motor_temp > 28.1f) return 6;
+                if (vesc_telemetry.motor_current < 5.24f || vesc_telemetry.motor_current > 5.26f) return 7;
+                if (vesc_telemetry.fault_code != 0) return 8;
 
                 return 0;
             }

@@ -26,24 +26,28 @@ flowchart TD
     end
 
     subgraph RING [SLIP RING]
-        SR6["Slip Ring CH6 (3.3V UART)"]
+        SR6["Slip Ring CH6 (3.3V Drive UART)"]
+        SR3["Slip Ring CH3 (3.3V Telemetry UART)"]
     end
 
     subgraph BODY [BODY]
-        COMM["Dual VESC Port 3 (COMM) Pin 6 RX"]
+        COMM_RX["Dual VESC Port 3 Pin 6 RX"]
+        COMM_TX["Dual VESC Port 3 Pin 5 TX"]
         MASTER["Master VESC (CAN ID 1)"]
         CAN["Internal CAN Bus (Switch ON: dual)"]
         SLAVE["Slave VESC (CAN ID 2)"]
         MOTOR_L["Left Razor Hub Motor"]
         MOTOR_R["Right Razor Hub Motor"]
 
-        COMM --> MASTER
+        COMM_RX --> MASTER
         MASTER -->|"Direct Command"| MOTOR_L
         MASTER -->|"COMM_FORWARD_CAN"| CAN --> SLAVE
         SLAVE -->|"Targeted Command"| MOTOR_R
+        MASTER -->|"COMM_GET_VALUES"| COMM_TX
     end
 
-    ESP -->|"GPIO18 (AUX 4)"| SR6 --> COMM
+    ESP -->|"GPIO18 TX (AUX 4)"| SR6 --> COMM_RX
+    COMM_TX --> SR3 -->|"GPIO5 RX (AUX 3)"| ESP
 ```
 
 ---
@@ -52,7 +56,7 @@ flowchart TD
 
 ### Dual VESC Port 3 (`COMM`) Pinout
 
-Only **one signal wire** and **one ground wire** connect to the 7-pin Port 3 (`COMM`) on the Master side:
+Two signal wires and one ground wire connect to the 7-pin Port 3 (`COMM`) on the Master side:
 
 ```
   Top of Port 3 (COMM)
@@ -61,8 +65,8 @@ Only **one signal wire** and **one ground wire** connect to the 7-pin Port 3 (`C
   │ 2. 3.3V       │  --> LEAVE DISCONNECTED
   │ 3. - (GND)    │  --> Connect to 12V Fuse Box Negative Bus
   │ 4. ADC        │  --> LEAVE DISCONNECTED
-  │ 5. TX         │  --> LEAVE DISCONNECTED (Simplex drive; no return telemetry)
-  │ 6. RX         │  --> Connect to Slip Ring CH6 (from ESP32 GPIO18 AUX 4)
+  │ 5. TX         │  --> Connect to Slip Ring CH3 (to ESP32 GPIO5 AUX 3 for telemetry)
+  │ 6. RX         │  --> Connect to Slip Ring CH6 (from ESP32 GPIO18 AUX 4 for drive)
   │ 7. ADC2       │  --> LEAVE DISCONNECTED
   └───────────────┘
 ```
@@ -71,7 +75,8 @@ Only **one signal wire** and **one ground wire** connect to the 7-pin Port 3 (`C
 | :--- | :--- | :--- | :--- |
 | **Battery Leads (12AWG)** | Shared (+) Red | Fuse F1 (15A) | 12V DC power for both motor channels |
 | **Battery Leads (12AWG)** | Shared (&minus;) Black | Fuse Box Negative Bus | Common system ground return |
-| **Port 3 (`COMM`) Pin 6** | `RX` (3.3V) | Slip Ring CH6 (body side) | Incoming 115,200-baud VESC drive stream |
+| **Port 3 (`COMM`) Pin 6** | `RX` (3.3V) | Slip Ring CH6 (body side) | Incoming 115,200-baud VESC drive command stream |
+| **Port 3 (`COMM`) Pin 5** | `TX` (3.3V) | Slip Ring CH3 (body side) | Outgoing 115,200-baud VESC telemetry stream to dome ESP32 |
 | **Port 3 (`COMM`) Pin 3** | `-` (GND) | Fuse Box Negative Bus | Signal reference ground |
 | **Hardware Toggle Switch** | Slide Switch | **`ON: dual`** | Bridges internal CAN bus traces between Master & Slave |
 | **Master Port 2 (`SENSE`)** | 6-pin JST | Left Motor Hall bundle | Motor commutation sensors |
@@ -162,6 +167,11 @@ The dome ESP32 runs `processVescDrive()` in its main loop every 20ms (50Hz):
    * If the radio signal drops (`rc_connected == false`), the ESP32 sends `0.0` duty to both motors immediately.
    * If the slip ring contact is broken, the VESC's internal `150ms` timeout kicks in and halts the motors.
    * When the Faint macro (`:SE06`) triggers, the ESP32 cuts motor power automatically.
+6. **Telemetry Feedback & Auto-Protection:**
+   * `requestVescTelemetry()` polls the Master VESC at 5Hz using `COMM_GET_VALUES`.
+   * `processVescTelemetry()` decodes the incoming response stream over Slip Ring CH3 on ESP32 GPIO5 (AUX 3).
+   * **Low-Voltage Cutoff:** If battery voltage drops below 10.5V (and > 5.0V), firmware forces motor duty to `0.0` to prevent over-discharging the LiFePO4 cells.
+   * **Fault Cutoff:** If the VESC reports any non-zero fault code (`FAULT_CODE_DRV`, `FAULT_CODE_OVER_TEMP_FET`, `FAULT_CODE_UNDER_VOLTAGE`), motor duty is immediately forced to `0.0`.
 
 ---
 
