@@ -1,3 +1,4 @@
 **/.pio/
 **/__pycache__/
 .DS_Store
+TEENSY_BODY_CONTROLLER/include/TrackCatalog.h

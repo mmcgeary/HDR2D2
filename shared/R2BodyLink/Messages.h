@@ -88,6 +88,23 @@ enum class Detail : uint16_t {
     SequenceConflict = 15
 };
 
+enum class AudioOperation : uint8_t { Play = 0, Stop = 1, Pause = 2, Resume = 3, SetVolume = 4, Query = 5 };
+enum class AudioPriority : uint8_t { Ambient = 0, Foreground = 1 };
+enum class AudioState : uint8_t { Offline = 0, Idle = 1, Starting = 2, Playing = 3, Paused = 4, Error = 5 };
+
+inline bool operator==(uint8_t a, AudioOperation b) { return a == static_cast<uint8_t>(b); }
+inline bool operator==(AudioOperation b, uint8_t a) { return a == static_cast<uint8_t>(b); }
+inline bool operator==(uint8_t a, AudioPriority b) { return a == static_cast<uint8_t>(b); }
+inline bool operator==(AudioPriority b, uint8_t a) { return a == static_cast<uint8_t>(b); }
+inline bool operator==(uint8_t a, AudioState b) { return a == static_cast<uint8_t>(b); }
+inline bool operator==(AudioState b, uint8_t a) { return a == static_cast<uint8_t>(b); }
+inline bool operator==(uint8_t a, DomeOperation b) { return a == static_cast<uint8_t>(b); }
+inline bool operator==(DomeOperation b, uint8_t a) { return a == static_cast<uint8_t>(b); }
+inline bool operator==(uint8_t a, DomeReference b) { return a == static_cast<uint8_t>(b); }
+inline bool operator==(DomeReference b, uint8_t a) { return a == static_cast<uint8_t>(b); }
+inline bool operator==(uint8_t a, DomeOwner b) { return a == static_cast<uint8_t>(b); }
+inline bool operator==(DomeOwner b, uint8_t a) { return a == static_cast<uint8_t>(b); }
+
 struct Hello {
     uint8_t role; uint32_t capabilities; uint16_t safety_revision;
     static MessageType type() { return MessageType::Hello; }

@@ -10,6 +10,8 @@
 #include "body/DriveController.h"
 #include "body/DomePosition.h"
 #include "body/DomeController.h"
+#include "body/DfPlayer.h"
+#include "TrackCatalog.h"
 #include <Servo.h>
 
 // No saved acceptance is injected yet: boot profile keeps motion disabled.
@@ -27,6 +29,8 @@ static body::VescPort g_left_vesc(Serial1, 0);
 static body::VescPort g_right_vesc(Serial2, 1);
 static body::VescLink g_left(g_left_vesc, 0);
 static body::VescLink g_right(g_right_vesc, 1);
+static body::AudioPort g_audio_port(Serial3);
+static body::DfPlayer g_dfplayer(g_audio_port, kTrackCatalog, kTrackCatalogCount);
 // Shared immediate body-status view published over the link.
 static r2link::BodyStatus g_body_status{};
 
@@ -82,6 +86,31 @@ static void publishDriveStatus(uint32_t now_ms) {
     }
 }
 
+static void publishAudioStatus(uint32_t now_ms) {
+    const r2link::AudioStatus current = g_dfplayer.status(now_ms);
+    static r2link::AudioStatus published_status{};
+    static bool published = false;
+    static uint32_t published_ms = 0;
+    const bool changed = !published ||
+        published_status.state != current.state ||
+        published_status.folder != current.folder ||
+        published_status.track != current.track ||
+        published_status.volume != current.volume ||
+        published_status.validity != current.validity ||
+        published_status.owner_request_seq != current.owner_request_seq ||
+        published_status.duration_ms != current.duration_ms;
+    if (changed || uint32_t(now_ms - published_ms) >= 500) {
+        r2link::Frame frame{};
+        r2link::ErrorCounters errors;
+        if (r2link::encode(current, frame, errors) == r2link::Status::Ok &&
+            g_link.endpoint().publishLatest(frame, now_ms)) {
+            published = true;
+            published_ms = now_ms;
+            published_status = current;
+        }
+    }
+}
+
 // At most one explicitly requested packet; print 16 raw bytes per loop only
 // when USB has room. No wait-for-host, flush, or continuous raw stream.
 static bool usbCaptureTick() {
@@ -121,6 +150,7 @@ void setup() {
     g_sensor.begin();
     g_left_vesc.begin();
     g_right_vesc.begin();
+    g_audio_port.begin();
     g_left.setProfile(body::VescProfile::fromSaved(g_profile, 0));
     g_right.setProfile(body::VescProfile::fromSaved(g_profile, 1));
     g_dome_servo.attach(body_pins::kDomeServo);
@@ -151,6 +181,7 @@ void loop() {
     if (dome_cmd.pulses) {
         g_dome_servo.writeMicroseconds(dome_cmd.pulse_us);
     }
+    g_dfplayer.tick(now_ms);
     g_telemetry.setMeasurements(body::vescMeasurements(g_left.sample(now_ms), g_right.sample(now_ms)));
     g_sensor.pump(g_telemetry, micros());
     g_telemetry.tick(micros(), g_sensor);
@@ -165,6 +196,13 @@ void loop() {
                 r2link::Result res = g_dome.request(req, rx_frame.sequence, now_ms);
                 g_link.endpoint().reply(rx_frame, res, 0);
             }
+        } else if (rx_frame.type == r2link::MessageType::AudioRequest) {
+            r2link::AudioRequest req{};
+            r2link::ErrorCounters err{};
+            if (r2link::decode(rx_frame, req, err) == r2link::Status::Ok) {
+                r2link::Result res = g_dfplayer.request(req, rx_frame.sequence, now_ms);
+                g_link.endpoint().reply(rx_frame, res, 0);
+            }
         } else if (rx_frame.type == r2link::MessageType::HallState) {
             r2link::HallState hall{};
             r2link::ErrorCounters err{};
@@ -175,6 +213,7 @@ void loop() {
     }
     if (!g_link.endpoint().connected(now_ms)) {
         g_dome.peerLost(now_ms);
+        g_dfplayer.peerLost(now_ms);
     }
     r2link::Event ev{};
     while (g_dome.takeEvent(ev)) {
@@ -185,7 +224,16 @@ void loop() {
             g_link.endpoint().request(ev_frame, now_ms, seq);
         }
     }
+    while (g_dfplayer.takeEvent(ev)) {
+        r2link::Frame ev_frame{};
+        r2link::ErrorCounters err{};
+        if (r2link::encode(ev, ev_frame, err) == r2link::Status::Ok) {
+            uint16_t seq = 0;
+            g_link.endpoint().request(ev_frame, now_ms, seq);
+        }
+    }
     publishDriveStatus(now_ms);
+    publishAudioStatus(now_ms);
     g_telemetry.tick(micros(), g_sensor);
     const bool usb_busy = usbCaptureTick();
 

@@ -79,4 +79,16 @@ private:
     HardwareSerialIMXRT& uart_;
 };
 
+class AudioPort : public HardwareSerialPort {
+public:
+    explicit AudioPort(HardwareSerialIMXRT& serial) : HardwareSerialPort(serial), uart_(serial) {}
+    void begin() {
+        uart_.setRX(body_pins::kAudioRx);
+        uart_.setTX(body_pins::kAudioTx);
+        uart_.begin(9600, SERIAL_8N1);
+    }
+private:
+    HardwareSerialIMXRT& uart_;
+};
+
 } // namespace body

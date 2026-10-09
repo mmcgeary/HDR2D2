@@ -398,7 +398,7 @@ assert(count(lp.tx,5)==0);
         program = PRELUDE + r'''
 #include "main.cpp"
 HardwareSerial Serial;
-HardwareSerialIMXRT Serial1, Serial2, Serial5, Serial6;
+HardwareSerialIMXRT Serial1, Serial2, Serial3, Serial5, Serial6;
 uint32_t fake_ms=0,fake_us=0;
 int main() {
     Fixture fixture;g_profile=fixture.profile;setup();
@@ -436,8 +436,9 @@ int main() {
         result = run_cpp(program, extra_sources=SOURCES + [
             BODY / "body/IbusTelemetry.cpp", BODY / "body/LinkBootstrap.cpp",
             BODY / "body/DomePosition.cpp", BODY / "body/DomeController.cpp",
+            BODY / "body/DfPlayer.cpp",
             SHARED / "src/Endpoint.cpp"],
-            include_dirs=[BODY.parent.parent / "tests/radio_fakes", BODY, SHARED])
+            include_dirs=[BODY.parent.parent / "tests/radio_fakes", BODY, SHARED, BODY.parent / "include"])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
