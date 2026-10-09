@@ -1,0 +1,6 @@
+{
+  "name": "R2BodyLink",
+  "version": "1.0.0",
+  "description": "Portable body/dome link codec and typed payloads",
+  "build": { "srcDir": ".", "flags": "-std=gnu++11" }
+}

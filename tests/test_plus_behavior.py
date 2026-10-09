@@ -1,7 +1,7 @@
-import subprocess
-import tempfile
 import unittest
 from pathlib import Path
+
+from cpp_test_support import run_cpp
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,19 +19,6 @@ def function(source, name):
         depth += (source[end] == "{") - (source[end] == "}")
         end += 1
     return source[start:end]
-
-
-def run_cpp(program):
-    with tempfile.TemporaryDirectory() as directory:
-        source = Path(directory) / "test.cpp"
-        binary = Path(directory) / "test"
-        source.write_text(program)
-        compilation = subprocess.run(
-            ["c++", "-std=c++11", str(source), "-o", str(binary)],
-            capture_output=True, text=True)
-        if compilation.returncode:
-            raise AssertionError(compilation.stderr)
-        return subprocess.run([str(binary)], capture_output=True, text=True)
 
 
 class PlusBehaviorTests(unittest.TestCase):
