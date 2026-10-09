@@ -80,5 +80,7 @@ Task 5 review of dd779b0: Important reversal dwell start timestamp underflow bug
 Task 5: fix round 1/5 (3 addressed, 0 open; 18 drive tests, 148 full tests pass).
 Task 5: complete (commit 31b4880).
 Task 6: implemented and verified. DomePosition (dual Hall anchors at 0 and -1800 ddeg, continuous normalization, shortest route seek), DomeController (authority hierarchy STOP -> CH4 -> Drive -> Event -> Idle -> Homing, authority generation bump and takeover event, continuous servo pulses). 10 dome tests, 158 full tests pass.
-Task 6: complete.
-Task 6b: starting; ESP32 autonomous dome scheduler, random idle animations and safety gating.
+Task 6: complete (commit ecdf1bb).
+Task 6b: implemented and verified. DomeBehaviour (WaitingIdle 20s deadline postponed by stick/drive/event, Referencing, Pausing 2000-6000ms, Sweeping [-450, 450] ddeg at auto speed, Returning via front reference; fault latching and generation protection). 12 behaviour tests, 170 full tests pass.
+Task 6b: complete.
+Task 7: starting; audio ownership, track duration metadata, status correlation and volume gating.
