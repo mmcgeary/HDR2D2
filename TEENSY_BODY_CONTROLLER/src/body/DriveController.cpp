@@ -135,7 +135,7 @@ int16_t DriveController::permit(Wheel& w, int16_t target, const VescSample& s,
         if (new_sample) {
             const bool changed_sign = measured && w.low_sign && measured != w.low_sign;
             if (!w.low_started || uint32_t(s.sample_ms - w.sample_ms) > 500 || changed_sign) {
-                w.low_started = true; w.low_ms = now; w.low_sign = measured;
+                w.low_started = true; w.low_ms = s.sample_ms; w.low_sign = measured;
             } else if (measured) w.low_sign = measured;
             w.sample_ms = s.sample_ms;
             w.state = ReversalState::Qualifying;

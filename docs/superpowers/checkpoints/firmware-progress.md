@@ -74,8 +74,9 @@ Ruling: Treat polling starvation as Important despite review Minor label; preser
 
 Task 4: fix round 1/5 (2 addressed, 0 open; commitb4314a3,83targetedtests/targetbuild).
 Task 4: complete (commits2faf224..b4314a3, review clean).
-Task5 startingb4314a3; drive mixer/braking/arbitration.
+Task 5 starting b4314a3; drive mixer/braking/arbitration.
 
-USER-DIRECTED PAUSE: user disconnecting for day; no new tasks. Task5 agent03dc075f-6bfb-4a4d-b88c-ac276bde4f1c instructed to reach safe checkpoint/write report/stop. Last reviewed HEADb4314a3. Task5 not reviewed or complete. Resume map also saved in session files/firmware-resume.md; reconcile Task5 report and HEAD before continuing.
-
-Pause preservation check: tests/test_body_documentation.py and tests/test_harness_diagram.py both present and tracked; previous dirty status disappeared because8272d89 included them. No deletion. Other prior docs/graph/BOM remain dirty/untracked. git diff --check clean at latest snapshot.
+Task 5 review of dd779b0: Important reversal dwell start timestamp underflow bug in permit() when s.sample_ms < now; missing reversalState() assertions and asynchronous sample arrival test. Fix round 1: initialize w.low_ms to s.sample_ms, add lifecycle assertions and async sample regression test.
+Task 5: fix round 1/5 (3 addressed, 0 open; 18 drive tests, 148 full tests pass).
+Task 5: complete.
+Task 6: starting; dome arbitration, dual references and estimated position.

@@ -185,14 +185,31 @@ assert(stall.drive.driveState()!=r2link::DriveState::Armed);
     def test_reversal_measured_dwell_boundary_and_neutral_history(self):
         self.check(r'''
 Fixture f;f.armDrive(1000);f.run(1020,1100,2000);
+assert(f.drive.reversalState(0)==ReversalState::Tracking);
 f.deliverWheelSamples(1120,500,500);f.tickDrive(1120,1000);f.brake();
+assert(f.drive.reversalState(0)==ReversalState::Braking);
 f.deliverWheelSamples(1140,80,80);f.tickDrive(1140,1000);
+assert(f.drive.reversalState(0)==ReversalState::Qualifying);
 for(uint32_t t=1160;t<=1220;t+=20)f.tickDrive(t,1000);
 f.deliverWheelSamples(1239,80,80);f.tickDrive(1239,1000);f.brake();
+assert(f.drive.reversalState(0)==ReversalState::Qualifying);
 f.deliverWheelSamples(1240,80,80);f.tickDrive(1240,1000);
+assert(f.drive.reversalState(0)==ReversalState::Tracking);
 assert(f.drive.intent()==r2link::DriveIntent::Reverse);
 f.deliverWheelSamples(1260,80,80);f.tickDrive(1260,1000);
 assert(f.drive.commands().left.duty_permille<0 && f.drive.commands().left.duty_permille>=-10);
+// Sample timestamp arriving before tick time cannot underflow or qualify dwell immediately.
+Fixture async_s;async_s.armDrive(1000);async_s.run(1020,1100,2000);
+async_s.deliverWheelSamples(1120,500,500);async_s.tickDrive(1120,1000);async_s.brake();
+async_s.deliverWheelSamples(1135,80,80);async_s.tickDrive(1140,1000);
+assert(async_s.drive.commands().left.mode==WheelMode::Brake);
+assert(async_s.drive.intent()==r2link::DriveIntent::Forward);
+for(uint32_t t=1160;t<=1220;t+=20)async_s.tickDrive(t,1000);
+async_s.deliverWheelSamples(1234,80,80);async_s.tickDrive(1234,1000);
+assert(async_s.drive.commands().left.mode==WheelMode::Brake);
+assert(async_s.drive.intent()==r2link::DriveIntent::Forward);
+async_s.deliverWheelSamples(1235,80,80);async_s.tickDrive(1235,1000);
+assert(async_s.drive.intent()==r2link::DriveIntent::Reverse);
 Fixture n;n.armDrive(1000);n.run(1020,1100,2000);
 n.deliverWheelSamples(1120,500,500);n.tickDrive(1120);n.brake();
 n.tickDrive(1140,1000);n.brake();
