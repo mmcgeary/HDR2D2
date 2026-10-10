@@ -372,6 +372,52 @@ Readiness readiness(const CommissioningProfile& p) {
     return r;
 }
 
+uint8_t applyBaseline(CommissioningProfile& p, const ObservedFirmware fw[2]) {
+    struct B { uint8_t id; int32_t value; };
+    static const B kGlobal[] = {{kFieldServoNeutral, 1500}, {kFieldServoMin, 1000}, {kFieldServoMax, 2000},
+                                {kFieldAutoSpeed, 15}, {kFieldSlew, 500}};
+    static const B kWheel[] = {{kFieldLayout, 1}, {kFieldMotorMa, 12000}, {kFieldBatteryMa, 5000},
+                               {kFieldRegenMa, 2500}, {kFieldBrakeMa, 3000}, {kFieldUndervoltage, 1100},
+                               {kFieldOvervoltage, 1480}, {kFieldTimeoutMs, 150}, {kFieldTimeoutBrakeMa, 3000},
+                               {kFieldReversalErpm, 300}, {kFieldReversalDwell, 200}};
+    uint8_t filled = 0;
+    for (const B& b : kGlobal)
+        if (!isSet(p, b.id, 0) && setField(p, b.id, 0, b.value) == FieldResult::Ok) ++filled;
+    for (uint8_t w = 0; w < 2; ++w) {
+        for (const B& b : kWheel)
+            if (!isSet(p, b.id, w) && setField(p, b.id, w, b.value) == FieldResult::Ok) ++filled;
+        if (fw[w].valid) {
+            if (!isSet(p, kFieldFwMajor, w) && setField(p, kFieldFwMajor, w, fw[w].major) == FieldResult::Ok) ++filled;
+            if (!isSet(p, kFieldFwMinor, w) && setField(p, kFieldFwMinor, w, fw[w].minor) == FieldResult::Ok) ++filled;
+        }
+    }
+    return filled;
+}
+
+uint32_t fieldDigest(const CommissioningProfile& p, uint8_t wheel, const uint8_t* ids, size_t n) {
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < n; ++i) {
+        const uint32_t v = static_cast<uint32_t>(rawGet(p, ids[i], wheel));
+        const uint8_t bytes[6] = {ids[i], static_cast<uint8_t>(isSet(p, ids[i], wheel)),
+                                  static_cast<uint8_t>(v), static_cast<uint8_t>(v >> 8),
+                                  static_cast<uint8_t>(v >> 16), static_cast<uint8_t>(v >> 24)};
+        for (uint8_t b : bytes) h = (h ^ b) * 16777619u;
+    }
+    return h == 0 ? 1 : h;
+}
+
+bool sameProfile(const CommissioningProfile& a, const CommissioningProfile& b) {
+    if (a.acceptance != b.acceptance || a.allow_remote_drive != b.allow_remote_drive) return false;
+    for (size_t i = 0; i < kSpecCount; ++i) {
+        const Spec& s = kSpecs[i];
+        for (uint8_t w = 0; w < (s.wheel ? 2 : 1); ++w) {
+            if (isSet(a, s.id, w) != isSet(b, s.id, w)) return false;
+            if (isSet(a, s.id, w) && rawGet(a, s.id, w) != rawGet(b, s.id, w)) return false;
+        }
+    }
+    return true;
+}
+
 uint8_t faultBits(ConfigResult r) {
     switch (r) {
         case ConfigResult::Ready: return 0;

@@ -128,6 +128,16 @@ Readiness readiness(const CommissioningProfile& p);
 // configuration corrupt or unreadable. Boot-session storage is reported by
 // ConfigStore::faultMask() as bit2, never mixed into the profile result.
 uint8_t faultBits(ConfigResult r);
+// Firmware a VESC reported over UART; valid=false when none was observed.
+struct ObservedFirmware { bool valid; uint8_t major, minor; };
+// Fills only unset fields with the recommended baseline (guided commissioning
+// spec section 3.1); firmware fields only from observed firmware. Returns the
+// number of fields filled. Never touches acceptance bits directly.
+uint8_t applyBaseline(CommissioningProfile& p, const ObservedFirmware fw[2]);
+// FNV-1a over (id, set flag, value) for the listed fields of one wheel; never 0.
+uint32_t fieldDigest(const CommissioningProfile& p, uint8_t wheel, const uint8_t* ids, size_t n);
+// True when every field (set flag and value), acceptance and allow_remote_drive match.
+bool sameProfile(const CommissioningProfile& a, const CommissioningProfile& b);
 
 class ConfigStore {
 public:
