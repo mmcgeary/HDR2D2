@@ -37,8 +37,8 @@ Decisions taken with the operator:
 - `CommissionStatus` adds: `staged_acceptance` (u16), `saved_acceptance`
   (u16), `unsaved` (u8, staged ≠ saved), and wheel results `wheel` (u8),
   `stop_ms` (u16), `peak_current_cA` (i16, 0.01 A), `peak_erpm` (i32),
-  `vesc_fault` (u8). Wire size 36 → 52.
-- `Diagnostics`/field reads unchanged.
+  `vesc_fault` (u8). Wire size 36 → 51.
+- `Diagnostics` subtype 1 (field read) adds `known` (u8): 1 when the field is set, so an unset field is not mistaken for 0. Wire size 11 → 12.
 - Body publishes `VescStatus` whenever the VESC firmware has been observed;
   `valid_fields` = 0 when the sample is not valid, so the page can show
   detected firmware before commissioning.
