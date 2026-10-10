@@ -21,7 +21,7 @@ Decisions taken with the operator:
 
 | Topic | Decision |
 | --- | --- |
-| Wheel tests | Web page only, CH6 OFF, sticks centred, "wheels are raised" confirmation, browser keepalive, duty ≤10%, spin ≤2 s; CH6 ON / stick / keepalive loss brakes |
+| Wheel tests | Web page only, CH6 OFF, sticks centred, "wheels are raised" confirmation, browser keepalive (the open `/drive` page sends a heartbeat every 150 ms; the ESP32 forwards Keepalive only while the last heartbeat is ≤500 ms old; dome tests keep the ESP32-driven keepalive), duty ≤10%, spin ≤2 s; CH6 ON / stick / keepalive loss brakes |
 | Wheel sign-off evidence | Bits 6–11 require that wheel's completed automated test against the saved settings |
 | CH9 | Not used by any commissioning test, Accept, SetField or Save. After a Save makes auto dome ready, auto dome waits for CH9 OFF→ON |
 | Baseline | Fills unset fields only |
@@ -97,7 +97,8 @@ Hall-sensored motor reads ~0 eRPM), overall test limit 6 s.
 `VescLink` commissioning mode: while a wheel test runs, duty ≤100 ‰ and the
 saved brake current are permitted once that wheel's `vesc_config` is
 accepted **and saved**, its firmware matches and telemetry is fresh (timeout,
-direction and reversal bits are not yet required).
+direction and reversal bits are not yet required). While commissioning mode
+is on, duty above 100 ‰ is refused even for a fully control-accepted wheel.
 
 ### 3.4 Evidence
 
@@ -139,9 +140,14 @@ CH9 already ON keeps today's behaviour.
   "Accept wheel tests & Save" (bits 6–11 that have evidence + Save).
 - **`RadioCheck`**: prompts in order, each passing when the condition is
   seen within 15 s: right stick up (CH2 > 1750), right stick right
-  (CH1 > 1750), left stick right (CH4 > 1750), SwA down (CH6 > 1750),
+  (CH1 > 1750), left stick right (CH4 > 1750) — the three stick prompts say
+  "with SwA UP" and count only while CH6 < 1250 — SwA down (CH6 > 1750),
   SwC through 3 positions (CH5 low/mid/high), SwB down (CH8 > 1750),
-  SwD down (CH9 > 1750), knob sweep (CH7 < 1100 then > 1900). Failsafe:
+  SwD down (CH9 > 1750; the prompt warns that a saved auto dome may turn),
+  knob sweep (CH7 < 1100 then > 1900). Transmitter macros (SwB) do not fire
+  while the check is prompting; a SwB still DOWN when it ends needs a fresh
+  flip. Prompt text holds no quotes or backslashes (ReelTwo puts it into
+  JavaScript strings unescaped). Failsafe:
   "turn the transmitter off" — pass when frames keep arriving with
   CH1/2/4 centred, CH6/8/9 ≤ 1250; frames stopping is reported as "no
   failsafe frames (receiver stops output)" — drive still disarms on staleness.

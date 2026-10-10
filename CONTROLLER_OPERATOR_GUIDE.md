@@ -188,8 +188,8 @@ The FS-iA6B receiver is programmed with a fail-safe configuration:
 
 The dome's commissioning page has a **Start radio check** button. It walks through every control and then the failsafe, so you can confirm the channel mapping above without a laptop. Keep the wheels raised (SwA goes DOWN during the check), and reload the page to see each new prompt. Complete each prompt within 15 s:
 
-1. Right stick UP (CH2), then right stick RIGHT (CH1), then left stick RIGHT (CH4).
-2. SwA DOWN (CH6), SwC through all three positions (CH5), SwB DOWN (CH8), SwD DOWN (CH9).
+1. With SwA UP (CH6 OFF): right stick UP (CH2), then right stick RIGHT (CH1), then left stick RIGHT (CH4). A stick prompt does not count while SwA is DOWN.
+2. SwA DOWN (CH6), SwC through all three positions (CH5), SwB DOWN (CH8), SwD DOWN (CH9). SwB macros are suppressed while the check is prompting, so SwB DOWN fires nothing here; if SwB is still DOWN when the check ends, flip it UP before the next macro. If auto dome is already saved and SwD was UP, SwD DOWN arms auto dome and the dome may turn: keep clear.
 3. VrA knob fully one way and then the other (CH7).
 4. Set SwA, SwB and SwD DOWN, then **turn the transmitter OFF**.
 
