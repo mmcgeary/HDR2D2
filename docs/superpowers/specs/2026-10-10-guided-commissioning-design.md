@@ -75,8 +75,9 @@ stale RC, keepalive loss (>300 ms) or a motion lock.
 
 Pure logic: input = wheel telemetry samples + time; output = command
 {Disable, Duty(permille), Brake} for the tested wheel. The other wheel is
-disabled. Constants: spin duty 100 ‰, spin-up 1000 ms, "turning" ≥ 300 eRPM,
-overall test limit 6 s.
+disabled. Constants: spin duty 100 ‰, spin-up 1000 ms, "turning" ≥ 100 eRPM
+(all thresholds stay in eRPM, so no motor pole count is needed; a stopped
+Hall-sensored motor reads ~0 eRPM), overall test limit 6 s.
 
 - **TimeoutBrake**: spin 1000 ms (must reach turning speed, else Failed
   "did not turn"), then stop sending commands. Pass when |eRPM| falls below
