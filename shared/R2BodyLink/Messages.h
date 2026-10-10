@@ -177,12 +177,15 @@ struct CommissionStatus {
     uint16_t trial_neutral_us; uint8_t trial_speed_percent;
     uint16_t proposed_cw_ddeg_s, proposed_ccw_ddeg_s; uint32_t revolution_ms[3];
     uint32_t config_generation; uint8_t saved;
+    uint16_t staged_acceptance, saved_acceptance; uint8_t unsaved;
+    uint8_t wheel; uint16_t stop_ms; int16_t peak_current_cA; int32_t peak_erpm; uint8_t vesc_fault;
     static MessageType type() { return MessageType::CommissionStatus; }
 };
 struct Diagnostics {
     uint8_t subtype; uint32_t sample_counter;
     uint32_t counters[8];            // subtype 0 only
     uint8_t field, wheel; int32_t value;  // subtype 1 only
+    uint8_t known;                   // subtype 1 only: 1 when the field is set
     static MessageType type() { return MessageType::Diagnostics; }
 };
 
@@ -201,8 +204,8 @@ inline size_t wireSize(const CommissionRequest&) { return 14; }
 inline size_t wireSize(const Reply&) { return 6; }
 inline size_t wireSize(const AudioStatus&) { return 16; }
 inline size_t wireSize(const Event&) { return 6; }
-inline size_t wireSize(const CommissionStatus&) { return 36; }
-inline size_t wireSize(const Diagnostics& d) { return d.subtype == 0 ? 37 : 11; }
+inline size_t wireSize(const CommissionStatus&) { return 51; }
+inline size_t wireSize(const Diagnostics& d) { return d.subtype == 0 ? 37 : 12; }
 
 inline Status ok01(uint8_t v) { return v <= 1 ? Status::Ok : Status::BadEnum; }
 inline Status maskOnly(uint32_t v, uint32_t mask) {
@@ -285,15 +288,15 @@ inline Status validate(const ControlRequest& m) {
     return m.reason == kReasonOperator || m.reason == kReasonMaintenance ? Status::Ok : Status::BadEnum;
 }
 inline Status validate(const CommissionRequest& m) {
-    R2_CHECK(enumLE(m.operation, 6));
-    R2_CHECK(enumLE(m.test, 6));
+    R2_CHECK(enumLE(m.operation, 7));
+    R2_CHECK(enumLE(m.test, 8));
     R2_CHECK(ok01(m.wheel));
     if (m.operation == 1) {
         if (m.test == 0) return Status::BadRange;
         R2_CHECK(zero(m.field));
+        if (m.test >= 6) return inRange(m.value == 1);   // wheel tests: value 1 = wheels raised
         R2_CHECK(zero(m.wheel));
-        R2_CHECK(zero(static_cast<uint32_t>(m.value)));
-        return Status::Ok;
+        return zero(static_cast<uint32_t>(m.value));
     }
     if (m.operation == 0) {
         if (m.test != 0) return Status::BadRange;
@@ -335,9 +338,13 @@ inline Status validate(const Event& m) {
 }
 inline Status validate(const CommissionStatus& m) {
     R2_CHECK(enumLE(m.state, 5));
-    R2_CHECK(enumLE(m.test, 6));
+    R2_CHECK(enumLE(m.test, 8));
     R2_CHECK(ok01(m.saved));
     R2_CHECK(enumLE(m.trial_speed_percent, 100));
+    R2_CHECK(maskOnly(m.staged_acceptance, 0x0FFF));
+    R2_CHECK(maskOnly(m.saved_acceptance, 0x0FFF));
+    R2_CHECK(ok01(m.unsaved));
+    R2_CHECK(ok01(m.wheel));
     return inRange(m.trial_neutral_us == 0 || (m.trial_neutral_us >= 1400 && m.trial_neutral_us <= 1600));
 }
 inline Status validate(const Diagnostics& m) {
@@ -345,10 +352,12 @@ inline Status validate(const Diagnostics& m) {
     if (m.subtype == 0) {
         R2_CHECK(zero(m.field));
         R2_CHECK(zero(m.wheel));
+        R2_CHECK(zero(m.known));
         return zero(static_cast<uint32_t>(m.value));
     }
     for (int i = 0; i < 8; ++i) R2_CHECK(zero(m.counters[i]));
     R2_CHECK(ok01(m.wheel));
+    R2_CHECK(ok01(m.known));
     return inRange(m.field <= 20);
 }
 
@@ -426,24 +435,28 @@ inline void put(Writer& w, const CommissionStatus& m) {
     w.u16(m.trial_neutral_us); w.u8(m.trial_speed_percent); w.u16(m.proposed_cw_ddeg_s); w.u16(m.proposed_ccw_ddeg_s);
     for (int i = 0; i < 3; ++i) w.u32(m.revolution_ms[i]);
     w.u32(m.config_generation); w.u8(m.saved);
+    w.u16(m.staged_acceptance); w.u16(m.saved_acceptance); w.u8(m.unsaved);
+    w.u8(m.wheel); w.u16(m.stop_ms); w.i16(m.peak_current_cA); w.i32(m.peak_erpm); w.u8(m.vesc_fault);
 }
 inline void get(Reader& r, CommissionStatus& m) {
     m.run_id = r.u32(); m.state = r.u8(); m.test = r.u8(); m.error = r.u16(); m.flags = r.u32();
     m.trial_neutral_us = r.u16(); m.trial_speed_percent = r.u8(); m.proposed_cw_ddeg_s = r.u16(); m.proposed_ccw_ddeg_s = r.u16();
     for (int i = 0; i < 3; ++i) m.revolution_ms[i] = r.u32();
     m.config_generation = r.u32(); m.saved = r.u8();
+    m.staged_acceptance = r.u16(); m.saved_acceptance = r.u16(); m.unsaved = r.u8();
+    m.wheel = r.u8(); m.stop_ms = r.u16(); m.peak_current_cA = r.i16(); m.peak_erpm = r.i32(); m.vesc_fault = r.u8();
 }
 inline void put(Writer& w, const Diagnostics& m) {
     w.u8(m.subtype); w.u32(m.sample_counter);
     if (m.subtype == 0) { for (int i = 0; i < 8; ++i) w.u32(m.counters[i]); }
-    else { w.u8(m.field); w.u8(m.wheel); w.i32(m.value); }
+    else { w.u8(m.field); w.u8(m.wheel); w.i32(m.value); w.u8(m.known); }
 }
 inline void get(Reader& r, Diagnostics& m) {
     for (int i = 0; i < 8; ++i) m.counters[i] = 0;
-    m.field = m.wheel = 0; m.value = 0;
+    m.field = m.wheel = 0; m.value = 0; m.known = 0;
     m.subtype = r.u8(); m.sample_counter = r.u32();
     if (m.subtype == 0) { for (int i = 0; i < 8; ++i) m.counters[i] = r.u32(); }
-    else { m.field = r.u8(); m.wheel = r.u8(); m.value = r.i32(); }
+    else { m.field = r.u8(); m.wheel = r.u8(); m.value = r.i32(); m.known = r.u8(); }
 }
 
 // ---- typed bounded-buffer API ----
@@ -466,7 +479,7 @@ Status decodePayload(const uint8_t* data, size_t length, T& out, ErrorCounters& 
     if (!data) return countStatus(Status::NullArgument, c);
     T m;
     Reader r(data, length);
-    if (length == 0 || (T::type() == MessageType::Diagnostics && length != 37 && length != 11))
+    if (length == 0 || (T::type() == MessageType::Diagnostics && length != 37 && length != 12))
         return countStatus(Status::BadLength, c);
     get(r, m);
     if (!r.ok() || r.remaining() != 0 || wireSize(m) != length)

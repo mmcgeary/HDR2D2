@@ -242,7 +242,7 @@ class TypedPayloadTests(unittest.TestCase):
     Event ev = {5, 0x20, 12, 15};
     CommissionStatus cs = {0xDEADBEEFu, 2, 4, 77, 0x80000001u, 1500, 25, 3000, 3100, {1,2,3}, 9, 1};
     Diagnostics d0 = {0, 5, {1,2,3,4,5,6,7,0xFFFFFFFFu}, 0, 0, 0};
-    Diagnostics d1 = {1, 6, {0}, 3, 1, -9};
+    Diagnostics d1 = {1, 6, {0}, 3, 1, -9, 1};
 #define RT(T, m, size) { T out; memset(&out, 0, sizeof out); \
     assert(encodePayload(m, buf, sizeof buf, n, c) == Status::Ok && n == size); \
     assert(decodePayload(buf, n, out, c) == Status::Ok); \
@@ -254,7 +254,7 @@ class TypedPayloadTests(unittest.TestCase):
     RT(Hello, h, 7) RT(Heartbeat, hb, 2) RT(RcStatus, rc, 32) RT(VescStatus, v, 28) RT(BodyStatus, b, 19)
     RT(HallState, hs, 8) RT(DomeRequest, dr, 13) RT(AudioRequest, ar, 6) RT(DriveRequest, dv, 8)
     RT(ControlRequest, cq, 6) RT(CommissionRequest, cm, 14) RT(Reply, rp, 6) RT(AudioStatus, as, 16)
-    RT(Event, ev, 6) RT(CommissionStatus, cs, 36) RT(Diagnostics, d0, 37) RT(Diagnostics, d1, 11)
+    RT(Event, ev, 6) RT(CommissionStatus, cs, 51) RT(Diagnostics, d0, 37) RT(Diagnostics, d1, 12)
     assert(c.payload_length + c.enum_value + c.range + c.reserved_bits + c.type + c.capacity + c.null_argument == 0);
     // Field values survive.
     RcStatus rc2; encodePayload(rc, buf, sizeof buf, n, c); decodePayload(buf, n, rc2, c);
@@ -293,8 +293,8 @@ class TypedPayloadTests(unittest.TestCase):
     CommissionRequest cr; Frame cf = makeFrame(1, 13, 0); cf.type = MessageType::CommissionRequest;
     assert(decode(cf, cr, c) == Status::BadLength);
     cf.length = 15; assert(decode(cf, cr, c) == Status::BadLength);
-    CommissionStatus cs; Frame sf = makeFrame(1, 35, 0); sf.type = MessageType::CommissionStatus;
-    assert(decode(sf, cs, c) == Status::BadLength); sf.length = 37; assert(decode(sf, cs, c) == Status::BadLength);
+    CommissionStatus cs; Frame sf = makeFrame(1, 50, 0); sf.type = MessageType::CommissionStatus;
+    assert(decode(sf, cs, c) == Status::BadLength); sf.length = 52; assert(decode(sf, cs, c) == Status::BadLength);
     // A failed typed encode does not modify the frame.
     Frame keep = makeFrame(9, 2, 4); Frame before = keep;
     Heartbeat bad = {3, 0}; assert(encode(bad, keep, c) == Status::BadEnum && memcmp(&keep, &before, sizeof keep) == 0);
@@ -349,8 +349,8 @@ class TypedPayloadTests(unittest.TestCase):
     dv.right_permille = 0; dv.lease_ms = 0; BAD(dv, Status::BadRange, range) dv.lease_ms = 151; BAD(dv, Status::BadRange, range)
     ControlRequest cq = {5, 0, 0, 0}; BAD(cq, Status::BadEnum, enum_value) cq.operation = 2; cq.reason = 1; BAD(cq, Status::BadReserved, reserved_bits)
     cq.reason = 3; BAD(cq, Status::BadEnum, enum_value) cq.reason = 2; assert(encodePayload(cq, buf, sizeof buf, n, c) == Status::Ok);
-    CommissionRequest cm = {7, 0, 0, 0, 0, 0, 0}; BAD(cm, Status::BadEnum, enum_value)
-    cm.operation = 1; cm.test = 7; BAD(cm, Status::BadEnum, enum_value) cm.test = 0; BAD(cm, Status::BadRange, range)
+    CommissionRequest cm = {8, 0, 0, 0, 0, 0, 0}; BAD(cm, Status::BadEnum, enum_value)
+    cm.operation = 1; cm.test = 9; BAD(cm, Status::BadEnum, enum_value) cm.test = 0; BAD(cm, Status::BadRange, range)
     cm.operation = 0; cm.test = 1; BAD(cm, Status::BadRange, range)
     cm.operation = 4; cm.test = 0; cm.wheel = 2; BAD(cm, Status::BadEnum, enum_value)
     cm.operation = 5; cm.wheel = 0; cm.field = 1; BAD(cm, Status::BadReserved, reserved_bits)
@@ -362,7 +362,7 @@ class TypedPayloadTests(unittest.TestCase):
     Event ev = {6, 0x20, 1, 0}; BAD(ev, Status::BadEnum, enum_value) ev.kind = 0; ev.detail = 16; BAD(ev, Status::BadEnum, enum_value)
     ev.detail = 0; ev.request_type = 0; BAD(ev, Status::BadType, type)
     CommissionStatus cs; memset(&cs, 0, sizeof cs);
-    cs.state = 6; BAD(cs, Status::BadEnum, enum_value) cs.state = 0; cs.test = 7; BAD(cs, Status::BadEnum, enum_value)
+    cs.state = 6; BAD(cs, Status::BadEnum, enum_value) cs.state = 0; cs.test = 9; BAD(cs, Status::BadEnum, enum_value)
     cs.test = 0; cs.saved = 2; BAD(cs, Status::BadEnum, enum_value) cs.saved = 0; cs.trial_speed_percent = 101; BAD(cs, Status::BadEnum, enum_value)
     cs.trial_speed_percent = 0; cs.trial_neutral_us = 1399; BAD(cs, Status::BadRange, range) cs.trial_neutral_us = 1601; BAD(cs, Status::BadRange, range)
     Diagnostics d; memset(&d, 0, sizeof d); d.subtype = 2; BAD(d, Status::BadEnum, enum_value)
@@ -428,9 +428,9 @@ class TypedPayloadTests(unittest.TestCase):
     assert(decodePayload(buf, n, out, c) == Status::BadEnum && c.enum_value == 1);
     assert(memcmp(&out, &before, sizeof out) == 0);
     Diagnostics d; uint8_t dg[37] = {0}; dg[0] = 2;
-    assert(decodePayload(dg, 11, d, c) == Status::BadEnum && c.enum_value == 2);
-    uint8_t cs[36] = {0}; cs[4] = 6; CommissionStatus st;
-    assert(decodePayload(cs, 36, st, c) == Status::BadEnum);
+    assert(decodePayload(dg, 12, d, c) == Status::BadEnum && c.enum_value == 2);
+    uint8_t cs[51] = {0}; cs[4] = 6; CommissionStatus st;
+    assert(decodePayload(cs, 51, st, c) == Status::BadEnum);
     uint8_t cr[14] = {0}; cr[0] = 4; cr[1] = 0; CommissionRequest rq;
     assert(decodePayload(cr, 14, rq, c) == Status::Ok && rq.operation == 4);
     cr[0] = 5; cr[6] = 1; assert(decodePayload(cr, 14, rq, c) == Status::BadReserved && rq.operation == 4);
@@ -438,6 +438,36 @@ class TypedPayloadTests(unittest.TestCase):
     RcStatus rc; memset(&rc, 0, sizeof rc); rc.sample_counter = 10;
     uint8_t rb[32] = {0}; rb[4] = 0xFF; rb[5] = 0xFF; rb[6] = 0x10;
     assert(decodePayload(rb, 32, rc, c) == Status::BadReserved && rc.sample_counter == 10 && rc.source_age_ms == 0);
+''')
+
+    def test_guided_commissioning_wire_contract(self):
+        self.check(r'''
+    ErrorCounters c; uint8_t buf[96]; size_t n = 0;
+    CommissionRequest base = {7, 0, 0, 0, 0, 0, 3};
+    assert(encodePayload(base, buf, sizeof buf, n, c) == Status::Ok);
+    CommissionRequest wheel = {1, 6, 9, 0, 1, 1, 3};          // TimeoutBrake, right wheel, raised
+    assert(encodePayload(wheel, buf, sizeof buf, n, c) == Status::Ok);
+    wheel.test = 8; assert(encodePayload(wheel, buf, sizeof buf, n, c) == Status::Ok);
+    wheel.value = 0; assert(encodePayload(wheel, buf, sizeof buf, n, c) != Status::Ok);   // not raised
+    wheel.value = 1; wheel.test = 9; assert(encodePayload(wheel, buf, sizeof buf, n, c) != Status::Ok);
+    CommissionRequest dome = {1, 2, 9, 0, 1, 0, 3};           // dome test with a wheel number
+    assert(encodePayload(dome, buf, sizeof buf, n, c) != Status::Ok);
+    CommissionStatus cs = {};
+    cs.test = 8; cs.staged_acceptance = 0x0FFF; cs.saved_acceptance = 0x0010; cs.unsaved = 1;
+    cs.wheel = 1; cs.stop_ms = 640; cs.peak_current_cA = -312; cs.peak_erpm = -1234; cs.vesc_fault = 3;
+    assert(encodePayload(cs, buf, sizeof buf, n, c) == Status::Ok && n == 51);
+    CommissionStatus back = {};
+    assert(decodePayload(buf, n, back, c) == Status::Ok);
+    assert(back.staged_acceptance == 0x0FFF && back.saved_acceptance == 0x0010 && back.unsaved == 1);
+    assert(back.wheel == 1 && back.stop_ms == 640 && back.peak_current_cA == -312);
+    assert(back.peak_erpm == -1234 && back.vesc_fault == 3);
+    cs.staged_acceptance = 0x1000; assert(encodePayload(cs, buf, sizeof buf, n, c) == Status::BadReserved);
+    cs.staged_acceptance = 0; cs.wheel = 2; assert(encodePayload(cs, buf, sizeof buf, n, c) == Status::BadEnum);
+    Diagnostics d = {}; d.subtype = 1; d.field = 12; d.wheel = 1; d.value = 1500; d.known = 1;
+    assert(encodePayload(d, buf, sizeof buf, n, c) == Status::Ok && n == 12);
+    Diagnostics db = {}; assert(decodePayload(buf, n, db, c) == Status::Ok && db.known == 1 && db.value == 1500);
+    d.known = 2; assert(encodePayload(d, buf, sizeof buf, n, c) == Status::BadEnum);
+    Diagnostics d0 = {}; d0.known = 1; assert(encodePayload(d0, buf, sizeof buf, n, c) == Status::BadReserved);
 ''')
 
 
