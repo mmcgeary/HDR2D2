@@ -124,7 +124,7 @@ VescLink::VescLink(r2link::BytePort& port, uint8_t wheel) : port_(port), wheel_(
     queried_(false), query_waiting_(false), last_query_(0), query_ms_(0), last_fw_(0), now_(0),
     demand_(0), duty_(0), brake_(0), demand_ms_(0), sent_command_(0), tx_brake_(0),
     sent_brake_(0), sent_ms_(0), capture_armed_(false),
-    capture_ready_(false), capture_command_(255), capture_{} {}
+    capture_ready_(false), capture_command_(255), capture_{}, commissioning_(false) {}
 
 void VescLink::resetSample() { cached_ = VescSample{}; have_sample_ = false; demand_ = 0; }
 bool VescLink::match() const {
@@ -181,6 +181,7 @@ void VescLink::disableControl() {
 VescSample VescLink::sample(uint32_t now) const {
     VescSample s = cached_;
     s.wheel = wheel_; s.fw_major = major_; s.fw_minor = minor_;
+    s.fw_known = have_firmware_;
     s.profile_match = match(); s.unsupported = !s.profile_match;
     const uint32_t age = have_sample_ ? uint32_t(now - s.sample_ms) : UINT32_MAX;
     s.source_age_ms = age > UINT16_MAX ? UINT16_MAX : uint16_t(age);
@@ -274,12 +275,19 @@ void VescLink::startQuery(uint8_t command, uint32_t now) {
     tx_offset_ = 0; tx_command_ = command; tx_aborted_ = false;
     outstanding_ = command; queried_ = true; last_query_ = query_ms_ = now;
 }
+bool VescLink::commissioningReady(uint32_t now) const {
+    const VescSample s = sample(now);
+    return profile_.config_accepted_ && match() && s.valid && !s.fault;
+}
 bool VescLink::brakePermitted() const {
-    return profile_.control_accepted_ && match() && brake_ && brake_ == profile_.brake_ma_;
+    const bool allowed = profile_.control_accepted_ || (commissioning_ && profile_.config_accepted_);
+    return allowed && match() && brake_ && brake_ == profile_.brake_ma_;
 }
 bool VescLink::dutyPermitted(uint32_t now) const {
     const VescSample s = sample(now);
-    return profile_.control_accepted_ && s.valid && !s.fault && uint32_t(now - demand_ms_) <= 20;
+    const bool commission = commissioning_ && profile_.config_accepted_ &&
+        duty_ >= -kCommissionDutyLimit && duty_ <= kCommissionDutyLimit;
+    return (profile_.control_accepted_ || commission) && s.valid && !s.fault && uint32_t(now - demand_ms_) <= 20;
 }
 bool VescLink::queryDue(uint32_t now) const {
     return outstanding_ == 255 && (!queried_ || uint32_t(now - last_query_) >= 100);

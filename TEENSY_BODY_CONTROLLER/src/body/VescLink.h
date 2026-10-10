@@ -28,7 +28,7 @@ struct VescSample {
     int16_t mosfet_dC, motor_dC, duty_permille;
     uint8_t fault;
     uint32_t sample_ms;
-    bool valid, profile_match, stale, unsupported, motor_temperature_valid;
+    bool valid, profile_match, stale, unsupported, motor_temperature_valid, fw_known;
 };
 
 // Call with sample(now) for BOTH links. Invalid/stale/faulted/unapproved
@@ -89,6 +89,13 @@ public:
     // for unaccepted firmware/layout. Never streams automatically.
     void requestCapture(uint8_t command = 255);
     bool takeCapture(VescCapture&);
+    // Commissioning mode: a wheel whose vesc_config is accepted (matching
+    // firmware, fresh unfaulted telemetry) may take duty up to
+    // kCommissionDutyLimit permille and its saved brake before the whole drive
+    // is control-accepted. Normal behaviour is unchanged while disabled.
+    static const int16_t kCommissionDutyLimit = 100;
+    void setCommissioning(bool enabled) { commissioning_ = enabled; }
+    bool commissioningReady(uint32_t now_ms) const;
 private:
     void parse(uint32_t);
     void discard(size_t);
@@ -130,6 +137,7 @@ private:
     bool capture_armed_, capture_ready_;
     uint8_t capture_command_;
     VescCapture capture_;
+    bool commissioning_;
 };
 
 } // namespace body

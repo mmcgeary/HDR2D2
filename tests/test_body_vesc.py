@@ -558,6 +558,30 @@ class VescTests(unittest.TestCase):
     feed(s,o,wire({0,42,19}),1);o.setBrake(1500);o.tick(2);assert(count(s.tx,7)==0);
 ''')
 
+    def test_commissioning_mode_allows_low_duty_with_only_config_accepted(self):
+        self.check(r'''
+    CommissioningProfile p = saved();
+    p.acceptance = (1u << kAcceptVescConfig) | (1u << (kAcceptVescConfig + 1));   // config only
+    assert(validateProfile(p));
+    Port q; VescLink l(q, 0);
+    l.setProfile(VescProfile::fromSaved(p, 0)); l.tick(0);
+    feed(q, l, wire({0, 42, 19}), 1); l.tick(100); feed(q, l, wire(values()), 101);
+    assert(l.sample(101).fw_known && l.commissioningReady(101));
+    q.tx.clear(); l.setDuty(80); l.tick(102);
+    assert(count(q.tx, 5) == 0);                         // normal mode: not control-accepted
+    l.setCommissioning(true);
+    l.setDuty(80); l.tick(103); assert(count(q.tx, 5) == 1);
+    q.tx.clear(); l.setDuty(150); l.tick(104); assert(count(q.tx, 5) == 0);   // over the 10% limit
+    l.setBrake(1500); l.tick(105); assert(count(q.tx, 7) == 1);
+    l.setCommissioning(false);
+    q.tx.clear(); l.tick(130); l.setDuty(80); l.tick(131); assert(count(q.tx, 5) == 0);
+    // Unaccepted config: never ready.
+    Port r; VescLink m(r, 0); CommissioningProfile none = saved(); none.acceptance = 0;
+    m.setProfile(VescProfile::fromSaved(none, 0)); m.tick(0);
+    feed(r, m, wire({0, 42, 19}), 1);
+    assert(m.sample(1).fw_known && !m.commissioningReady(1));
+''')
+
     def test_main_target_serial_pins_and_capture_diagnostic_only(self):
         source = (BODY / "main.cpp").read_text()
         controller = (BODY / "body/BodyController.cpp").read_text()
