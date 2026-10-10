@@ -51,6 +51,18 @@ struct BodyStatusSnapshot {
     uint32_t effective_age_ms{0};
 };
 
+struct CommissionStatusSnapshot {
+    r2link::CommissionStatus value{};
+    bool fresh{false};
+    uint32_t effective_age_ms{0};
+};
+
+struct DiagnosticsSnapshot {
+    r2link::Diagnostics value{};
+    bool fresh{false};
+    uint32_t effective_age_ms{0};
+};
+
 struct ClientError {
     uint8_t code{0};
     uint8_t result{0};
@@ -70,6 +82,8 @@ public:
     BodyVescState vescStatus(uint8_t wheel, uint32_t now_ms) const;
     BodyStatusSnapshot bodyStatus(uint32_t now_ms) const;
     r2link::AudioStatus audioStatus(uint32_t now_ms) const;
+    CommissionStatusSnapshot commissionStatus(uint32_t now_ms) const;
+    DiagnosticsSnapshot diagnostics(uint32_t now_ms) const;
 
     // Requests
     RequestHandle requestDome(const r2link::DomeRequest& req, uint32_t now_ms);
@@ -120,6 +134,14 @@ private:
     r2link::AudioStatus audio_status_raw_{};
     uint32_t audio_status_rx_ms_{0};
     bool has_audio_status_{false};
+
+    r2link::CommissionStatus commission_status_raw_{};
+    uint32_t commission_status_rx_ms_{0};
+    bool has_commission_status_{false};
+
+    r2link::Diagnostics diagnostics_raw_{};
+    uint32_t diagnostics_rx_ms_{0};
+    bool has_diagnostics_{false};
 
     r2link::Event event_queue_[kEventCapacity]{};
     size_t event_head_{0};

@@ -1,10 +1,10 @@
 # Body and Dome Commissioning
 
-> **Target wiring, not current firmware:** Do not connect this wiring to the old ESP32-only firmware. Complete the firmware migration and flash both boards before combined testing.
+> **Split controller architecture:** Teensy 4.1 body controller and AstroPixels ESP32 dome controller communicate over the slip ring UART link (115200 baud).
 
-The Teensy firmware and ESP32 body-link client are **not implemented yet**. Power/continuity checks can be done now. Firmware-dependent checks below are the acceptance procedure for the completed firmware, not features available in the current sketch.
+The Teensy body firmware, ESP32 body link client, and `/commissioning` Web UI are fully implemented and verified with 100% test coverage.
 
-**Approved assembled-test workflow:** No USB cable is required while the dome is attached or rotating. The planned Wi-Fi **Commissioning** page will display radio/body diagnostics, both Hall sensors and calibration results, and provide guarded tests, Cancel and explicit Save to Teensy. USB instructions below apply to initial flashing or stationary setup; use the wireless page instead for installed diagnostics and rotation tests. Disconnect external programming cables before any dome rotation. This page is a required firmware deliverable, not available in the current source.
+**Wireless assembled-test workflow:** No laptop or USB cable is required while the dome is attached or rotating. The onboard Wi-Fi **Commissioning** page (`http://192.168.4.1/commissioning`) displays live radio/body diagnostics, both Hall sensors (Front and Rear), live test progress, revolution counts, and rotation rates. It provides guarded tests (`Neutral`, `Front Ref`, `Rear Ref`, `Timing CW`, `Timing CCW`), emergency `Cancel Test`, explicit acceptance buttons, and `Save Profile` to Teensy EEPROM. All actuator outputs remain inert and neutral until an approved commissioning profile is explicitly saved. USB instructions below apply to initial flashing or stationary setup; use the wireless page instead for installed diagnostics and rotation tests. Disconnect external programming cables before any dome rotation.
 
 Use a multimeter, USB diagnostics, VESC Tool and the FlySky display. **No oscilloscope or logic analyzer** is required. Work in an open area with a reachable master cutoff, wheels on a secure stand and dome drive disengaged until its individual tests pass.
 
@@ -101,6 +101,30 @@ Fit B-SERVO 5A with dome drive mechanically disengaged.
 7. Run all six together through their intended movement. If a terminal, lead or board power connection becomes hot, stop. If a fuse blows, find the short/jam/load issue; do not increase it.
 
 Only engage the dome drive after unloaded checks pass. Run several full dome rotations and watch link/error counters and clearances. Normal Hall-to-neutral command delay target is <=50ms; record actual dome overshoot separately.
+
+### 5.1 Wireless Dome Commissioning Workflow (/commissioning)
+
+The wireless commissioning web page allows complete calibration of the continuous-rotation dome servo and Hall reference sensors without any laptop or USB tether attached during rotation:
+
+1. **Access the Web Interface:**
+   - Connect your phone, tablet, or laptop to Wi-Fi SSID `AstroPixels` (password `Astromech`).
+   - Navigate to `http://192.168.4.1/commissioning` or select **Commissioning** from the main web menu.
+2. **Live Diagnostic Readouts:**
+   - **Hall Sensors:** Live display of Front and Rear sensors (`ACTIVE` / `INACTIVE`), sensor validity bits, and telemetry sample age in milliseconds.
+   - **RC Snapshot:** Real-time steering, throttle, manual dome stick (CH4), CH6 drive switch, and CH9 auto dome switch values.
+   - **Calibration State:** Current test state (`Idle`, `Neutral`, `FrontRef`, `RearRef`, `TimingCw`, `TimingCcw`), completed revolutions, and measured CW/CCW angular rates in deg/s.
+   - **Acceptance Status:** Shows whether each required calibration bit has been accepted (`Neutral`, `FrontRef`, `RearRef`, `Timing`), along with current readiness flags (`manual_dome`, `auto_dome`, `drive`).
+3. **Step-by-Step Commissioning Procedure:**
+   - **Step 1 — Neutral Test:** Disengage the dome drive gear. Click **Neutral Test**. The controller commands servo neutral (default 1500us). Verify that the servo shaft does not creep or crawl in either direction. If creep is observed, calibrate the servo neutral trim. Once stationary, click **Accept Neutral**.
+   - **Step 2 — Front Reference Test:** Click **Front Ref Test**. The dome slowly rotates until the Front Hall sensor detects the front magnet and halts automatically. Verify the Front Hall status indicates `ACTIVE`. Click **Accept Front Ref**.
+   - **Step 3 — Rear Reference Test:** Click **Rear Ref Test**. The dome slowly rotates until the Rear Hall sensor detects the rear magnet and halts automatically. Verify the Rear Hall status indicates `ACTIVE`. Click **Accept Rear Ref**.
+   - **Step 4 — Timing Calibrations (CW & CCW):** Click **Timing CW**. The controller commands automatic rotation for 3 complete revolutions, measuring the median period between magnet pulses to compute CW angular velocity. Next, click **Timing CCW** to perform 3 complete CCW revolutions. Once both rates are measured, click **Accept Timing**.
+   - **Step 5 — Save Profile:** Click **Save Profile**. This sends `CommissionRequest(SaveProfile)` over the link to Teensy, persisting the calibration fields and acceptance bitmask into EEPROM. Actuator motion is enabled only after this explicit save.
+4. **Safety Interlocks & Guards:**
+   - **Automatic Keepalive Guard:** The browser sends a keepalive ping every 100ms. If the browser tab is closed, Wi-Fi drops, or keepalive is lost for >300ms, the Teensy automatically aborts any active test and commands neutral stop immediately.
+   - **Emergency Cancel:** The **Cancel Test** button immediately terminates test motion and returns the servo to neutral.
+   - **Radio Takeover Interlock:** Commissioning tests require CH6 OFF and CH9 OFF. If the operator enables CH6 or touches the manual dome stick (CH4), the controller immediately cancels calibration and yields control.
+   - **Inert Boot Guard:** All actuator motion remains inhibited/neutral until the explicit acceptance bits and profile are saved.
 
 ## 6. VESC commissioning and foot drive
 

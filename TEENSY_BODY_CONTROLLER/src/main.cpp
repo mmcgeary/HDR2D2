@@ -149,7 +149,7 @@ void loop() {
     g_body_status = g_controller.status();
 
     // 4. Actuator servo pulse output
-    const body::ServoCommand dome_cmd = g_dome.output();
+    const body::ServoCommand dome_cmd = g_controller.domeOutput();
     if (dome_cmd.pulses) {
         g_dome_servo.writeMicroseconds(dome_cmd.pulse_us);
     }

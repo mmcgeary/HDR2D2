@@ -88,6 +88,22 @@ void BodyClient::processReceived(uint32_t now_ms) {
                 audio_status_rx_ms_ = rx_ms;
                 has_audio_status_ = true;
             }
+        } else if (frame.type == r2link::MessageType::CommissionStatus) {
+            r2link::CommissionStatus cs{};
+            r2link::ErrorCounters err{};
+            if (r2link::decode(frame, cs, err) == r2link::Status::Ok) {
+                commission_status_raw_ = cs;
+                commission_status_rx_ms_ = rx_ms;
+                has_commission_status_ = true;
+            }
+        } else if (frame.type == r2link::MessageType::Diagnostics) {
+            r2link::Diagnostics d{};
+            r2link::ErrorCounters err{};
+            if (r2link::decode(frame, d, err) == r2link::Status::Ok) {
+                diagnostics_raw_ = d;
+                diagnostics_rx_ms_ = rx_ms;
+                has_diagnostics_ = true;
+            }
         } else if (frame.type == r2link::MessageType::Event) {
             r2link::Event ev{};
             r2link::ErrorCounters err{};
@@ -200,6 +216,33 @@ r2link::AudioStatus BodyClient::audioStatus(uint32_t now_ms) const {
     }
     return audio_status_raw_;
 }
+
+CommissionStatusSnapshot BodyClient::commissionStatus(uint32_t now_ms) const {
+    CommissionStatusSnapshot res{};
+    if (!endpoint_ || !endpoint_->connected(now_ms) || !has_commission_status_) {
+        res.fresh = false;
+        return res;
+    }
+    const uint32_t elapsed = (now_ms >= commission_status_rx_ms_) ? (now_ms - commission_status_rx_ms_) : 0;
+    res.value = commission_status_raw_;
+    res.effective_age_ms = elapsed;
+    res.fresh = (elapsed <= 1000);
+    return res;
+}
+
+DiagnosticsSnapshot BodyClient::diagnostics(uint32_t now_ms) const {
+    DiagnosticsSnapshot res{};
+    if (!endpoint_ || !endpoint_->connected(now_ms) || !has_diagnostics_) {
+        res.fresh = false;
+        return res;
+    }
+    const uint32_t elapsed = (now_ms >= diagnostics_rx_ms_) ? (now_ms - diagnostics_rx_ms_) : 0;
+    res.value = diagnostics_raw_;
+    res.effective_age_ms = elapsed;
+    res.fresh = (elapsed <= 1000);
+    return res;
+}
+
 
 RequestHandle BodyClient::requestDome(const r2link::DomeRequest& req, uint32_t now_ms) {
     if (!endpoint_ || !endpoint_->connected(now_ms)) {

@@ -15,7 +15,8 @@ The body executive is coordinated by `body::BodyController` (`src/body/BodyContr
   - Watchdog supervision via `Watchdog_t4` (`WDT_T4<WDT1>` with 1.0s timeout) fed only when scheduling passes remain healthy (<25ms loop time).
 - **Subsystem Orchestration:**
   - `DriveController`: Dual-wheel VESC mixing, ramp slew, reversal dwell, and failsafe braking.
-  - `DomeController`: Continuous servo positioning, RC manual steering, drive-follow biasing, and Hall calibration.
+  - `DomeController`: Continuous servo positioning, RC manual steering, drive-follow biasing, and Hall tracking.
+  - `DomeCalibration`: Wireless commissioning state machine executing neutral trim, reference alignment, and 3-revolution CW/CCW rate calibration with keepalive and radio safety guards.
   - `DfPlayer`: Serial MP3 player interface with acknowledged track dispatch and completion event tracking.
   - `LinkEndpoint`: Shared SLIP protocol framing over Serial4 connecting to the ESP32 dome head.
 
@@ -46,8 +47,6 @@ The controller provides an interactive, bounded line-based USB serial CLI:
 Host unit tests compile Teensy controller sources directly with native clang/g++:
 
 ```bash
-python3 -m unittest discover -s tests -p test_body_controller.py -v
-python3 -m unittest discover -s tests -p test_body_drive.py -v
-python3 -m unittest discover -s tests -p test_body_radio.py -v
-python3 -m unittest discover -s tests -p test_body_vesc.py -v
+python3 -m unittest discover -s tests -p "test_body_*.py" -v
+python3 -m unittest discover -s tests -p "test_dome_*.py" -v
 ```

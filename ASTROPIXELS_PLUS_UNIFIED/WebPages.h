@@ -19,6 +19,7 @@ WMenuData mainMenu[] = {
     { "Logics", "/logics" },
     { "Dome & Macros", "/dome" },
     { "Body Status", "/body" },
+    { "Commissioning", "/commissioning" },
     { "Setup", "/setup" }
 };
 
@@ -433,12 +434,125 @@ WElement bodyContents[] = {
     rseriesSVG
 };
 
+inline String formatCommissionHall() {
+    bool front = (digitalRead(PIN_DOME_HALL_FRONT) == LOW);
+    bool rear = (digitalRead(PIN_DOME_HALL_REAR) == LOW);
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Front: %s, Rear: %s",
+             front ? "ACTIVE (0 deg)" : "Inactive",
+             rear ? "ACTIVE (180 deg)" : "Inactive");
+    return String(buf);
+}
+
+inline String formatCommissionRc() {
+    auto rc = g_body_client.rcSnapshot(millis());
+    if (!rc.valid) return String("Disconnected / Stale");
+    char buf[64];
+    snprintf(buf, sizeof(buf), "CH6: %u (%s), CH9: %u (%s)",
+             rc.channels[5],
+             (rc.channels[5] < 1250) ? "OFF" : "ARMED",
+             rc.channels[8],
+             (rc.channels[8] >= 1750) ? "ON" : "OFF");
+    return String(buf);
+}
+
+inline String formatCommissionTestState() {
+    auto cs = g_body_client.commissionStatus(millis());
+    if (!cs.fresh) return String("Offline / Stale");
+    const char* states[] = { "Idle", "Running", "Completed", "Cancelled", "Failed", "TimedOut" };
+    const char* tests[] = { "None", "Neutral", "FrontRef", "RearRef", "TimingCw", "TimingCcw", "VescTimeout" };
+    const char* st = (cs.value.state <= 5) ? states[cs.value.state] : "Unknown";
+    const char* te = (cs.value.test <= 6) ? tests[cs.value.test] : "Unknown";
+    char buf[80];
+    snprintf(buf, sizeof(buf), "%s (Test: %s, Run: %lu, Err: %u)",
+             st, te, (unsigned long)cs.value.run_id, cs.value.error);
+    return String(buf);
+}
+
+inline String formatCommissionRevolutions() {
+    auto cs = g_body_client.commissionStatus(millis());
+    if (!cs.fresh) return String("N/A");
+    char buf[80];
+    snprintf(buf, sizeof(buf), "Rev 1: %lu ms, Rev 2: %lu ms, Rev 3: %lu ms",
+             (unsigned long)cs.value.revolution_ms[0],
+             (unsigned long)cs.value.revolution_ms[1],
+             (unsigned long)cs.value.revolution_ms[2]);
+    return String(buf);
+}
+
+inline String formatCommissionRates() {
+    auto cs = g_body_client.commissionStatus(millis());
+    if (!cs.fresh) return String("N/A");
+    char buf[96];
+    snprintf(buf, sizeof(buf), "Neutral: %u us, CW: %u ddeg/s, CCW: %u ddeg/s, Saved: %s",
+             cs.value.trial_neutral_us,
+             cs.value.proposed_cw_ddeg_s,
+             cs.value.proposed_ccw_ddeg_s,
+             cs.value.saved ? "YES" : "NO");
+    return String(buf);
+}
+
+inline String formatCommissionAcceptance() {
+    auto cs = g_body_client.commissionStatus(millis());
+    if (!cs.fresh) return String("N/A");
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Flags: 0x%04lX, Gen: %lu",
+             (unsigned long)cs.value.flags,
+             (unsigned long)cs.value.config_generation);
+    return String(buf);
+}
+
+WElement commissioningContents[] = {
+    W1("Dome Calibration & Commissioning"),
+    WLabel("Ensure CH6 is OFF and CH9 is ON before initiating motion tests.", "safety"),
+    WTextField("Hall Sensors:", "c_hall", []()->String { return formatCommissionHall(); }, [](String) {}),
+    WVerticalAlign(),
+    WTextField("Radio Status:", "c_rc", []()->String { return formatCommissionRc(); }, [](String) {}),
+    WVerticalAlign(),
+    WTextField("Test Status:", "c_status", []()->String { return formatCommissionTestState(); }, [](String) {}),
+    WVerticalAlign(),
+    WTextField("Revolutions:", "c_revs", []()->String { return formatCommissionRevolutions(); }, [](String) {}),
+    WVerticalAlign(),
+    WTextField("Rates & State:", "c_rates", []()->String { return formatCommissionRates(); }, [](String) {}),
+    WVerticalAlign(),
+    WTextField("Acceptance:", "c_accept", []()->String { return formatCommissionAcceptance(); }, [](String) {}),
+    WVerticalAlign(),
+    WButton("Neutral Test", "c_neutral", []() { startCommissionTest(1); }),
+    WHorizontalAlign(),
+    WButton("Front Ref Test", "c_front", []() { startCommissionTest(2); }),
+    WHorizontalAlign(),
+    WButton("Rear Ref Test", "c_rear", []() { startCommissionTest(3); }),
+    WVerticalAlign(),
+    WButton("Timing CW", "c_cw", []() { startCommissionTest(4); }),
+    WHorizontalAlign(),
+    WButton("Timing CCW", "c_ccw", []() { startCommissionTest(5); }),
+    WHorizontalAlign(),
+    WButton("Cancel Test", "c_cancel", []() { cancelCommissionTest(); }),
+    WVerticalAlign(),
+    WButton("Accept Neutral", "c_acc_neu", []() { acceptCommissionBit(0); }),
+    WHorizontalAlign(),
+    WButton("Accept Front Ref", "c_acc_fref", []() { acceptCommissionBit(1); }),
+    WHorizontalAlign(),
+    WButton("Accept Rear Ref", "c_acc_rref", []() { acceptCommissionBit(2); }),
+    WVerticalAlign(),
+    WButton("Accept Timing", "c_acc_tim", []() { acceptCommissionBit(3); }),
+    WHorizontalAlign(),
+    WButton("Save Profile", "c_save", []() { saveCommissionProfile(); }),
+    WVerticalAlign(),
+    WButton("Back", "back", "/"),
+    WHorizontalAlign(),
+    WButton("Home", "home", "/"),
+    WVerticalAlign(),
+    rseriesSVG
+};
+
 //////////////////////////////////////////////////////////////////
 
 WPage pages[] = {
     WPage("/", mainContents, SizeOfArray(mainContents)),
       WPage("/dome", domeContents, SizeOfArray(domeContents)),
       WPage("/body", bodyContents, SizeOfArray(bodyContents)),
+      WPage("/commissioning", commissioningContents, SizeOfArray(commissioningContents)),
       WPage("/logics", logicsContents, SizeOfArray(logicsContents)),
     WPage("/setup", setupContents, SizeOfArray(setupContents)),
       WPage("/serial", serialContents, SizeOfArray(serialContents)),

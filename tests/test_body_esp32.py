@@ -422,6 +422,74 @@ class BodyEsp32Tests(unittest.TestCase):
     assert(f.client.lastError().code == 4); // Rejected
 ''')
 
+    def test_commission_status_and_request_roundtrip(self):
+        self.check(r'''
+    ClientFixture f;
+    f.connect();
+
+    // 1. Initial snapshot is not fresh
+    assert(!f.client.commissionStatus(1000).fresh);
+    assert(!f.client.diagnostics(1000).fresh);
+
+    // 2. Inject CommissionStatus
+    CommissionStatus cs{};
+    cs.run_id = 42;
+    cs.state = 1; // Running
+    cs.test = 4;  // TimingCw
+    cs.trial_speed_percent = 15;
+    cs.proposed_cw_ddeg_s = 720;
+    cs.revolution_ms[0] = 5000;
+    cs.flags = 0x01;
+    inject(f.port, stamp(frameOf(cs), f.body_seq++, f.body_session, f.dome_session, 0));
+    f.client.tick(1000);
+
+    auto snap = f.client.commissionStatus(1000);
+    assert(snap.fresh);
+    assert(snap.value.run_id == 42);
+    assert(snap.value.state == 1);
+    assert(snap.value.test == 4);
+    assert(snap.value.proposed_cw_ddeg_s == 720);
+    assert(snap.value.revolution_ms[0] == 5000);
+
+    // Stale check after 1001ms (advance with heartbeats to keep link alive)
+    f.injectHeartbeat(1400);
+    f.injectHeartbeat(1800);
+    assert(!f.client.commissionStatus(2001).fresh);
+
+    // 3. Inject Diagnostics
+    Diagnostics diag{};
+    diag.subtype = 1;
+    diag.sample_counter = 100;
+    diag.field = 4;
+    diag.wheel = 0;
+    diag.value = 42;
+    f.injectHeartbeat(2001);
+    inject(f.port, stamp(frameOf(diag), f.body_seq++, f.body_session, f.dome_session, 0));
+    f.client.tick(2001);
+
+    auto dsnap = f.client.diagnostics(2001);
+    assert(dsnap.fresh);
+    assert(dsnap.value.sample_counter == 100);
+    assert(dsnap.value.value == 42);
+
+    // 4. Send CommissionRequest
+    CommissionRequest req{};
+    req.operation = 1; // Begin
+    req.test = 4;
+    req.run_id = 42;
+    req.control_epoch = 1;
+    RequestHandle h = f.client.requestCommission(req, 2010);
+    assert(h.queued);
+    assert(h.sequence > 0);
+    f.client.tick(2010);
+
+    // 5. Inject reply
+    f.injectReply(2020, MessageType::CommissionRequest, h.sequence, Result::Accepted, 0);
+    Completion comp{};
+    assert(f.client.takeCompletion(comp));
+    assert(comp.sequence == h.sequence);
+    assert(comp.result == static_cast<uint8_t>(Result::Accepted));
+''')
 
 if __name__ == "__main__":
     unittest.main()

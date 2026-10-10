@@ -18,6 +18,7 @@ BodyController::BodyController(ConfigStore& config_store,
       right_vesc_(right_vesc_port, 1),
       drive_(),
       dome_(profile_),
+      calibration_(config_store_, profile_),
       audio_(audio_port, kTrackCatalog, kTrackCatalogCount) {}
 
 void BodyController::init(uint32_t now_ms) {
@@ -36,18 +37,21 @@ void BodyController::applyMotionLocks(uint8_t reasons, uint32_t now_ms) {
     lock_reasons_ = reasons;
     drive_.setMotionLocks(reasons);
     dome_.setMotionLocks(reasons);
+    calibration_.setMotionLocked(reasons != 0);
+    if (reasons != 0) {
+        calibration_.cancel(now_ms);
+    }
 }
 
 void BodyController::updateStatus(uint32_t now_ms) {
     const Readiness ready = readiness(profile_);
-    const uint8_t profile_ready = (ready.drive ? 1 : 0) |
-                                  (ready.manual_dome ? 2 : 0) |
-                                  (ready.auto_dome ? 4 : 0);
+    const uint8_t profile_ready = (ready.drive && ready.manual_dome && ready.auto_dome) ? 1 : 0;
     const VescSample left = left_vesc_.sample(now_ms);
     const VescSample right = right_vesc_.sample(now_ms);
+    const bool rc_stale = !rc_snapshot_.valid || (now_ms < rc_snapshot_.sample_ms) || (now_ms - rc_snapshot_.sample_ms > 250);
 
     uint32_t faults = (!validateProfile(profile_) ? 2u : !ready.drive ? 1u : 0u) |
-                      (!rc_snapshot_.valid ? (1u << 3) : 0u) |
+                      (rc_stale ? (1u << 3) : 0u) |
                       (left.stale ? (1u << 4) : 0u) |
                       (right.stale ? (1u << 5) : 0u) |
                       (left.fault ? (1u << 6) : 0u) |
@@ -77,6 +81,8 @@ r2link::BodyStatus BodyController::status() const {
 
 void BodyController::updateRc(const RcSnapshot& rc, uint32_t now_ms) {
     rc_snapshot_ = rc;
+    calibration_.updateRc(rc, now_ms);
+    dome_.updateRc(rc, now_ms);
     const bool centered = (rc.channels[0] >= 1460 && rc.channels[0] <= 1540) &&
                           (rc.channels[1] >= 1460 && rc.channels[1] <= 1540) &&
                           (rc.channels[3] >= 1460 && rc.channels[3] <= 1540);
@@ -92,6 +98,7 @@ void BodyController::updateRc(const RcSnapshot& rc, uint32_t now_ms) {
 void BodyController::onLinkDisconnected(uint32_t now_ms) {
     dome_.peerLost(now_ms);
     audio_.peerLost(now_ms);
+    calibration_.cancel(now_ms);
 }
 
 r2link::Result BodyController::handleControlRequest(const r2link::ControlRequest& req, uint32_t now_ms) {
@@ -300,17 +307,55 @@ r2link::Result BodyController::handle(const r2link::Frame& frame, uint32_t now_m
         return handleAudioRequest(frame, now_ms);
     }
 
+    if (frame.type == r2link::MessageType::CommissionRequest) {
+        return handleCommissionRequest(frame, now_ms);
+    }
+
     if (frame.type == r2link::MessageType::HallState) {
         r2link::HallState hall{};
         r2link::ErrorCounters err{};
         if (r2link::decode(frame, hall, err) == r2link::Status::Ok) {
             dome_.updateHall(hall, now_ms);
+            calibration_.updateHall(hall, now_ms);
             return r2link::Result::Accepted;
         }
         return r2link::Result::InvalidArgument;
     }
 
     return r2link::Result::InvalidArgument;
+}
+
+r2link::Result BodyController::handleCommissionRequest(const r2link::Frame& frame, uint32_t now_ms) {
+    r2link::CommissionRequest req{};
+    r2link::ErrorCounters err{};
+    if (r2link::decode(frame, req, err) != r2link::Status::Ok) {
+        return r2link::Result::InvalidArgument;
+    }
+    if (req.control_epoch != control_epoch_) {
+        return r2link::Result::WrongEpoch;
+    }
+    const r2link::Result res = calibration_.handleRequest(req, now_ms);
+    if (res == r2link::Result::Accepted) {
+        r2link::Frame status_frame{};
+        if (r2link::encode(calibration_.status(), status_frame, err) == r2link::Status::Ok) {
+            link_endpoint_.publishLatest(status_frame, now_ms);
+        }
+        if (req.operation == static_cast<uint8_t>(CommissionOp::Read)) {
+            const r2link::Diagnostics diag = calibration_.diagnostics(req.field, req.wheel, req.value, now_ms);
+            r2link::Frame diag_frame{};
+            if (r2link::encode(diag, diag_frame, err) == r2link::Status::Ok) {
+                link_endpoint_.publishLatest(diag_frame, now_ms);
+            }
+        }
+    }
+    return res;
+}
+
+ServoCommand BodyController::domeOutput() const {
+    if (calibration_.active()) {
+        return calibration_.output();
+    }
+    return dome_.output();
 }
 
 void BodyController::drainEvents(uint32_t now_ms) {
@@ -355,6 +400,65 @@ void BodyController::publishPeriodic(uint32_t now_ms) {
         }
         last_audio_pub_ms_ = now_ms;
     }
+
+    // Commission status periodic / active publishing
+    if (calibration_.active() || (now_ms - last_commission_pub_ms_ >= 500)) {
+        r2link::Frame frame{};
+        r2link::ErrorCounters err{};
+        if (r2link::encode(calibration_.status(), frame, err) == r2link::Status::Ok) {
+            link_endpoint_.publishLatest(frame, now_ms);
+        }
+        last_commission_pub_ms_ = now_ms;
+    }
+
+    // RC status every 100ms
+    if (now_ms - last_rc_pub_ms_ >= 100) {
+        if (rc_snapshot_.valid) {
+            r2link::RcStatus rs{};
+            rs.sample_counter = rc_snapshot_.sample_counter;
+            rs.source_age_ms = (now_ms >= rc_snapshot_.sample_ms) ? static_cast<uint16_t>(now_ms - rc_snapshot_.sample_ms) : 0;
+            rs.flags = rc_snapshot_.flags;
+            rs.drive_state = body_status_.drive_state;
+            rs.dome_state = body_status_.dome_state;
+            rs.control_epoch = control_epoch_;
+            for (uint8_t i = 0; i < 10; ++i) rs.channels[i] = rc_snapshot_.channels[i];
+            r2link::Frame frame{};
+            r2link::ErrorCounters err{};
+            if (r2link::encode(rs, frame, err) == r2link::Status::Ok) {
+                link_endpoint_.publishLatest(frame, now_ms);
+            }
+        }
+        last_rc_pub_ms_ = now_ms;
+    }
+
+    // VESC status every 100ms
+    if (now_ms - last_vesc_pub_ms_ >= 100) {
+        for (uint8_t w = 0; w < 2; ++w) {
+            const body::VescSample sl = (w == 0) ? left_vesc_.sample(now_ms) : right_vesc_.sample(now_ms);
+            if (sl.valid) {
+                r2link::VescStatus vs{};
+                vs.wheel = w;
+                vs.fw_major = sl.fw_major;
+                vs.fw_minor = sl.fw_minor;
+                vs.valid_fields = sl.valid_fields;
+                vs.source_age_ms = sl.source_age_ms;
+                vs.pack_cV = sl.pack_cV;
+                vs.motor_mA = sl.motor_mA;
+                vs.input_mA = sl.input_mA;
+                vs.erpm = sl.erpm;
+                vs.mosfet_dC = sl.mosfet_dC;
+                vs.motor_dC = sl.motor_dC;
+                vs.fault = sl.fault;
+                vs.duty_permille = sl.duty_permille;
+                r2link::Frame frame{};
+                r2link::ErrorCounters err{};
+                if (r2link::encode(vs, frame, err) == r2link::Status::Ok) {
+                    link_endpoint_.publishLatest(frame, now_ms);
+                }
+            }
+        }
+        last_vesc_pub_ms_ = now_ms;
+    }
 }
 
 void BodyController::tick(uint32_t now_ms, uint32_t now_us) {
@@ -382,8 +486,14 @@ void BodyController::tick(uint32_t now_ms, uint32_t now_us) {
     }
 
     // 3. Actuator updates
-    drive_.update(rc_snapshot_, left_vesc_.sample(now_ms), right_vesc_.sample(now_ms), profile_, now_ms);
-    applyWheelCommands(drive_.commands(), left_vesc_, right_vesc_);
+    calibration_.tick(now_ms);
+    if (!calibration_.active()) {
+        drive_.update(rc_snapshot_, left_vesc_.sample(now_ms), right_vesc_.sample(now_ms), profile_, now_ms);
+        applyWheelCommands(drive_.commands(), left_vesc_, right_vesc_);
+    } else {
+        WheelCommands neut{};
+        applyWheelCommands(neut, left_vesc_, right_vesc_);
+    }
 
     dome_.updateDrive(drive_.intent(), now_ms);
     dome_.setControlEpoch(control_epoch_);

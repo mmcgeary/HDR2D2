@@ -273,6 +273,10 @@ void prepareMaintenance(bool for_reboot = false, bool clear_prefs = false);
 void releaseMaintenance();
 void recoverBodyLocks();
 void clearPrefsAndReboot();
+void startCommissionTest(uint8_t test, int32_t val = 0);
+void cancelCommissionTest();
+void saveCommissionProfile();
+void acceptCommissionBit(uint8_t bit);
 
 ServoDispatchPCA9685<SizeOfArray(servoSettings)> servoDispatch(servoSettings);
 ServoSequencer servoSequencer(servoDispatch);
@@ -963,6 +967,91 @@ void processMaintenance(uint32_t now) {
     }
 }
 
+static uint32_t g_commission_run_id = 0;
+static uint32_t g_last_commission_keepalive_ms = 0;
+
+void startCommissionTest(uint8_t test, int32_t val) {
+    (void)val;
+    if (!rc_connected || dome_motion_inhibited || otaInProgress) {
+        Serial.println(F("[COMMISSION] Rejected: live radio and safety rearmed required."));
+        return;
+    }
+    stopDomeMotion();
+    auto status = g_body_client.bodyStatus(millis());
+    g_commission_run_id = millis();
+    if (g_commission_run_id == 0) g_commission_run_id = 1;
+
+    r2link::CommissionRequest req{};
+    req.operation = 1; // Begin
+    req.test = test;
+    req.run_id = g_commission_run_id;
+    req.field = 0;
+    req.wheel = 0;
+    req.value = 0;
+    req.control_epoch = status.value.control_epoch;
+    g_body_client.requestCommission(req, millis());
+    g_last_commission_keepalive_ms = millis();
+}
+
+void cancelCommissionTest() {
+    auto status = g_body_client.bodyStatus(millis());
+    r2link::CommissionRequest req{};
+    req.operation = 3; // Cancel
+    req.test = 0;
+    req.run_id = g_commission_run_id;
+    req.field = 0;
+    req.wheel = 0;
+    req.value = 0;
+    req.control_epoch = status.value.control_epoch;
+    g_body_client.requestCommission(req, millis());
+}
+
+void saveCommissionProfile() {
+    auto status = g_body_client.bodyStatus(millis());
+    r2link::CommissionRequest req{};
+    req.operation = 5; // Save
+    req.test = 0;
+    req.run_id = g_commission_run_id;
+    req.field = 0;
+    req.wheel = 0;
+    req.value = 0;
+    req.control_epoch = status.value.control_epoch;
+    g_body_client.requestCommission(req, millis());
+}
+
+void acceptCommissionBit(uint8_t bit) {
+    auto status = g_body_client.bodyStatus(millis());
+    r2link::CommissionRequest req{};
+    req.operation = 6; // Accept
+    req.test = 0;
+    req.run_id = g_commission_run_id;
+    req.field = 0;
+    req.wheel = 0;
+    req.value = bit;
+    req.control_epoch = status.value.control_epoch;
+    g_body_client.requestCommission(req, millis());
+}
+
+void processCommissioningKeepalive(uint32_t now) {
+    auto cstatus = g_body_client.commissionStatus(now);
+    if (cstatus.fresh && cstatus.value.state == 1) { // Running
+        if (now - g_last_commission_keepalive_ms >= 100) {
+            g_last_commission_keepalive_ms = now;
+            auto status = g_body_client.bodyStatus(now);
+            r2link::CommissionRequest req{};
+            req.operation = 2; // Keepalive
+            req.test = 0;
+            req.run_id = cstatus.value.run_id;
+            req.field = 0;
+            req.wheel = 0;
+            req.value = 0;
+            req.control_epoch = status.value.control_epoch;
+            g_body_client.requestCommission(req, now);
+        }
+    }
+}
+
+
 void processRandomHolos() {
     // This scheduler owns random motion; library LED effects remain independent.
     CommandEvent::process(F("HPA198"));
@@ -1253,6 +1342,9 @@ void loop() {
 
     // 4. Process maintenance timeouts
     processMaintenance(now);
+
+    // 5. Process commissioning keepalive
+    processCommissioningKeepalive(now);
 
     // 3. Dual Hall sensors publish
     processHallSensors(now);

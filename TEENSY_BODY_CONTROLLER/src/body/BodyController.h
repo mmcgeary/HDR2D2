@@ -12,6 +12,7 @@
 #include "body/DriveController.h"
 #include "body/DomePosition.h"
 #include "body/DomeController.h"
+#include "body/DomeCalibration.h"
 #include "body/DfPlayer.h"
 #include "TrackCatalog.h"
 
@@ -50,6 +51,9 @@ public:
     const DriveController& drive() const { return drive_; }
     DomeController& dome() { return dome_; }
     const DomeController& dome() const { return dome_; }
+    DomeCalibration& calibration() { return calibration_; }
+    const DomeCalibration& calibration() const { return calibration_; }
+    ServoCommand domeOutput() const;
     DfPlayer& audio() { return audio_; }
     const DfPlayer& audio() const { return audio_; }
     VescLink& leftVesc() { return left_vesc_; }
@@ -86,6 +90,7 @@ private:
     VescLink right_vesc_;
     DriveController drive_;
     DomeController dome_;
+    DomeCalibration calibration_;
     DfPlayer audio_;
 
     r2link::BodyStatus body_status_{};
@@ -101,6 +106,8 @@ private:
     uint32_t last_status_pub_ms_{0};
     uint32_t last_audio_pub_ms_{0};
     uint32_t last_rc_pub_ms_{0};
+    uint32_t last_vesc_pub_ms_{0};
+    uint32_t last_commission_pub_ms_{0};
 
     uint32_t last_loop_us_{0};
     uint32_t max_loop_us_{0};

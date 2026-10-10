@@ -14,17 +14,18 @@ The build keeps the stock exterior shell while adding:
 
 ## Quick Reference
 
-**Physical documentation now describes the approved Teensy architecture. Firmware migration is still pending. Do not connect this wiring to the old ESP32-only firmware.** Nothing has been wired yet.
+**Approved split controller architecture:** Teensy 4.1 in the body handles radio decoding, dual VESC UART control, continuous dome servo, and DFPlayer audio. AstroPixels Plus ESP32 in the dome manages lighting (ReelTwo), holo servos, Hall reference sensors, Wi-Fi dashboard, and wireless `/commissioning` Web UI.
 
 | Guide | Description |
 | :--- | :--- |
 | [System Architecture](SYSTEM_ARCHITECTURE.md) | High-level system overview, subsystem descriptions, and block diagrams |
 | [Body Controller Wiring](BODY_CONTROLLER_WIRING.md) | Authoritative Teensy/Treedix terminal map, receiver, selected shifters and UART harnesses |
-| [Commissioning](BODY_CONTROLLER_COMMISSIONING.md) | USB isolation illustration, first power-up and subsystem/failure checks |
+| [Commissioning](BODY_CONTROLLER_COMMISSIONING.md) | Wireless `/commissioning` UI workflow, USB isolation, and subsystem/failure checks |
 | [Power Harness Guide](POWER_HARNESS_GUIDE.md) | Wire gauges, fuse sizes, crimping standards, and step-by-step electrical testing |
 | [Interactive Wiring Diagram](wiring_visualizer.html) | Searchable terminal-to-terminal wiring schematic (open locally in your browser) |
 | [System Wiring Overview](DOME_WIRING_DIAGRAM.md) | Logical circuit diagrams, slip-ring assignments, and logic-level shifter pinouts |
-| [AstroPixels Plus Firmware Guide](ASTROPIXELS_PLUS_UNIFIED/README.md) | Dome firmware setup, target pin map, sound files, and current-vs-planned controls |
+| [AstroPixels Plus Firmware Guide](ASTROPIXELS_PLUS_UNIFIED/README.md) | Dome firmware setup, target pin map, sound files, Web UI, and safety controls |
+| [Teensy Body Controller Guide](TEENSY_BODY_CONTROLLER/README.md) | Teensy firmware architecture, scheduler, CLI commands, and test suites |
 | [VESC Drive Setup](VESC_DRIVE_INTEGRATION.md) | Motor detection, current limits, radio mixing, and safety failsafes for the feet |
 | [Bill of Materials](Master_R2D2_BOM.xls) | Complete parts list, hardware links, and purchase notes (Excel-compatible) |
 
@@ -35,9 +36,10 @@ Use the body guide for pins and the power guide for fuses. `ESP32_DOME_BRAIN_GUI
 ## Repository Contents
 
 ### Primary Firmware
-* [`ASTROPIXELS_PLUS_UNIFIED/`](ASTROPIXELS_PLUS_UNIFIED/): Existing PlatformIO ESP32 firmware built on AstroPixels Plus/ReelTwo. Its current local receiver, VESC, dome-servo and audio wiring is being superseded; source is unchanged in this physical-documentation phase.
-* Target: Teensy decodes radio, independently controls both VESC UARTs, dome servo and DFPlayer. ESP32 keeps lights, holo servos, Hall, Wi-Fi and choreography. Ring CH3/CH6 connects Teensy TX17/RX16 to ESP32 RX16/TX17.
-* [Firmware implementation plan](docs/superpowers/plans/2026-10-09-teensy-firmware.md): pending. A Teensy firmware project and acknowledged body client must be implemented before combined operation.
+* [`TEENSY_BODY_CONTROLLER/`](TEENSY_BODY_CONTROLLER/): PlatformIO firmware for the Teensy 4.1 body controller. Manages radio input, dual-motor VESC control, dome servo positioning, DFPlayer audio, and commissioning calibration state machine.
+* [`ASTROPIXELS_PLUS_UNIFIED/`](ASTROPIXELS_PLUS_UNIFIED/): PlatformIO ESP32 firmware built on AstroPixels Plus/ReelTwo. Manages dome lighting, holo servos, Hall reference inputs, Wi-Fi dashboard, `/diagnostics` telemetry, and wireless `/commissioning` Web UI.
+* [`shared/R2BodyLink/`](shared/R2BodyLink/): Shared wire protocol codec and packet framing for the bi-directional SLIP link between body and dome.
+* [Firmware implementation plan](docs/superpowers/plans/2026-10-09-teensy-firmware.md): Comprehensive 12-task architecture and verification plan.
 
 ### Wiring & Power
 * [`POWER_HARNESS_GUIDE.md`](POWER_HARNESS_GUIDE.md) and [`DOME_WIRING_DIAGRAM.md`](DOME_WIRING_DIAGRAM.md) detail the entire electrical layout, wire sizes, fusing, and testing steps.

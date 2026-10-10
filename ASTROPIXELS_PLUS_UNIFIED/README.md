@@ -1,8 +1,8 @@
 # AstroPixels Plus Unified: Dome Firmware and Target Wiring
 
-> **Target wiring, not current firmware:** Do not connect this wiring to the old ESP32-only firmware. Complete the firmware migration and flash both boards before combined testing.
+> **Split controller architecture:** AstroPixels Plus ESP32 dome firmware interfaces directly with the Teensy 4.1 body controller via Serial2 (115200 baud).
 
-This project builds on ReelTwo/AstroPixels Plus for lighting, Wi-Fi and settings. **Its source still uses the old ESP32-only architecture.** The Teensy migration is planned, not implemented. Current builds may be flashed to a bare ESP32 for inspection; do not use them on the target motion harness.
+This firmware runs on the ESP32 in the dome for lighting (ReelTwo), Wi-Fi, holo servos, Hall reference sensors, sound selection, and web-based diagnostics/commissioning. All radio decoding, motor drive, continuous dome-servo pulsing, and DFPlayer UART ownership are handled by the Teensy body controller.
 
 Follow [Body Wiring](../BODY_CONTROLLER_WIRING.md), [Dome Wiring](../DOME_WIRING_DIAGRAM.md) and [Commissioning](../BODY_CONTROLLER_COMMISSIONING.md).
 
@@ -51,30 +51,34 @@ PCA9685 VCC=3.3V, V+=D-SERVO 5A fused 5V with 16AWG feed/return; AstroPixels I2C
 
 Teensy validates RC, both VESC feedback links and actuator locks. Stale/faulted feedback on either wheel inhibits both; neutral uses brake current, not zero duty. Manual dome can work with CH9 OFF; automatic home requires fresh RC, CH9 ON and neutral dome stick.
 
-Target Wi-Fi STOP must show body confirmation or "Body stop unconfirmed." Maintenance locks remain latched across dome restart; Faint macro does not engage maintenance lock. These acknowledgements, body diagnostics page, explicit lock recovery and OTA preparation are **pending firmware features**, not guarantees of the current build.
+Wi-Fi STOP displays verified body confirmation or "Body stop unconfirmed." Maintenance locks remain latched across dome restart; Faint macro does not engage maintenance lock. These acknowledgements, the `/diagnostics` telemetry page, explicit lock recovery, `/commissioning` Web UI, and OTA preparation are fully implemented and integrated.
 
 ## 3. Sound library and choreography
 
-Keep FAT32 microSD folder `/01/`, three-digit filenames. Ambient chirps/chatter use001-080; macro tracks stay reserved. Default volume 10/30 unless saved settings override it; no physical volume potentiometer required.
+Keep FAT32 microSD folder `/01/`, three-digit filenames. Ambient chirps/chatter use 001-080; macro tracks stay reserved. Default volume 10/30 unless saved settings override it; no physical volume potentiometer required.
 
 | VrA position / command | Track | Intended routine |
 | --- | --- | --- |
 | 1 / `:DMH` | 011.mp3 | Home dome, then sound |
 | 2 | Random | Normal / cheerful |
 | 3 | Random | Normal / happy |
-| 4 / `:SE01` | 102.mp3 | Scream / alarm4.5s |
-| 5 / `:SE05`, `:SE07` | 106.mp3 | Cantina lights and holo dance30s |
-| 6 / `:SE08` | 109.mp3 | Leia: home first, then playback-confirmed choreography14s |
-| 7 / `:SE09` | 110.mp3 | Disco20s |
-| 8 / `:SE06` | 107.mp3 | Faint / motion lock5s |
+| 4 / `:SE01` | 102.mp3 | Scream / alarm 4.5s |
+| 5 / `:SE05`, `:SE07` | 106.mp3 | Cantina lights and holo dance 30s |
+| 6 / `:SE08` | 109.mp3 | Leia: home first, then playback-confirmed choreography 14s |
+| 7 / `:SE09` | 110.mp3 | Disco 20s |
+| 8 / `:SE06` | 107.mp3 | Faint / motion lock 5s |
 | `:DMS`, `:SE00` | None | Stop |
 | Startup | 255.mp3 | Startup chime |
 
-Folder-play command0x0F uses `/01/`. Supply your own legally obtained audio. In the target, ESP32 selects tracks while Teensy controls the DFPlayer and returns playback events; an accepted UART request alone does not prove audible sound.
+Folder-play command 0x0F uses `/01/`. Supply your own legally obtained audio. In the target, ESP32 selects tracks while Teensy controls the DFPlayer and returns playback events; an accepted UART request alone does not prove audible sound.
 
-## 4. Wi-Fi
+## 4. Wi-Fi & Web Pages
 
-SSID **AstroPixels**, password **Astromech**, dashboard **http://192.168.4.1**. Existing interface provides logic/PSI text, colour/speed settings, macros, sound volume/chatter and firmware upload. The target adds acknowledged body actions and maintenance preparation; do not assume those additions exist in the present UI.
+SSID **AstroPixels**, password **Astromech**, dashboard **http://192.168.4.1**.
+- **Main Dashboard (`/`):** Logic and PSI text controls, LED colours/speed, sound volume, manual and autonomous macros, and acknowledged emergency STOP.
+- **Diagnostics (`/diagnostics`):** Real-time display of radio channels, VESC left/right status (voltage, current, eRPM, faults), body faults, lock reasons, and link latency.
+- **Commissioning (`/commissioning`):** Dedicated calibration page for continuous dome servo and Hall sensors without requiring a laptop/USB tether. Provides live Hall Front/Rear readouts, RC snapshot, test controls (`Neutral`, `Front Ref`, `Rear Ref`, `Timing CW`, `Timing CCW`), emergency `Cancel Test`, acceptance bitmask, and `Save Profile` to Teensy EEPROM.
+- **Firmware Upload (`/upload`):** Web and ArduinoOTA update portal gated by explicit body maintenance-lock handshake.
 
 ## 5. First bare ESP32 flash
 

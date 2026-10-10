@@ -349,7 +349,7 @@ int main() {
                              BODY / "body/VescLink.cpp", BODY / "body/ConfigStore.cpp",
                              BODY / "body/DriveController.cpp",
                              BODY / "body/DomePosition.cpp", BODY / "body/DomeController.cpp",
-                             BODY / "body/DfPlayer.cpp", BODY / "body/BodyController.cpp",
+                             BODY / "body/DfPlayer.cpp", BODY / "body/DomeCalibration.cpp", BODY / "body/BodyController.cpp",
                              SHARED / "src/Endpoint.cpp", SHARED / "src/Codec.cpp"],
                          include_dirs=[ROOT / "tests/radio_fakes", BODY, SHARED, ROOT / "TEENSY_BODY_CONTROLLER/include"])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
