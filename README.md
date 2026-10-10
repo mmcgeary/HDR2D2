@@ -42,6 +42,9 @@ Use the body guide for pins and the power guide for fuses. `ESP32_DOME_BRAIN_GUI
 * [`shared/R2BodyLink/`](shared/R2BodyLink/): Shared wire protocol codec and packet framing for the bi-directional SLIP link between body and dome.
 * [Firmware implementation plan](docs/superpowers/plans/2026-10-09-teensy-firmware.md): Comprehensive 12-task architecture and verification plan.
 
+### Operation & Radio Control
+* [`CONTROLLER_OPERATOR_GUIDE.md`](CONTROLLER_OPERATOR_GUIDE.md): Illustrated FlySky FS-i6X transmitter layout, plain-language control breakdown, 13-routine dial schedule, and power-on safety checklist.
+
 ### Wiring & Power
 * [`POWER_HARNESS_GUIDE.md`](POWER_HARNESS_GUIDE.md) and [`DOME_WIRING_DIAGRAM.md`](DOME_WIRING_DIAGRAM.md) detail the entire electrical layout, wire sizes, fusing, and testing steps.
 * [`wiring_visualizer.html`](wiring_visualizer.html) is an interactive offline wiring inspector with a printable wire schedule.
