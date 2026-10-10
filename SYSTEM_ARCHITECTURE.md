@@ -66,6 +66,7 @@ Audio timing uses DFPlayer feedback; command acknowledgement alone does not prov
 | [Dome Wiring](DOME_WIRING_DIAGRAM.md) | ESP32, PCA9685 and lighting connections |
 | [VESC Drive Setup](VESC_DRIVE_INTEGRATION.md) | Independent controller configuration and motor commissioning |
 | [Commissioning](BODY_CONTROLLER_COMMISSIONING.md) | Unpowered, USB, subsystem and failure acceptance sequence |
+| [Controller Operator Guide](CONTROLLER_OPERATOR_GUIDE.md) | Plain-language switch/stick layout, routine dial schedule, and power-on checklist |
 | [BOM](Master_R2D2_BOM.xls) | Selected/owned/ordered/unused inventory |
 | [Inspector](wiring_visualizer.html) | Terminal graph and printable wire schedule |
 | [Firmware plan](docs/superpowers/plans/2026-10-09-teensy-firmware.md) | Fully implemented; all unit and integration tests passing |

@@ -82,6 +82,8 @@ Teensy firmware must ship **motion disabled** until this installed-controller pr
 
 ## 4. Receiver and drive behaviour
 
+For the complete illustrated switch layout, plain-language operator guide, and safe startup checklist, see [FlySky Controller Operator Guide](CONTROLLER_OPERATOR_GUIDE.md).
+
 Receiver stays in body: SERVO ->Lonely Binary channel 1->TeensyRX21, SENSOR <->channel 2<->pin 24. No receiver PPM output connects to either VESC.
 
 | Channel | Assignment |
