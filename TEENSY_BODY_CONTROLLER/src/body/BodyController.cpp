@@ -34,14 +34,16 @@ void BodyController::init(uint32_t now_ms) {
     if (config_store_.load(loaded) == ConfigResult::Ready) {
         profile_ = loaded;
     }
-    activateSavedProfile();
+    activateSavedProfile(true);
     updateStatus(now_ms);  // the DFPlayer is reset and configured by audio_.tick()
 }
 
-void BodyController::activateSavedProfile() {
+void BodyController::activateSavedProfile(bool from_boot) {
+    const bool auto_was_ready = readiness(active_).auto_dome;
     active_ = profile_;
     left_vesc_.setProfile(VescProfile::fromSaved(active_, 0));
     right_vesc_.setProfile(VescProfile::fromSaved(active_, 1));
+    dome_.profileActivated(from_boot || auto_was_ready);
 }
 
 bool BodyController::releaseGateOpen(uint32_t now_ms) const {

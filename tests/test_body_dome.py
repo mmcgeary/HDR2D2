@@ -481,6 +481,21 @@ assert(f.dome.owner() == r2link::DomeOwner::None);
 assert(f.dome.output().pulse_us == 1500);
 ''')
 
+    def test_save_that_enables_auto_dome_waits_for_a_ch9_flip(self):
+        self.check(r'''
+DomeFixture f;
+f.profile.acceptance = 1u << kAcceptServoNeutral;        // auto dome not ready yet
+f.rc(0, 1500, 2000, 1000); f.setHall(0x00, 0); f.tick(20);
+f.acceptAutoDome();                                       // the Save made it ready...
+f.dome.profileActivated(false);
+for (uint32_t t = 40; t <= 400; t += 20) { f.deliverHall(t); f.tick(t); }
+assert(f.dome.state() != r2link::DomeState::SeekingReference);   // ...but CH9 was already ON
+f.rc(420, 1500, 1000, 1000); f.tick(420);                       // CH9 OFF
+f.rc(440, 1500, 2000, 1000); f.deliverHall(440); f.tick(440);   // CH9 ON again
+f.deliverHall(460); f.tick(460);
+assert(f.dome.state() == r2link::DomeState::SeekingReference);  // startup alignment now runs
+''')
+
 
 if __name__ == "__main__":
     unittest.main()

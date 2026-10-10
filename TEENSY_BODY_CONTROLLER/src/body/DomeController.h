@@ -34,6 +34,9 @@ public:
     r2link::Result setMotionLocks(uint8_t reasons);
     r2link::Result releaseStop(uint16_t current_epoch, uint32_t now_ms);
     void peerLost(uint32_t now_ms);
+    // A profile was just activated. If it makes auto dome ready when it was not,
+    // auto behaviour waits for CH9 to be seen OFF then ON.
+    void profileActivated(bool auto_was_ready);
 
     ServoCommand output() const;
     bool takeEvent(r2link::Event& ev);
@@ -93,6 +96,7 @@ private:
     // Fault tracking
     bool seek_fault_;
     bool auto_dome_prior_on_;
+    bool auto_rearm_;
 
     // Timing
     uint32_t last_tick_ms_;

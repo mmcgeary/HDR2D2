@@ -77,7 +77,7 @@ private:
     // All-or-nothing against the drive's latches: refused releases change nothing.
     r2link::Result releaseLocks(uint8_t clear, uint32_t now_ms);
     bool releaseGateOpen(uint32_t now_ms) const;
-    void activateSavedProfile();
+    void activateSavedProfile(bool from_boot = false);
     void publishStatusNow(uint32_t now_ms);
     void updateStatus(uint32_t now_ms);
     void pumpLink(uint32_t now_ms);

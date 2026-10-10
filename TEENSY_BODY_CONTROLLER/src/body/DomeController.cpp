@@ -22,8 +22,12 @@ DomeController::DomeController(const CommissioningProfile& profile)
       velocity_speed_(0), lease_expiry_ms_(0), drive_seeking_(false),
       drive_target_(r2link::DomeReference::Front), drive_seek_start_ms_(0),
       startup_done_(false), startup_seeking_(false), startup_seek_start_ms_(0),
-      seek_fault_(false), auto_dome_prior_on_(false), last_tick_ms_(0),
+      seek_fault_(false), auto_dome_prior_on_(false), auto_rearm_(false), last_tick_ms_(0),
       ticked_(false), event_head_(0), event_tail_(0), event_count_(0) {}
+
+void DomeController::profileActivated(bool auto_was_ready) {
+    if (!auto_was_ready && profile_ && readiness(*profile_).auto_dome) auto_rearm_ = true;
+}
 
 uint16_t DomeController::speedToPulse(int16_t speed_percent) const {
     const uint16_t neutral = (profile_ && profile_->servo_neutral) ? profile_->servo_neutral : 1500;
@@ -158,6 +162,7 @@ r2link::Result DomeController::request(const r2link::DomeRequest& req, uint16_t 
 
     if (!isRcFresh(now_ms)) return r2link::Result::NotReady;
     if (rc_.channels[kAutoDome] < 1750) return r2link::Result::Inhibited;
+    if (auto_rearm_) return r2link::Result::Inhibited;
 
     if (!isHallFresh(now_ms)) return r2link::Result::NotReady;
 
@@ -226,7 +231,9 @@ void DomeController::tick(uint32_t now_ms) {
     last_tick_ms_ = now_ms;
 
     // Check Auto Dome switch edge / state
-    const bool auto_dome_on = isRcFresh(now_ms) && rc_.channels[kAutoDome] >= 1750;
+    const bool ch9_on = isRcFresh(now_ms) && rc_.channels[kAutoDome] >= 1750;
+    if (isRcFresh(now_ms) && rc_.channels[kAutoDome] < 1250) auto_rearm_ = false;
+    const bool auto_dome_on = ch9_on && !auto_rearm_;
     if (auto_dome_on && !auto_dome_prior_on_) {
         // OFF -> ON edge clears latched faults
         seek_fault_ = false;
