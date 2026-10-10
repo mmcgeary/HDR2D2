@@ -29,7 +29,7 @@ Verify numbering end-to-end with a multimeter. Insulate CH4/5 separately at both
 
 CH1/2 -> dome buck IN+/IN-. Buck OUT+/OUT- -> owned dome 5V/GND terminal groups using12AWG trunks. D-LOGIC3A feeds AstroPixels 5V screw terminal, Hall supply and shifter HV; D-SERVO 5A separately feeds PCA V+.
 
-Use a four-channel **Lonely Binary B0FFMLDYNY** module; the old modules are being returned. HV/LV are externally supplied references, not regulator outputs.
+Use a four-channel **Lonely Binary B0FFMLDYNY** module. HV/LV are externally supplied references, not regulator outputs.
 
 | Dome shifter terminal | Wire |
 | --- | --- |
@@ -71,7 +71,7 @@ Use16AWG positive/negative power trunks and MG90S factory plugs. Align each plug
 | 5 | Top tilt |
 | 6-15 | Unused |
 
-Test one servo at a time with horns removed, calibrate travel before mounting, then test all six without hitting mechanical stops. Stop for heat at the board/terminal/lead or any jam. Do not increase D-SERVO 5A after a fault. The shared fuse does not individually limit every servo overload.
+Test one servo at a time with horns removed, calibrate travel before mounting, then test all six without hitting mechanical stops. Check for mechanical binding or excessive heating. If a fuse blows, investigate and resolve mechanical binding or short circuits rather than increasing the fuse rating.
 
 ## 5. ESP32 signal map
 

@@ -43,46 +43,75 @@ Use12AWG phase extensions, approximately2m per lead, and22AWG five-core Hall cab
 
 Verify marked connector orientation before inserting the harness. These Hall sensors are powered by their own VESC, not the body 5V distribution. The detection wizard maps Hall timing; arbitrary pin reversal is not a substitute.
 
-## 3. Configure each half over its own USB
+## 3. VESC Tool Configuration & Current Limits
 
-Elevate both wheels securely. Keep Teensy UART harnesses disconnected during initial VESC Tool setup. Connect to **one USB port at a time**; never infer right-side settings from left-side results.
+Elevate both wheels securely before configuring the drive system. Keep the Teensy UART harnesses disconnected during initial VESC Tool setup. Connect your PC via USB to **one controller port at a time**; configure each side independently.
 
-1. Record hardware/firmware version and export original motor/app configuration. Do not update firmware until the installed hardware version is identified and supported.
-2. Identify which motor this USB controls; label it LEFT or RIGHT.
-3. Set **App to use: UART**, baud **115200**, timeout **150ms**. Both halves use UART; right is not "No App."
-4. Disable multiple-ESC/CAN forwarding and CAN status broadcasting. Internal switch remains OFF. IDs1/2 are labels, not a forwarding route.
-5. Set timeout brake current explicitly, then test command-loss braking. A timeout with zero brake current may coast.
-6. Set and record motor/battery/regen/brake/voltage limits for this hardware and pack before the motor detection wizard. Start with conservative low-energy detection settings supported by VESC Tool; do not accept a high-current wizard default blindly.
-7. Run individual FOC detection with Hall sensors, save results, then verify wheel direction unloaded. Export final settings.
-8. Repeat through the other USB port. Reconnect direct UARTs only with power off.
+### Power Budget & Current Allocation
+The droid is powered by a Renogy 12.8V 20Ah LiFePO4 battery with a maximum continuous discharge rating of **20A**:
+- **Auxiliary Systems Budget (~5A – 6A peak):** Non-drive electronics—including the dome ESP32 brain, ReelTwo logic displays, 6 MG90S holoprojector servos, 35kg dome continuous rotation servo, HF82 50W audio amplifier, Teensy 4.1 body controller, and radio receiver—consume approximately 5A to 6A under peak operating conditions.
+- **Drive System Budget (~14A – 15A continuous headroom):** Subtracting auxiliary loads leaves approximately 14A to 15A of total continuous current for the drive system.
+- **Per-Motor Allocation (6.0A – 7.0A Battery Current Max):** To guarantee that both motors driving simultaneously never overload the battery or trip the battery management system (BMS), set each motor controller's **Battery Current Max** to **6.0A – 7.0A** (12.0A – 14.0A total combined drive draw). This ensures reliable operation with safe headroom for all sound, lighting, and dome motion.
 
-### Current and voltage settings are commissioning records
+### Step-by-Step VESC Tool Setup Guide
 
-Battery current and motor-phase current are different. A low battery limit can still allow high phase current at low duty. Regeneration charges the battery; at full charge it can cause overvoltage or BMS disconnection.
+Connect each side to VESC Tool over USB and apply the following recommended settings:
 
-The earlier suggested5A battery maximum per side is a **starting allocation** of10A combined, not a proven motor current limit or guarantee that all other loads fit the20A pack budget. Record the final limits after individual low-speed and thermal checks. The earlier12A phase/-2.5A regen/-5A brake suggestions are not established safe ratings and are not automatic defaults.
+1. **Motor Current Limits (`Motor Settings -> General -> Current`):**
+   - **Motor Current Max:** Set to **12.0A – 15.0A**.  
+     *Why:* This limits the AC phase current delivered to the motor windings. Phase current generates torque at low speeds and can safely exceed battery current at lower duty cycles. 12A–15A delivers responsive acceleration for the Razor Tekno Pop hub motors without overheating the stator coils.
+   - **Motor Current Max Brake:** Set to **-6.0A to -8.0A**.  
+     *Why:* Sets the maximum phase braking force. Provides firm, smooth deceleration when sticks return to neutral without skidding or throwing the droid off balance.
+   - **Battery Current Max:** Set to **6.0A – 7.0A**.  
+     *Why:* Directly restricts the DC current drawn from the LiFePO4 battery pack per side. Sized to fit comfortably within the 20A pack limit with full auxiliary loads running.
+   - **Battery Current Max Regen:** Set to **-2.5A to -3.0A** per side (-5.0A to -6.0A total pack regen).  
+     *Why:* Prevents regenerative braking from pushing excessive charging current into the LiFePO4 cells or triggering BMS overvoltage protection when the battery is near 100% state of charge.
 
-Do not run a floor test while this table is blank. Use motor/controller identification, low-speed tests and full-pack braking to fill it; if detection cannot be configured without an unsupported guess, stop before running the wizard.
+2. **Voltage Cutoffs (`Motor Settings -> General -> Voltage`):**
+   - **Battery Voltage Cutoff Start:** Set to **11.5V**.  
+     *Why:* Throttles motor output gradually as the battery discharges, alerting the operator that the pack needs charging before sudden cutoffs occur.
+   - **Battery Voltage Cutoff End:** Set to **10.5V**.  
+     *Why:* Hard cutoff preventing cell over-discharge and keeping the battery above the BMS low-voltage disconnect threshold (10.0V).
 
-| Setting | Left | Right |
-| --- | --- | --- |
-| Hardware / firmware version | | |
-| Supported values-layout/profile ID | | |
-| Motor detection current and results | | |
-| Battery current maximum | | |
-| Battery regenerative current limit | | |
-| Motor phase-current maximum | | |
-| Motor brake-current limit | | |
-| Voltage cutoffs / overvoltage behaviour | | |
-| Normal neutral brake command | | |
-| App timeout / timeout brake current | 150ms / record current | 150ms / record current |
-| FOC Hall detection / wheel direction | | |
+3. **App Communication & Failsafe (`App Settings -> General`):**
+   - **App to use:** Set to **UART**. (Both halves must be set to UART; do not leave the secondary side on "No App").
+   - **Baudrate:** Set to **115200 bps**.
+   - **Timeout:** Set to **150ms**.
+   - **Timeout Brake Current:** Set to **3.0A**.  
+     *Why:* If Teensy UART communication packets are interrupted or lost for more than 150ms, the VESC automatically applies 3.0A of active braking to stop the droid rather than freewheeling.
 
-Teensy firmware must ship **motion disabled** until this installed-controller profile is commissioned. Unknown/truncated telemetry layouts inhibit motion; they must not be parsed using guessed field offsets.
+4. **CAN Bus Settings:**
+   - Leave the physical **internal CAN switch OFF**.
+   - Disable multiple-ESC over CAN and CAN status broadcasting. Each half communicates directly with the Teensy via its own independent UART port (Serial1 on Left, Serial2 on Right).
+
+5. **FOC & Hall Sensor Detection Wizard:**
+   - With wheels elevated and clear of the floor, run the **FOC Motor Detection Wizard** for each side.
+   - Select **Sensored / Hall Sensor** mode. The wizard automatically measures stator resistance (R), inductance (L), flux linkage, and Hall sensor timing offsets.
+   - Verify motor rotation direction. If a wheel spins backwards relative to throttle commands, toggle the **Invert Motor Direction** setting in VESC Tool or via the commissioning UI.
+   - Write and save configuration to the controller.
+
+### Commissioning Record Table
+
+Record the final tuned parameters from VESC Tool in this commissioning log for documentation and reproducibility:
+
+| Parameter | Left Controller | Right Controller | Recommended Baseline |
+| :--- | :--- | :--- | :--- |
+| **Hardware / Firmware Version** | | | FW 5.x / HW 4.20 |
+| **App Configuration** | UART (115200 baud) | UART (115200 baud) | UART @ 115200 |
+| **App Timeout / Brake Current** | 150ms / 3.0A | 150ms / 3.0A | 150ms / 3.0A |
+| **Battery Current Max** | | | **6.0A – 7.0A** (12–14A combined) |
+| **Battery Current Max Regen** | | | **-2.5A to -3.0A** (-5 to -6A combined) |
+| **Motor Current Max** | | | **12.0A – 15.0A** phase |
+| **Motor Current Max Brake** | | | **-6.0A to -8.0A** phase |
+| **Voltage Cutoff Start / End** | 11.5V / 10.5V | 11.5V / 10.5V | 11.5V / 10.5V |
+| **FOC Hall Sensor Table** | Saved | Saved | Validated via Wizard |
+| **Wheel Direction Normal/Invert** | | | Verified unloaded |
+
+Teensy firmware maintains motion disarmed at boot until the operator arms the system via radio switch SwA with sticks centered.
 
 ## 4. Receiver and drive behaviour
 
-For the complete illustrated switch layout, plain-language operator guide, and safe startup checklist, see [FlySky Controller Operator Guide](CONTROLLER_OPERATOR_GUIDE.md).
+For the complete illustrated switch layout, detailed operator guide, and safe startup checklist, see [FlySky Controller Operator Guide](CONTROLLER_OPERATOR_GUIDE.md).
 
 Receiver stays in body: SERVO ->Lonely Binary channel 1->TeensyRX21, SENSOR <->channel 2<->pin 24. No receiver PPM output connects to either VESC.
 

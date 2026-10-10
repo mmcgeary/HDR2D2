@@ -2,7 +2,7 @@
 
 > **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Both the Teensy 4.1 body controller and AstroPixels Plus ESP32 firmware are fully implemented; flash both boards before combined testing.
 
-Nothing has been wired yet. Assemble this design only. The body controller is a **Teensy 4.1 in the Treedix socketed screw-terminal carrier [B09NXYWYK7](https://www.amazon.ca/dp/B09NXYWYK7)**. AstroPixels ESP32 stays in the dome.
+The body controller is a **Teensy 4.1 in the Treedix socketed screw-terminal carrier [B09NXYWYK7](https://www.amazon.ca/dp/B09NXYWYK7)**. The AstroPixels ESP32 controller resides in the dome.
 
 Use [Power Harness Guide](POWER_HARNESS_GUIDE.md) for power wiring, [Dome Wiring](DOME_WIRING_DIAGRAM.md) for PCA9685 and lighting, and [Commissioning](BODY_CONTROLLER_COMMISSIONING.md) for checks before motion.
 
@@ -128,7 +128,7 @@ Use end-to-end continuity to identify the six contacts; wire colours alone do no
 
 Serial is 115200, 8N1, two-way 3.3V, no shifter. Use AstroPixels' dedicated serial RX16/TX17 connections; do not connect a serial-header 5V pin. Ring CH2 provides common ground. Insulate both ends of CH4/CH5 separately and label SPARE.
 
-GPIO5/AUX3 and GPIO4/AUX2 are spare. GPIO19 is Front Hall input, GPIO18 is Rear Hall input. GPIO21/22 remain I2C. The earlier receiver-in-dome, VESC-through-ring, CH4 audio and CH5 servo assignments are superseded; do not assemble them.
+GPIO5/AUX3 and GPIO4/AUX2 are spare. GPIO19 is Front Hall input, GPIO18 is Rear Hall input. GPIO21/22 remain I2C. The radio receiver, VESC motor controllers, audio player, and dome rotation servo connect directly to the Teensy in the body.
 
 ## 7. First-time harness assembly
 

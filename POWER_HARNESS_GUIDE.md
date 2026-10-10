@@ -17,7 +17,7 @@ This is the approved first-assembly schedule. Use [Body Controller Wiring](BODY_
 | Bucks | Two fixed5V10A [B09T954ZV1](https://www.amazon.ca/dp/B09T954ZV1), one body/one dome; listed input 10-35V |
 | Slip ring | Six contacts,10A/contact,17AWG installed leads;16AWG power extensions |
 
-The25A fuse is not a20A electronic limiter. Keep total continuous battery draw within 20A by commissioned VESC limits plus measured lighting/audio/servo load. Fuses do not guarantee survival of every semiconductor or thin factory lead.
+Fuses across the power harness are sized as best estimates based on planned draw for each subsystem. Total continuous battery draw should be kept within the 20A battery rating by configuring motor limits in VESC Tool and accounting for lighting, audio, and servo loads.
 
 ## 2. Approved fuse schedule
 
@@ -81,7 +81,7 @@ The two 5V positive rails never join. Common ground connects throughout via ring
 
 Run16AWG from D-SERVO 5A to PCA9685 **V+ screw terminal** and16AWG return to its ground screw. VCC is a separate3.3V logic supply from ESP32. Do not feed servo power through I2C/header wiring.
 
-Keep six MG90S factory connectors; no unnecessary thin extensions. Connect/test one servo at a time, then all six together through their calibrated travel. Stop for heat at the supply terminal/board/lead or a jam. A blown5A fuse means investigate the fault, not install a bigger fuse. This shared fuse does not individually protect every servo from overload.
+Keep six MG90S factory connectors; no unnecessary thin extensions. Connect/test one servo at a time, then all six together through their calibrated travel. Check for mechanical binding, excessive heating, or travel limits. If a fuse blows, investigate and resolve mechanical binding or short circuits rather than increasing the fuse rating.
 
 ## 3. Slip ring
 

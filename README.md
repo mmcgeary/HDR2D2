@@ -27,7 +27,7 @@ The build keeps the stock exterior shell while adding:
 | [AstroPixels Plus Firmware Guide](ASTROPIXELS_PLUS_UNIFIED/README.md) | Dome firmware setup, target pin map, sound files, Web UI, and safety controls |
 | [Teensy Body Controller Guide](TEENSY_BODY_CONTROLLER/README.md) | Teensy firmware architecture, scheduler, CLI commands, and test suites |
 | [VESC Drive Setup](VESC_DRIVE_INTEGRATION.md) | Motor detection, current limits, radio mixing, and safety failsafes for the feet |
-| [Controller Operator Guide](CONTROLLER_OPERATOR_GUIDE.md) | Plain-language switch/stick layout, dial routines, and safe power-on checklist for the FlySky transmitter |
+| [Controller Operator Guide](CONTROLLER_OPERATOR_GUIDE.md) | Switch/stick layout, dial routines, and safe power-on checklist for the FlySky transmitter |
 | [Bill of Materials](Master_R2D2_BOM.xls) | Complete parts list, hardware links, and purchase notes (Excel-compatible) |
 
 Use the body guide for pins and the power guide for fuses. `ESP32_DOME_BRAIN_GUIDE.md` and standalone sketches are historical references, not alternative instructions for the selected hardware.
@@ -43,7 +43,7 @@ Use the body guide for pins and the power guide for fuses. `ESP32_DOME_BRAIN_GUI
 * [Firmware implementation plan](docs/superpowers/plans/2026-10-09-teensy-firmware.md): Comprehensive 12-task architecture and verification plan.
 
 ### Operation & Radio Control
-* [`CONTROLLER_OPERATOR_GUIDE.md`](CONTROLLER_OPERATOR_GUIDE.md): Illustrated FlySky FS-i6X transmitter layout, plain-language control breakdown, 13-routine dial schedule, and power-on safety checklist.
+* [`CONTROLLER_OPERATOR_GUIDE.md`](CONTROLLER_OPERATOR_GUIDE.md): Illustrated FlySky FS-i6X transmitter layout, detailed control breakdown, 13-routine dial schedule, and power-on safety checklist.
 
 ### Wiring & Power
 * [`POWER_HARNESS_GUIDE.md`](POWER_HARNESS_GUIDE.md) and [`DOME_WIRING_DIAGRAM.md`](DOME_WIRING_DIAGRAM.md) detail the entire electrical layout, wire sizes, fusing, and testing steps.

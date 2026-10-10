@@ -2,7 +2,7 @@
 
 > **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Both the Teensy 4.1 body controller and AstroPixels Plus ESP32 firmware are fully implemented; flash both boards before combined testing.
 
-This guide explains in plain language what every switch, knob, and stick on your **FlySky FS-i6X 10-Channel 2.4GHz Transmitter** does when operating R2-D2.
+This guide details the function, channel mappings, and operational procedures for every switch, knob, and stick on your **FlySky FS-i6X 10-Channel 2.4GHz Transmitter** when operating R2-D2.
 
 ---
 
@@ -58,7 +58,7 @@ This guide explains in plain language what every switch, knob, and stick on your
 
 ---
 
-## 3. Plain Language Explanation of Controls
+## 3. Control Operations & Detailed Functions
 
 ### 🕹️ Right Stick — Foot Drive & Steering
 The right stick controls R2-D2's feet using single-stick arcade drive:
