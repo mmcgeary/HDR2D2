@@ -15,6 +15,7 @@ SOURCES = [
     BODY / "body/DomeController.cpp",
     BODY / "body/DfPlayer.cpp",
     BODY / "body/DomeCalibration.cpp",
+    BODY / "body/WheelTest.cpp",
     BODY / "body/VescLink.cpp",
     BODY / "body/ConfigStore.cpp",
     BODY / "body/IbusTelemetry.cpp",
@@ -79,6 +80,11 @@ struct LockRig {
     FakePort link_port, left_vesc_port, right_vesc_port, audio_port;
     body::BodyController controller{config_store, link_port, left_vesc_port, right_vesc_port, audio_port};
     uint32_t now = 1000;
+    // Optional dome-side endpoint: while it is linked the body sees a live link,
+    // so commissioning runs are not cancelled as link loss.
+    FakePort peer_port;
+    r2link::Endpoint peer{peer_port, r2link::kRoleDome, 0xD0D0};
+    bool linked = false;
     LockRig() {
         controller.init(now);
         // Manual dome commissioned so a released dome can prove it moves again.
@@ -103,8 +109,23 @@ struct LockRig {
             rc.channels[3] = ch4; rc.channels[5] = ch6; rc.channels[8] = 1000;
             rc.valid = true; rc.sample_ms = now; rc.sample_counter = now; rc.flags = 1;
             controller.updateRc(rc, now);
+            if (linked) pumpLink();
             controller.tick(now, now * 1000);
         }
+    }
+    void pumpLink() {
+        peer_port.rx_bytes.insert(peer_port.rx_bytes.end(), link_port.tx_bytes.begin(), link_port.tx_bytes.end());
+        link_port.tx_bytes.clear();
+        peer.tick(now);
+        r2link::Frame fr{}; uint32_t ms = 0;
+        while (peer.takeReceived(fr, ms)) peer.reply(fr, r2link::Result::Accepted, 0);
+        link_port.rx_bytes.insert(link_port.rx_bytes.end(), peer_port.tx_bytes.begin(), peer_port.tx_bytes.end());
+        peer_port.tx_bytes.clear();
+    }
+    void connect() {
+        linked = true;
+        for (int i = 0; i < 100 && !(controller.linkEndpoint().connected(now) && peer.connected(now)); ++i) run(10);
+        assert(controller.linkEndpoint().connected(now) && peer.connected(now));
     }
     r2link::Result control(uint8_t op, uint8_t reason, uint16_t token = 0) {
         r2link::ControlRequest q{};
@@ -269,6 +290,65 @@ assert(std::strstr(buf, "OK accepted vesc_config_left") != nullptr);
 assert(p.acceptance & (1u << body::kAcceptVescConfig));
 assert(g.controller.processCli("profile accept no_such_bit", buf, sizeof buf, g.now));
 assert(std::strstr(buf, "ERROR unknown") != nullptr);
+''')
+
+    def test_wheel_test_drives_only_the_tested_vesc_with_low_duty(self):
+        self.run_lock_rig(r'''
+LockRig g; g.run(10);
+body::CommissioningProfile& p = g.controller.profile();
+readyDrive(p);
+p.acceptance &= ~((0x3u << body::kAcceptTimeoutBrake) | (0x3u << body::kAcceptDirection) | (0x3u << body::kAcceptReversal));
+g.save();                                              // vesc_config only, saved
+// Scripted VESC replies: firmware 6.2 and a GET_VALUES reply on demand.
+auto values = [](int32_t erpm) {
+    std::vector<uint8_t> v(54, 0); v[0] = 4; v[27] = 0; v[28] = 128;
+    v[23] = uint8_t(erpm >> 24); v[24] = uint8_t(erpm >> 16); v[25] = uint8_t(erpm >> 8); v[26] = uint8_t(erpm);
+    return vescFrame(v);
+};
+auto feed = [&](int rounds) {
+    for (int i = 0; i < rounds; ++i) {
+        for (FakePort* port : {&g.left_vesc_port, &g.right_vesc_port}) {
+            const auto fw = vescFrame({0, 6, 2}); const auto vals = values(0);
+            port->rx_bytes.insert(port->rx_bytes.end(), fw.begin(), fw.end());
+            port->rx_bytes.insert(port->rx_bytes.end(), vals.begin(), vals.end());
+        }
+        g.run(20);
+    }
+};
+feed(30);
+assert(g.controller.leftVesc().commissioningReady(g.now));
+r2link::CommissionRequest begin{}; begin.operation = 1; begin.test = 7; begin.wheel = 0; begin.value = 1;
+begin.run_id = 77; begin.control_epoch = g.controller.status().control_epoch;
+r2link::Frame f{}; r2link::ErrorCounters e{};
+auto duties = [](const std::vector<uint8_t>& tx, int16_t& max_permille) {
+    int n = 0; max_permille = 0;
+    for (size_t i = 0; i + 9 < tx.size(); ++i)
+        if (tx[i] == 2 && tx[i + 1] == 5 && tx[i + 2] == 5) {
+            const int32_t v = int32_t(uint32_t(tx[i+3]) << 24 | uint32_t(tx[i+4]) << 16 | uint32_t(tx[i+5]) << 8 | tx[i+6]);
+            if (v / 100 > max_permille) max_permille = int16_t(v / 100);
+            ++n;
+        }
+    return n;
+};
+int16_t left_max = 0, right_max = 0;
+// No live link: the run is cancelled on the first pass and the wheel only brakes out.
+assert(r2link::encode(begin, f, e) == r2link::Status::Ok);
+g.left_vesc_port.tx_bytes.clear(); g.right_vesc_port.tx_bytes.clear();
+assert(g.controller.handle(f, g.now) == r2link::Result::Accepted);
+g.run(50);
+assert(g.controller.calibration().status().state == uint8_t(body::CommissionState::Cancelled));
+assert(duties(g.left_vesc_port.tx_bytes, left_max) == 0 && duties(g.right_vesc_port.tx_bytes, right_max) == 0);
+g.connect();
+feed(30);                                              // brake-out finished, telemetry fresh
+assert(!g.controller.calibration().wheelTestBusy());
+assert(g.controller.leftVesc().commissioningReady(g.now));
+begin.run_id = 78; begin.control_epoch = g.controller.status().control_epoch;
+assert(r2link::encode(begin, f, e) == r2link::Status::Ok);
+g.left_vesc_port.tx_bytes.clear(); g.right_vesc_port.tx_bytes.clear();
+assert(g.controller.handle(f, g.now) == r2link::Result::Accepted);
+g.run(50);
+assert(duties(g.left_vesc_port.tx_bytes, left_max) > 0 && left_max == 100);
+assert(duties(g.right_vesc_port.tx_bytes, right_max) == 0);
 ''')
 
     def test_boot_initialises_the_real_dfplayer(self):

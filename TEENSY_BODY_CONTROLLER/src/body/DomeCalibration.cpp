@@ -3,6 +3,33 @@
 
 namespace body {
 
+namespace {
+// Fields of one wheel each automated test depends on: firmware, layout and
+// limits for all three, plus the timeout settings or the reversal settings.
+const uint8_t kTimeoutIds[] = {6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+const uint8_t kDirectionIds[] = {6, 7, 8, 9, 10, 11, 12, 13, 14};
+const uint8_t kReversalIds[] = {6, 7, 8, 9, 10, 11, 12, 13, 14, 17, 18};
+}
+
+uint32_t DomeCalibration::wheelDigest(const CommissioningProfile& p, uint8_t k, uint8_t w) {
+    if (k == 0) return fieldDigest(p, w, kTimeoutIds, sizeof kTimeoutIds);
+    if (k == 1) return fieldDigest(p, w, kDirectionIds, sizeof kDirectionIds);
+    return fieldDigest(p, w, kReversalIds, sizeof kReversalIds);
+}
+
+void DomeCalibration::setWheelReady(uint8_t wheel, bool ready) {
+    if (wheel < 2) wheel_ready_[wheel] = ready;
+}
+
+void DomeCalibration::updateWheelSample(const VescSample& s, uint32_t now_ms) {
+    wheel_sample_ = s;
+    if (wheel_test_.busy()) wheel_test_.update(s, now_ms);
+}
+
+bool DomeCalibration::wheelTestBusy() const { return wheel_test_.busy(); }
+uint8_t DomeCalibration::wheelUnderTest() const { return wheel_; }
+WheelTestCommand DomeCalibration::wheelCommand() const { return wheel_test_.command(); }
+
 DomeCalibration::DomeCalibration(ConfigStore& store, CommissioningProfile& staged_profile)
     : store_(store), profile_(staged_profile) {
     status_.state = static_cast<uint8_t>(CommissionState::Idle);
@@ -131,11 +158,40 @@ r2link::Result DomeCalibration::handleRequestImpl(const r2link::CommissionReques
         if (rc_.channels[5] >= 1250) return r2link::Result::Inhibited; // CH6 must be OFF
 
         const CommissionTest test = static_cast<CommissionTest>(req.test);
-        if (test == CommissionTest::None || static_cast<uint8_t>(test) > 5) {
+        if (test == CommissionTest::None || static_cast<uint8_t>(test) > 8) {
             return r2link::Result::InvalidArgument;
         }
 
         if (!isSticksNeutral()) return r2link::Result::Inhibited;
+
+        if (static_cast<uint8_t>(test) >= 6) {
+            if (req.value != 1 || req.wheel > 1) return r2link::Result::InvalidArgument;   // value 1 = wheel raised
+            // Never restart WheelTest while it runs or brakes out after an abort.
+            if (status_.state == static_cast<uint8_t>(CommissionState::Running) || wheel_test_.busy())
+                return req.run_id == status_.run_id ? r2link::Result::Accepted : r2link::Result::Busy;
+            if (!wheel_ready_[req.wheel]) { status_.error = 12; return r2link::Result::NotReady; }
+            if (wheel_sample_.erpm <= -WheelTest::kTurningErpm || wheel_sample_.erpm >= WheelTest::kTurningErpm) {
+                status_.error = 14;
+                return r2link::Result::Inhibited;
+            }
+            const CommissioningProfile& saved = saved_ ? *saved_ : profile_;
+            wheel_ = req.wheel;
+            wheel_done_run_[req.test - 6][wheel_] = 0;
+            const uint32_t flags = status_.flags;
+            const uint8_t saved_flag = status_.saved;
+            status_ = r2link::CommissionStatus{};   // acceptance fields are refilled by refreshStatus()
+            status_.flags = flags;
+            status_.saved = saved_flag;
+            status_.run_id = req.run_id;
+            status_.test = req.test;
+            status_.wheel = wheel_;
+            status_.state = static_cast<uint8_t>(CommissionState::Running);
+            status_.config_generation = store_.generation();
+            keepalive_deadline_ms_ = now_ms + 300;
+            wheel_test_.begin(static_cast<WheelTestKind>(req.test), saved.wheel[wheel_].reversal_erpm_limit,
+                              saved.wheel[wheel_].reversal_dwell_ms, now_ms);
+            return r2link::Result::Accepted;
+        }
 
         if (test == CommissionTest::FrontRef || test == CommissionTest::RearRef ||
             test == CommissionTest::TimingCw || test == CommissionTest::TimingCcw) {
@@ -148,8 +204,8 @@ r2link::Result DomeCalibration::handleRequestImpl(const r2link::CommissionReques
             }
         }
 
-        // Idempotence check
-        if (status_.state == static_cast<uint8_t>(CommissionState::Running)) {
+        // Idempotence check (a wheel still braking out also blocks a dome run)
+        if (status_.state == static_cast<uint8_t>(CommissionState::Running) || wheel_test_.busy()) {
             if (req.run_id == status_.run_id) return r2link::Result::Accepted;
             return r2link::Result::Busy;
         }
@@ -199,7 +255,7 @@ r2link::Result DomeCalibration::handleRequestImpl(const r2link::CommissionReques
     }
 
     if (op == CommissionOp::SetField) {
-        if (status_.state == static_cast<uint8_t>(CommissionState::Running)) {
+        if (status_.state == static_cast<uint8_t>(CommissionState::Running) || wheel_test_.busy()) {
             return r2link::Result::Busy;
         }
         if (!stationaryGate()) return r2link::Result::Inhibited;
@@ -212,7 +268,7 @@ r2link::Result DomeCalibration::handleRequestImpl(const r2link::CommissionReques
     }
 
     if (op == CommissionOp::Save) {
-        if (status_.state == static_cast<uint8_t>(CommissionState::Running)) {
+        if (status_.state == static_cast<uint8_t>(CommissionState::Running) || wheel_test_.busy()) {
             return r2link::Result::Busy;
         }
         if (!stationaryGate()) {
@@ -229,7 +285,7 @@ r2link::Result DomeCalibration::handleRequestImpl(const r2link::CommissionReques
     }
 
     if (op == CommissionOp::Accept) {
-        if (status_.state == static_cast<uint8_t>(CommissionState::Running)) {
+        if (status_.state == static_cast<uint8_t>(CommissionState::Running) || wheel_test_.busy()) {
             return r2link::Result::Busy;
         }
         if (!stationaryGate()) {
@@ -253,8 +309,14 @@ r2link::Result DomeCalibration::handleRequestImpl(const r2link::CommissionReques
             ev.cw_completed = cw;
             ev.ccw_completed = ccw;
         }
-        if (bit >= 4 && bit <= 11) {
-            ev.vesc_operator_observed = true;
+        if (bit == kAcceptVescConfig || bit == kAcceptVescConfig + 1) {
+            ev.vesc_operator_observed = true;   // operator compared VESC Tool with the staged record
+        } else if (bit >= kAcceptTimeoutBrake && bit < kAcceptBitCount) {
+            // A passed automated run whose saved settings still match what is staged.
+            const uint8_t k = static_cast<uint8_t>((bit - kAcceptTimeoutBrake) / 2);   // 0 timeout, 1 direction, 2 reversal
+            const uint8_t w = bit & 1;
+            ev.vesc_operator_observed = wheel_done_run_[k][w] != 0 &&
+                                        wheel_done_digest_[k][w] == wheelDigest(profile_, k, w);
         }
         ev.config_digest = acceptanceDigest(profile_, bit);
 
@@ -266,7 +328,8 @@ r2link::Result DomeCalibration::handleRequestImpl(const r2link::CommissionReques
     }
 
     if (op == CommissionOp::ApplyBaseline) {
-        if (status_.state == static_cast<uint8_t>(CommissionState::Running)) return r2link::Result::Busy;
+        if (status_.state == static_cast<uint8_t>(CommissionState::Running) || wheel_test_.busy())
+            return r2link::Result::Busy;
         if (!stationaryGate()) return r2link::Result::Inhibited;
         applyBaseline(profile_, observed_fw_);
         refreshStatus();
@@ -280,9 +343,41 @@ r2link::Result DomeCalibration::handleRequestImpl(const r2link::CommissionReques
     return r2link::Result::InvalidArgument;
 }
 
+void DomeCalibration::tickWheelTest(uint32_t now_ms) {
+    const bool rc_stale = !rc_.valid || (now_ms < rc_.sample_ms) || (now_ms - rc_.sample_ms > 250);
+    const bool timed_out = now_ms >= keepalive_deadline_ms_;
+    if (motion_locked_ || timed_out || rc_stale || rc_.channels[5] >= 1250 || !isSticksNeutral()) {
+        wheel_test_.abort(now_ms);   // brake out; the caller keeps feeding samples until it finishes
+        status_.state = static_cast<uint8_t>(timed_out ? CommissionState::TimedOut : CommissionState::Cancelled);
+        if (timed_out) status_.error = 1;
+        return;
+    }
+    if (wheel_test_.busy()) return;
+    const WheelTestResult& r = wheel_test_.result();
+    status_.stop_ms = r.stop_ms;
+    status_.peak_current_cA = r.peak_current_cA;
+    status_.peak_erpm = r.peak_erpm;
+    status_.vesc_fault = r.fault;
+    if (wheel_test_.phase() == WheelTestPhase::Passed) {
+        const CommissioningProfile& saved = saved_ ? *saved_ : profile_;
+        const uint8_t k = static_cast<uint8_t>(status_.test - 6);
+        wheel_done_run_[k][wheel_] = status_.run_id;
+        wheel_done_digest_[k][wheel_] = wheelDigest(saved, k, wheel_);
+        status_.state = static_cast<uint8_t>(CommissionState::Completed);
+    } else {
+        status_.state = static_cast<uint8_t>(CommissionState::Failed);
+        status_.error = r.error;
+    }
+}
+
 void DomeCalibration::tick(uint32_t now_ms) {
     refreshStatus();
     if (status_.state != static_cast<uint8_t>(CommissionState::Running)) return;
+
+    if (status_.test >= static_cast<uint8_t>(CommissionTest::WheelTimeout)) {
+        tickWheelTest(now_ms);
+        return;
+    }
 
     if (motion_locked_) {
         cancel(now_ms);
@@ -435,7 +530,7 @@ ServoCommand DomeCalibration::output() const {
 }
 
 void DomeCalibration::cancel(uint32_t now_ms) {
-    (void)now_ms;
+    wheel_test_.abort(now_ms);   // no-op unless a wheel test is still commanding
     if (status_.state == static_cast<uint8_t>(CommissionState::Running)) {
         status_.state = static_cast<uint8_t>(CommissionState::Cancelled);
     }

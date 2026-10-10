@@ -5,6 +5,8 @@
 #include "body/ConfigStore.h"
 #include "body/DomeController.h"
 #include "body/IbusInput.h"
+#include "body/VescLink.h"
+#include "body/WheelTest.h"
 
 namespace body {
 
@@ -50,6 +52,16 @@ public:
     // Actuators run the saved profile; status() compares staged against it.
     void setSavedProfile(const CommissioningProfile& saved) { saved_ = &saved; }
     void setObservedFirmware(uint8_t wheel, bool valid, uint8_t major, uint8_t minor);
+
+    // Automated wheel tests (6-8). The caller reports each wheel's commissioning
+    // readiness, feeds the tested wheel's sample EVERY loop pass (WheelTest's
+    // timers advance only there) and applies wheelCommand() to that wheel only.
+    // Error 12 = wheel not ready, 14 = wheel still turning at Begin.
+    void setWheelReady(uint8_t wheel, bool ready);
+    void updateWheelSample(const VescSample& sample, uint32_t now_ms);
+    bool wheelTestBusy() const;          // Running or braking out after an abort
+    uint8_t wheelUnderTest() const;
+    WheelTestCommand wheelCommand() const;
 
     r2link::Result handleRequest(const r2link::CommissionRequest& req, uint32_t now_ms);
     void tick(uint32_t now_ms);
@@ -103,6 +115,16 @@ private:
     uint8_t timing_phase_{0}; // 0 = find initial front edge, 1 = rev 0, 2 = rev 1, 3 = rev 2
     bool saw_rear_{false};
     uint32_t rev_start_ms_{0};
+
+    WheelTest wheel_test_;
+    uint8_t wheel_{0};
+    bool wheel_ready_[2]{false, false};
+    VescSample wheel_sample_{};
+    // Latest passed run of each wheel test and the saved settings it ran on.
+    uint32_t wheel_done_run_[3][2]{};      // [kind-6][wheel]
+    uint32_t wheel_done_digest_[3][2]{};
+    static uint32_t wheelDigest(const CommissioningProfile& p, uint8_t kind_index, uint8_t wheel);
+    void tickWheelTest(uint32_t now_ms);
 };
 
 } // namespace body

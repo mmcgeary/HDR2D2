@@ -13,6 +13,8 @@ SOURCES = [
     BODY / "body/DomePosition.cpp",
     BODY / "body/DomeController.cpp",
     BODY / "body/IbusInput.cpp",
+    BODY / "body/WheelTest.cpp",
+    BODY / "body/VescLink.cpp",
     SHARED / "src/Codec.cpp",
     SHARED / "src/Endpoint.cpp",
 ]
@@ -32,9 +34,22 @@ PRELUDE = r'''
 #include "Messages.h"
 #include "body/ConfigStore.h"
 #include "body/DomeCalibration.h"
+#include "body/VescLink.h"
 
 using namespace body;
 using namespace r2link;
+
+// Test utility: copies test_body_vesc.py's saved() values, VESC config accepted.
+static CommissioningProfile saved_profile_for_tests() {
+    CommissioningProfile p;
+    for (int w = 0; w < 2; ++w) {
+        const int v[] = {1, 42, 19, 1, 1000, 1000, 0, 1500, 1050, 1500, 150, 1500, 100, 50};
+        for (int id = 5; id <= 18; ++id) assert(setField(p, id, w, v[id - 5]) == FieldResult::Ok);
+        p.acceptance |= 1u << (kAcceptVescConfig + w);
+    }
+    assert(validateProfile(p));
+    return p;
+}
 
 struct DummyStorage : public RawStorage {
     uint8_t mem[512];
@@ -147,6 +162,15 @@ struct CalibrationFixture {
         req.value = value;
         req.control_epoch = 1;
         return req;
+    }
+
+    CommissionRequest makeWheelBegin(CommissionTest test, uint8_t wheel, uint32_t run_id, int32_t raised = 1) {
+        CommissionRequest req = makeBegin(static_cast<uint8_t>(test), run_id, raised);
+        req.wheel = wheel;
+        return req;
+    }
+    VescSample wheelSample(int32_t erpm, uint32_t t) {
+        VescSample s{}; s.valid = true; s.erpm = erpm; s.sample_ms = t; return s;
     }
 
     // Flip CH9 (auto dome) and let the RC snapshot settle.
@@ -590,6 +614,65 @@ class DomeCalibrationTests(unittest.TestCase):
     assert(f.cal.handleRequest(req, f.now) == Result::Accepted);
     assert(f.cal.status().saved == 1);
     assert(f.cal.status().config_generation > 0);
+''')
+
+    def test_wheel_test_lifecycle_and_gates(self):
+        self.check(r'''
+    CalibrationFixture f;
+    f.rc.channels[8] = 1000; f.tick(f.now + 20);
+    assert(f.cal.handleRequest(f.makeWheelBegin(CommissionTest::WheelDirection, 0, 5), f.now) == Result::NotReady);
+    assert(f.cal.status().error == 12);
+    f.cal.setWheelReady(0, true);
+    f.cal.updateWheelSample(f.wheelSample(400, f.now), f.now);          // still coasting
+    assert(f.cal.handleRequest(f.makeWheelBegin(CommissionTest::WheelDirection, 0, 5), f.now) == Result::Inhibited);
+    assert(f.cal.status().error == 14);
+    f.cal.updateWheelSample(f.wheelSample(0, f.now), f.now);
+    assert(f.cal.handleRequest(f.makeWheelBegin(CommissionTest::WheelDirection, 0, 6, 0), f.now) == Result::InvalidArgument);
+    assert(f.cal.handleRequest(f.makeWheelBegin(CommissionTest::WheelDirection, 0, 6), f.now) == Result::Accepted);
+    assert(f.cal.wheelTestBusy() && f.cal.wheelUnderTest() == 0);
+    assert(f.cal.wheelCommand().mode == WheelTestCommand::Duty && f.cal.wheelCommand().duty_permille == 100);
+    // Keepalive lost mid-spin: brake 300ms, then nothing; state Cancelled.
+    const uint32_t start = f.now;
+    for (uint32_t t = start + 1; t <= start + 400; ++t) { f.cal.updateWheelSample(f.wheelSample(600, t), t); f.tick(t); }
+    assert(f.cal.status().state != static_cast<uint8_t>(CommissionState::Running));
+    assert(f.cal.wheelCommand().mode == WheelTestCommand::Brake && f.cal.wheelTestBusy());
+    CommissionRequest save{}; save.operation = static_cast<uint8_t>(CommissionOp::Save); save.control_epoch = 1;
+    assert(f.cal.handleRequest(save, f.now) == Result::Busy);            // still braking out
+    assert(f.cal.handleRequest(f.makeSetField(kFieldBrakeMa, 0, 3000), f.now) == Result::Busy);
+    const uint32_t brake_start = f.now;
+    for (uint32_t t = brake_start + 1; t <= brake_start + 400; ++t) { f.cal.updateWheelSample(f.wheelSample(0, t), t); f.tick(t); }
+    assert(!f.cal.wheelTestBusy() && f.cal.wheelCommand().mode == WheelTestCommand::Disable);
+''')
+
+    def test_wheel_sign_offs_need_a_passed_test_on_the_saved_settings(self):
+        self.check(r'''
+    CalibrationFixture f;
+    CommissioningProfile saved = saved_profile_for_tests();
+    f.profile = saved; f.cal.setSavedProfile(saved);
+    f.rc.channels[8] = 1000; f.tick(f.now + 20);
+    f.cal.setWheelReady(1, true);
+    assert(f.cal.handleRequest(f.makeAccept(kAcceptTimeoutBrake + 1), f.now) == Result::Inhibited);   // no test yet
+    f.cal.updateWheelSample(f.wheelSample(0, f.now), f.now);
+    assert(f.cal.handleRequest(f.makeWheelBegin(CommissionTest::WheelTimeout, 1, 9), f.now) == Result::Accepted);
+    // Spin 1s at 800 erpm, then the VESC stops the wheel 300ms after commands stop.
+    uint32_t cut = 0;
+    const uint32_t start = f.now;
+    for (uint32_t t = start + 1; t <= start + 3000 && f.cal.wheelTestBusy(); ++t) {
+        const bool spinning = f.cal.wheelCommand().mode == WheelTestCommand::Duty;
+        if (!spinning && !cut) cut = t;
+        const int32_t erpm = spinning ? 800 : (t - cut < 300 ? 800 : 0);
+        f.cal.updateWheelSample(f.wheelSample(erpm, t), t);
+        f.tick(t);
+        if (t % 100 == 0 && f.cal.active()) f.cal.handleRequest(f.makeKeepalive(9), t);
+    }
+    assert(f.cal.status().state == static_cast<uint8_t>(CommissionState::Completed));
+    assert(f.cal.status().wheel == 1 && f.cal.status().stop_ms >= 290 && f.cal.status().stop_ms <= 400);
+    assert(f.cal.handleRequest(f.makeAccept(kAcceptTimeoutBrake + 1), f.now) == Result::Accepted);
+    assert(f.cal.handleRequest(f.makeAccept(kAcceptTimeoutBrake), f.now) == Result::Inhibited);       // left not tested
+    // A staged change to a tested field voids the evidence.
+    f.profile.acceptance &= ~(1u << (kAcceptTimeoutBrake + 1));
+    assert(f.cal.handleRequest(f.makeSetField(kFieldTimeoutBrakeMa, 1, 2500), f.now) == Result::Accepted);
+    assert(f.cal.handleRequest(f.makeAccept(kAcceptTimeoutBrake + 1), f.now) == Result::Inhibited);
 ''')
 
 

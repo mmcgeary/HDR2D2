@@ -17,6 +17,7 @@ SOURCES = [
     BODY / "body/DomeController.cpp",
     BODY / "body/DfPlayer.cpp",
     BODY / "body/DomeCalibration.cpp",
+    BODY / "body/WheelTest.cpp",
     BODY / "body/VescLink.cpp",
     BODY / "body/ConfigStore.cpp",
     BODY / "body/IbusTelemetry.cpp",

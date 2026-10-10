@@ -19,7 +19,9 @@ BodyController::BodyController(ConfigStore& config_store,
       drive_(),
       dome_(active_),
       calibration_(config_store_, profile_),
-      audio_(audio_port, kTrackCatalog, kTrackCatalogCount) {}
+      audio_(audio_port, kTrackCatalog, kTrackCatalogCount) {
+    calibration_.setSavedProfile(active_);
+}
 
 void BodyController::init(uint32_t now_ms) {
     uint32_t session = 0;
@@ -315,6 +317,15 @@ r2link::Result BodyController::handleCommissionRequest(const r2link::Frame& fram
     if (req.control_epoch != control_epoch_) {
         return r2link::Result::WrongEpoch;
     }
+    // A wheel-test Begin judges readiness and "still turning" on the requested
+    // wheel. Never feed another wheel's sample into a test that is running.
+    if (req.operation == static_cast<uint8_t>(CommissionOp::Begin) &&
+        req.test >= static_cast<uint8_t>(CommissionTest::WheelTimeout) && req.wheel < 2 &&
+        !calibration_.wheelTestBusy()) {
+        VescLink& link = req.wheel ? right_vesc_ : left_vesc_;
+        calibration_.setWheelReady(req.wheel, link.commissioningReady(now_ms));
+        calibration_.updateWheelSample(link.sample(now_ms), now_ms);
+    }
     const r2link::Result res = calibration_.handleRequest(req, now_ms);
     if (res == r2link::Result::Accepted && req.operation == static_cast<uint8_t>(CommissionOp::Save)) {
         activateSavedProfile();
@@ -421,21 +432,25 @@ void BodyController::publishPeriodic(uint32_t now_ms) {
     if (now_ms - last_vesc_pub_ms_ >= 100) {
         for (uint8_t w = 0; w < 2; ++w) {
             const body::VescSample sl = (w == 0) ? left_vesc_.sample(now_ms) : right_vesc_.sample(now_ms);
-            if (sl.valid) {
+            // Published once firmware is known so commissioning can show it before the
+            // config is accepted; measurements only while the sample is valid.
+            if (sl.fw_known) {
                 r2link::VescStatus vs{};
                 vs.wheel = w;
                 vs.fw_major = sl.fw_major;
                 vs.fw_minor = sl.fw_minor;
-                vs.valid_fields = sl.valid_fields;
+                vs.valid_fields = sl.valid ? sl.valid_fields : 0;
                 vs.source_age_ms = sl.source_age_ms;
-                vs.pack_cV = sl.pack_cV;
-                vs.motor_mA = sl.motor_mA;
-                vs.input_mA = sl.input_mA;
-                vs.erpm = sl.erpm;
-                vs.mosfet_dC = sl.mosfet_dC;
-                vs.motor_dC = sl.motor_dC;
-                vs.fault = sl.fault;
-                vs.duty_permille = sl.duty_permille;
+                if (sl.valid) {
+                    vs.pack_cV = sl.pack_cV;
+                    vs.motor_mA = sl.motor_mA;
+                    vs.input_mA = sl.input_mA;
+                    vs.erpm = sl.erpm;
+                    vs.mosfet_dC = sl.mosfet_dC;
+                    vs.motor_dC = sl.motor_dC;
+                    vs.fault = sl.fault;
+                    vs.duty_permille = sl.duty_permille;
+                }
                 r2link::Frame frame{};
                 r2link::ErrorCounters err{};
                 if (r2link::encode(vs, frame, err) == r2link::Status::Ok) {
@@ -472,13 +487,42 @@ void BodyController::tick(uint32_t now_ms, uint32_t now_us) {
     }
 
     // 3. Actuator updates
-    calibration_.tick(now_ms);
-    if (!calibration_.active()) {
-        drive_.update(rc_snapshot_, left_vesc_.sample(now_ms), right_vesc_.sample(now_ms), active_, now_ms);
-        applyWheelCommands(drive_.commands(), left_vesc_, right_vesc_);
+    for (uint8_t w = 0; w < 2; ++w) {
+        VescLink& link = w ? right_vesc_ : left_vesc_;
+        const VescSample s = link.sample(now_ms);
+        calibration_.setObservedFirmware(w, s.fw_known, s.fw_major, s.fw_minor);
+        calibration_.setWheelReady(w, link.commissioningReady(now_ms));
+    }
+    // Every pass: WheelTest's timers (spin, brake hold, limits) advance only here.
+    if (calibration_.wheelTestBusy()) {
+        const uint8_t w = calibration_.wheelUnderTest();
+        calibration_.updateWheelSample((w ? right_vesc_ : left_vesc_).sample(now_ms), now_ms);
     } else {
-        WheelCommands neut{};
-        applyWheelCommands(neut, left_vesc_, right_vesc_);
+        calibration_.updateWheelSample((calibration_.status().wheel ? right_vesc_ : left_vesc_).sample(now_ms), now_ms);
+    }
+    calibration_.tick(now_ms);   // aborts (lock, keepalive, RC, CH6, sticks) take effect before commands go out
+    if (calibration_.wheelTestBusy()) {
+        // Exactly one VESC in commissioning mode; the other is held disabled.
+        const uint8_t w = calibration_.wheelUnderTest();
+        VescLink& tested = w ? right_vesc_ : left_vesc_;
+        VescLink& other = w ? left_vesc_ : right_vesc_;
+        other.setCommissioning(false);
+        other.disableControl();
+        tested.setCommissioning(true);
+        const WheelTestCommand c = calibration_.wheelCommand();
+        if (c.mode == WheelTestCommand::Duty) tested.setDuty(c.duty_permille);
+        else if (c.mode == WheelTestCommand::Brake) tested.setBrake(active_.wheel[w].brake_ma);
+        else tested.disableControl();
+    } else {
+        left_vesc_.setCommissioning(false);
+        right_vesc_.setCommissioning(false);
+        if (!calibration_.active()) {
+            drive_.update(rc_snapshot_, left_vesc_.sample(now_ms), right_vesc_.sample(now_ms), active_, now_ms);
+            applyWheelCommands(drive_.commands(), left_vesc_, right_vesc_);
+        } else {
+            WheelCommands neut{};
+            applyWheelCommands(neut, left_vesc_, right_vesc_);
+        }
     }
 
     dome_.updateDrive(drive_.intent(), now_ms);
@@ -642,6 +686,11 @@ bool BodyController::processCli(const char* line, char* out, size_t out_max, uin
     }
 
     if (std::strcmp(line, "profile save") == 0) {
+        if (calibration_.wheelTestBusy()) {
+            // Same rule as the wireless Save: never swap the VESC profile under a running wheel test.
+            snprintf(out, out_max, "ERROR save refused: wheel test running\n");
+            return true;
+        }
         const bool ch6_off = rc_snapshot_.channels[5] < 1250;
         const bool neutral = (drive_.intent() == r2link::DriveIntent::Stationary);
         const SaveResult res = config_store_.trySave(profile_, ch6_off, neutral);
@@ -658,6 +707,19 @@ bool BodyController::processCli(const char* line, char* out, size_t out_max, uin
         const Readiness ready = readiness(active_);
         snprintf(out, out_max, "ENABLE drive=%u manual_dome=%u auto_dome=%u\n",
                  unsigned(ready.drive), unsigned(ready.manual_dome), unsigned(ready.auto_dome));
+        return true;
+    }
+
+    if (std::strcmp(line, "profile baseline") == 0) {
+        r2link::CommissionRequest req{};
+        req.operation = static_cast<uint8_t>(CommissionOp::ApplyBaseline);
+        req.control_epoch = control_epoch_;
+        const r2link::Result res = calibration_.handleRequest(req, now_ms);
+        if (res == r2link::Result::Accepted) {
+            snprintf(out, out_max, "OK baseline staged (profile save to apply)\n");
+        } else {
+            snprintf(out, out_max, "ERROR baseline refused code=%u\n", static_cast<unsigned>(res));
+        }
         return true;
     }
 
