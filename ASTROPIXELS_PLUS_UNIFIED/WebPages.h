@@ -367,14 +367,14 @@ inline String formatBodyLocks() {
     if (!s.fresh) {
         return String("Unavailable");
     }
-    if (s.value.motion_locked_reasons == 0) {
+    if (s.value.lock_reasons == 0) {
         return String("Unlocked");
     }
     String out = "Locked [";
-    if (s.value.motion_locked_reasons & 1) out += "Operator ";
-    if (s.value.motion_locked_reasons & (1 << 1)) out += "Reserved ";
-    if (s.value.motion_locked_reasons & (1 << 2)) out += "Maintenance ";
-    if (s.value.motion_locked_reasons & (1 << 3)) out += "Commissioning ";
+    if (s.value.lock_reasons & 1) out += "Operator ";
+    if (s.value.lock_reasons & (1 << 1)) out += "Reserved ";
+    if (s.value.lock_reasons & (1 << 2)) out += "Maintenance ";
+    if (s.value.lock_reasons & (1 << 3)) out += "Commissioning ";
     out.trim();
     out += "]";
     return out;

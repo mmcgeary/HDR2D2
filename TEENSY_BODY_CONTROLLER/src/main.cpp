@@ -16,9 +16,14 @@
 #include "TrackCatalog.h"
 #include <Servo.h>
 
-#if __has_include(<Watchdog_t4.h>)
+#if defined(ARDUINO_TEENSY41) || defined(TEENSYDUINO)
 #include <Watchdog_t4.h>
 static WDT_T4<WDT1> g_wdt;
+#define TEENSY_HAS_WDT 1
+#elif __has_include(<Watchdog_t4.h>)
+#include <Watchdog_t4.h>
+static WDT_T4<WDT1> g_wdt;
+#define TEENSY_HAS_WDT 1
 #endif
 
 static body::EepromStorage g_eeprom;
@@ -123,7 +128,7 @@ void setup() {
     g_dome_servo.attach(body_pins::kDomeServo);
     g_dome_servo.writeMicroseconds(g_profile.servo_neutral ? g_profile.servo_neutral : 1500);
 
-#if __has_include(<Watchdog_t4.h>)
+#if defined(TEENSY_HAS_WDT)
     WDT_timings_t wdt_config{};
     wdt_config.timeout = 1.0f;
     wdt_config.pin = 0;
@@ -163,7 +168,7 @@ void loop() {
     const bool usb_busy = usbCaptureTick();
 
     // 7. Watchdog feed
-#if __has_include(<Watchdog_t4.h>)
+#if defined(TEENSY_HAS_WDT)
     if (g_controller.deadlineHealthy()) {
         g_wdt.feed();
     }
@@ -176,11 +181,13 @@ void loop() {
         const body::RcSnapshot rc = g_input.snapshot(now_ms);
         const body::IbusInputCounters& r = g_input.counters();
         const body::IbusTelemetryCounters& t = g_telemetry.counters();
+        const bool commissioned = g_body_status.profile_ready != 0;
         char line[272];
         const int n = snprintf(line, sizeof line,
-            "[BODY] UNCOMMISSIONED rc=%u flags=%u age=%lu "
+            "[BODY] %s rc=%u flags=%u age=%lu "
             "CH1/2/4/6/8/9=%u/%u/%u/%u/%u/%u "
             "rx=%lu crc=%lu range=%lu partial=%lu sensor=%lu late=%lu echo=%lu\n",
+            commissioned ? "COMMISSIONED" : "UNCOMMISSIONED",
             unsigned(rc.valid), unsigned(rc.flags), (unsigned long)(now_ms - rc.sample_ms),
             unsigned(rc.channels[0]), unsigned(rc.channels[1]), unsigned(rc.channels[3]),
             unsigned(rc.channels[5]), unsigned(rc.channels[7]), unsigned(rc.channels[8]),

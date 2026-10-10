@@ -93,7 +93,11 @@ namespace r2link {
         Unsupported, Busy, WrongEpoch, HardwareError
     };
     enum class Outcome : uint8_t { Replied, TimedOut, Unsent, PeerLost, SessionChanged, EncodeFailed };
-    enum class EventKind : uint8_t { None=0, Completed=1, Fault=2, Cancelled=3, PlaybackStarted=4 };
+    enum class EventKind : uint8_t {
+        Completed = 0, Cancelled = 1, Timeout = 2, HardwareError = 3,
+        PlaybackStarted = 4, DomeTakeover = 5,
+        Fault = 3
+    };
     enum class MessageType : uint8_t {
         DomeRequest = 0x07, AudioRequest = 0x08, ControlRequest = 0x23
     };
@@ -103,7 +107,7 @@ namespace r2link {
     enum class DomeReference : uint8_t { Front = 0, Rear = 1 };
 
     struct Completion {
-        uint8_t type{0};
+        MessageType type{MessageType::ControlRequest};
         uint16_t sequence{0};
         Outcome outcome{Outcome::Replied};
         uint8_t result{0};

@@ -534,7 +534,7 @@ class PlusBehaviorTests(unittest.TestCase):
 
                 // When body confirms lock:
                 r2link::Completion comp{};
-                comp.type = static_cast<uint8_t>(r2link::MessageType::ControlRequest);
+                comp.type = r2link::MessageType::ControlRequest;
                 comp.sequence = g_maintenance.sequence;
                 comp.result = static_cast<uint8_t>(r2link::Result::Accepted);
                 processMaintenanceCompletion(comp);

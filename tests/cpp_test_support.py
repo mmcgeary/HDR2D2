@@ -1,6 +1,14 @@
 import subprocess
 import tempfile
+import sys
 from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+_CATALOG_HEADER = _ROOT / "TEENSY_BODY_CONTROLLER/include/TrackCatalog.h"
+if not _CATALOG_HEADER.exists():
+    sys.path.insert(0, str(_ROOT / "tools"))
+    import generate_track_catalog
+    generate_track_catalog.generate(_ROOT / "config/tracks.csv", _CATALOG_HEADER)
 
 
 def run_cpp(program, std="c++11", extra_sources=(), include_dirs=()):

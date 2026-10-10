@@ -22,6 +22,12 @@ BodyController::BodyController(ConfigStore& config_store,
       audio_(audio_port, kTrackCatalog, kTrackCatalogCount) {}
 
 void BodyController::init(uint32_t now_ms) {
+    uint32_t session = 0;
+    if (config_store_.nextBootSession(session)) {
+        link_endpoint_.setLocalSession(session);
+    } else {
+        link_endpoint_.setLocalSession(0);
+    }
     CommissioningProfile loaded;
     if (config_store_.load(loaded) == ConfigResult::Ready) {
         profile_ = loaded;
@@ -465,7 +471,7 @@ void BodyController::tick(uint32_t now_ms, uint32_t now_us) {
     if (last_loop_us_ > 0) {
         const uint32_t dt = now_us - last_loop_us_;
         if (dt > max_loop_us_) max_loop_us_ = dt;
-        if (dt > 25000) deadline_healthy_ = false;
+        deadline_healthy_ = (dt <= 50000);
     }
     last_loop_us_ = now_us;
 
@@ -541,9 +547,10 @@ bool BodyController::processCli(const char* line, char* out, size_t out_max, uin
 
     if (std::strcmp(line, "status") == 0) {
         updateStatus(now_ms);
-        snprintf(out, out_max, "STATUS drive=%u dome=%u locks=%u epoch=%u faults=%u\n",
+        snprintf(out, out_max, "STATUS drive=%u dome=%u locks=%u epoch=%u faults=%lu\n",
                  body_status_.drive_state, body_status_.dome_state,
-                 body_status_.lock_reasons, body_status_.control_epoch, body_status_.faults);
+                 body_status_.lock_reasons, body_status_.control_epoch,
+                 (unsigned long)body_status_.faults);
         return true;
     }
 

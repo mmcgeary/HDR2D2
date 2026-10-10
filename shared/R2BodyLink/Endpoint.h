@@ -69,6 +69,7 @@ public:
     // local_session == 0 disables the link (it never connects).
     Endpoint(BytePort& port, uint8_t role, uint32_t local_session);
 
+    void setLocalSession(uint32_t session) { local_ = session; }
     void setLocalState(uint8_t mode, uint8_t ready);
     void tick(uint32_t now_ms);
 

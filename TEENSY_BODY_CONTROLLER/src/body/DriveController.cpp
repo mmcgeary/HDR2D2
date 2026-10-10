@@ -9,7 +9,8 @@ int32_t stick(uint16_t us) {
     if (centered(us)) return 0;
     if (us < 1000) us = 1000;
     if (us > 2000) us = 2000;
-    return (int32_t(us) - 1500) * 2;
+    if (us > 1540) return (int32_t(us) - 1540) * 1000 / 460;
+    return (int32_t(us) - 1460) * 1000 / 460;
 }
 bool freshRc(const RcSnapshot& rc, uint32_t now) {
     return rc.valid && uint32_t(now - rc.sample_ms) <= 250;
@@ -194,7 +195,7 @@ void DriveController::update(const RcSnapshot& rc, const VescSample& left,
     } else off_started_ = false;
     const uint32_t elapsed = ticked_ ? uint32_t(now - last_command_ms_) : 0;
     const bool due = !ticked_ || elapsed >= 20;
-    const bool missed = state_ == r2link::DriveState::Armed && elapsed > 20;
+    const bool missed = state_ == r2link::DriveState::Armed && elapsed > 50;
     ticked_ = true; last_update_ms_ = now;
     if (missed) {
         ++deadline_misses_;

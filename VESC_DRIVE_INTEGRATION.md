@@ -50,8 +50,8 @@ Elevate both wheels securely before configuring the drive system. Keep the Teens
 ### Power Budget & Current Allocation
 The droid is powered by a Renogy 12.8V 20Ah LiFePO4 battery with a maximum continuous discharge rating of **20A**:
 - **Auxiliary Systems Budget (~5A – 6A peak):** Non-drive electronics—including the dome ESP32 brain, ReelTwo logic displays, 6 MG90S holoprojector servos, 35kg dome continuous rotation servo, HF82 50W audio amplifier, Teensy 4.1 body controller, and radio receiver—consume approximately 5A to 6A under peak operating conditions.
-- **Drive System Budget (~14A – 15A continuous headroom):** Subtracting auxiliary loads leaves approximately 14A to 15A of total continuous current for the drive system.
-- **Per-Motor Allocation (6.0A – 7.0A Battery Current Max):** To guarantee that both motors driving simultaneously never overload the battery or trip the battery management system (BMS), set each motor controller's **Battery Current Max** to **6.0A – 7.0A** (12.0A – 14.0A total combined drive draw). This ensures reliable operation with safe headroom for all sound, lighting, and dome motion.
+- **Drive System Budget (~10A – 11A continuous draw):** Subtracting auxiliary loads and maintaining a safe 3A–5A continuous headroom below the 20A BMS threshold leaves approximately 10A to 11A of continuous current for the drive system. This also ensures continuous drive current stays comfortably below the 15A rating of supply fuse F1.
+- **Per-Motor Allocation (5.0A – 5.5A Battery Current Max):** To guarantee that both motors driving simultaneously never overload the battery, blow fuse F1, or trip the battery management system (BMS), set each motor controller's **Battery Current Max** to **5.0A – 5.5A** (10.0A – 11.0A total combined drive draw). This ensures reliable operation with safe headroom for all sound, lighting, and dome motion.
 
 ### Step-by-Step VESC Tool Setup Guide
 
@@ -62,8 +62,8 @@ Connect each side to VESC Tool over USB and apply the following recommended sett
      *Why:* This limits the AC phase current delivered to the motor windings. Phase current generates torque at low speeds and can safely exceed battery current at lower duty cycles. 12A–15A delivers responsive acceleration for the Razor Tekno Pop hub motors without overheating the stator coils.
    - **Motor Current Max Brake:** Set to **-6.0A to -8.0A**.  
      *Why:* Sets the maximum phase braking force. Provides firm, smooth deceleration when sticks return to neutral without skidding or throwing the droid off balance.
-   - **Battery Current Max:** Set to **6.0A – 7.0A**.  
-     *Why:* Directly restricts the DC current drawn from the LiFePO4 battery pack per side. Sized to fit comfortably within the 20A pack limit with full auxiliary loads running.
+   - **Battery Current Max:** Set to **5.0A – 5.5A** (10.0A – 11.0A total combined drive draw).  
+     *Why:* Directly restricts the DC current drawn from the LiFePO4 battery pack per side. Sized to fit comfortably within the 15A F1 fuse rating and the 20A pack limit with full auxiliary loads running and genuine headroom.
    - **Battery Current Max Regen:** Set to **-2.5A to -3.0A** per side (-5.0A to -6.0A total pack regen).  
      *Why:* Prevents regenerative braking from pushing excessive charging current into the LiFePO4 cells or triggering BMS overvoltage protection when the battery is near 100% state of charge.
 

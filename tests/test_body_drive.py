@@ -6,6 +6,7 @@ from test_body_vesc import BODY, SHARED, PRELUDE as VESC_PRELUDE, SOURCES as VES
 
 SOURCES = VESC_SOURCES + [BODY / "body/DriveController.cpp", BODY / "body/IbusInput.cpp"]
 PRELUDE = VESC_PRELUDE + r'''
+#include <cstdlib>
 #include "body/DriveController.h"
 #include "body/IbusInput.h"
 struct Fixture {

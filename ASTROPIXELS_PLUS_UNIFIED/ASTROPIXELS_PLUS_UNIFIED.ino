@@ -446,7 +446,7 @@ void processBodyRcSnapshot(uint32_t now_ms);
 void processTransmitterInputs();
 void playDFPlayerTrack(uint16_t track_num);
 void stopDomeMotion();
-void startDomeHoming(R2Macro macro = R2_NONE);
+void startDomeHoming(R2Macro macro);
 void processMacroCompletion(const r2link::Completion& comp);
 void processMacroEvent(const r2link::Event& ev);
 void processMaintenanceCompletion(const r2link::Completion& comp);
@@ -784,7 +784,8 @@ void processMacroEvent(const r2link::Event& ev) {
                 uint16_t track = getMacroTrack(macro.kind);
                 RequestHandle ah = g_remote_audio.play(track, r2link::AudioPriority::Foreground, millis());
                 macro.audio_sequence = ah.sequence;
-            } else if (ev.kind == static_cast<uint8_t>(r2link::EventKind::Fault) ||
+            } else if (ev.kind == static_cast<uint8_t>(r2link::EventKind::HardwareError) ||
+                       ev.kind == static_cast<uint8_t>(r2link::EventKind::Timeout) ||
                        ev.kind == static_cast<uint8_t>(r2link::EventKind::Cancelled)) {
                 homing_state = HOMING_INACTIVE;
                 cancelR2Macro();
@@ -797,7 +798,8 @@ void processMacroEvent(const r2link::Event& ev) {
                 macro.phase = MacroPhase::Running;
                 macro.started_ms = millis();
                 startMacroChoreography(macro.kind);
-            } else if (ev.kind == static_cast<uint8_t>(r2link::EventKind::Fault) ||
+            } else if (ev.kind == static_cast<uint8_t>(r2link::EventKind::HardwareError) ||
+                       ev.kind == static_cast<uint8_t>(r2link::EventKind::Timeout) ||
                        ev.kind == static_cast<uint8_t>(r2link::EventKind::Cancelled)) {
                 cancelR2Macro();
             }
@@ -807,7 +809,8 @@ void processMacroEvent(const r2link::Event& ev) {
             ev.request_seq == macro.audio_sequence) {
             if (ev.kind == static_cast<uint8_t>(r2link::EventKind::Completed)) {
                 finishR2Macro();
-            } else if (ev.kind == static_cast<uint8_t>(r2link::EventKind::Fault) ||
+            } else if (ev.kind == static_cast<uint8_t>(r2link::EventKind::HardwareError) ||
+                       ev.kind == static_cast<uint8_t>(r2link::EventKind::Timeout) ||
                        ev.kind == static_cast<uint8_t>(r2link::EventKind::Cancelled)) {
                 cancelR2Macro();
             }
@@ -927,7 +930,7 @@ void recoverBodyLocks() {
 }
 
 void processMaintenanceCompletion(const r2link::Completion& comp) {
-    if (comp.type == static_cast<uint8_t>(r2link::MessageType::ControlRequest) &&
+    if (comp.type == r2link::MessageType::ControlRequest &&
         comp.sequence == g_maintenance.sequence) {
         if (comp.result == static_cast<uint8_t>(r2link::Result::Accepted)) {
             g_maintenance.state = MaintenanceState::Locked;
@@ -949,7 +952,7 @@ void processMaintenanceCompletion(const r2link::Completion& comp) {
 void processMaintenance(uint32_t now) {
     if (g_maintenance.state == MaintenanceState::Requested) {
         auto bstatus = g_body_client.bodyStatus(now);
-        if (bstatus.fresh && (bstatus.value.motion_locked_reasons & (1 << 2))) {
+        if (bstatus.fresh && (bstatus.value.lock_reasons & (1 << 2))) {
             g_maintenance.state = MaintenanceState::Locked;
             if (g_maintenance.pending_reboot) {
                 if (g_maintenance.clear_prefs_on_reboot) {
@@ -1204,8 +1207,12 @@ void setup() {
     r2link_prefs.begin("r2link", false);
     uint32_t session = r2link_prefs.getUInt("session", 0) + 1;
     if (session == 0) session = 1;
-    r2link_prefs.putUInt("session", session);
+    size_t written = r2link_prefs.putUInt("session", session);
     r2link_prefs.end();
+    if (written == 0) {
+        DEBUG_PRINTLN("[SYSTEM] Error: Failed to commit r2link session to NVS; disabling link");
+        session = 0;
+    }
 
     g_body_client.begin(g_body_port, session);
 
@@ -1333,7 +1340,8 @@ void loop() {
                 pending_macro_after_home = R2_NONE;
                 startR2Macro(macro);
             }
-        } else if ((ev.kind == static_cast<uint8_t>(r2link::EventKind::Fault) ||
+        } else if ((ev.kind == static_cast<uint8_t>(r2link::EventKind::HardwareError) ||
+                    ev.kind == static_cast<uint8_t>(r2link::EventKind::Timeout) ||
                     ev.kind == static_cast<uint8_t>(r2link::EventKind::Cancelled)) &&
                    ev.request_type == static_cast<uint8_t>(r2link::MessageType::DomeRequest)) {
             homing_state = HOMING_INACTIVE;
