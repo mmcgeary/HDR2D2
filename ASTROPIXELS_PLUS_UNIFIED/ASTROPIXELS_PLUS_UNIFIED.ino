@@ -139,6 +139,18 @@ static RemoteAudio g_remote_audio(g_body_client);
 static Esp32DomeRandom g_dome_random;
 static DomeBehaviour g_dome_behaviour(g_body_client, g_dome_random, 25);
 
+// Guided commissioning tools (web pages /commissioning and /drive).
+#include "ProfileMirror.h"
+#include "CommissionWizard.h"
+#include "RadioCheck.h"
+#include "AudioCheck.h"
+#include "CommissionChecklist.h"
+static ProfileMirror g_profile_mirror(g_body_client);
+static CommissionWizard g_wizard(g_body_client);
+static RadioCheck g_radio_check;
+static AudioCheck g_audio_check;
+static bool g_wheels_raised = false;
+
 #define MARC_SOUND_PLAYER    MarcSound::kDFMini
 #define MARC_SOUND_VOLUME    333   // 0 - 1000; ceil(333 / 1000 * 30) = 10
 #define MARC_SOUND_STARTUP   255   // Track 255 (startup chime)
@@ -284,6 +296,9 @@ void acceptCommissionBit(uint8_t bit);
 void setCommissionField(uint8_t field, uint8_t wheel, int32_t value);
 void onOtaStart();
 void readCommissionField(uint8_t field, uint8_t wheel);
+bool prepareCommissionMotion();
+void startAudioCheck();
+ChecklistInput checklistInput();
 
 ServoDispatchPCA9685<SizeOfArray(servoSettings)> servoDispatch(servoSettings);
 ServoSequencer servoSequencer(servoDispatch);
@@ -1010,11 +1025,7 @@ static uint32_t g_last_commission_keepalive_ms = 0;
 
 void startCommissionTest(uint8_t test, int32_t val) {
     (void)val;
-    if (!rc_connected || dome_motion_inhibited || otaInProgress) {
-        Serial.println(F("[COMMISSION] Rejected: live radio and safety rearmed required."));
-        return;
-    }
-    stopDomeMotion();
+    if (!prepareCommissionMotion()) return;
     auto status = g_body_client.bodyStatus(millis());
     g_commission_run_id = millis();
     if (g_commission_run_id == 0) g_commission_run_id = 1;
@@ -1116,6 +1127,7 @@ void dispatchBodyEvents() {
     r2link::Event ev;
     while (g_body_client.takeEvent(ev)) {
         g_dome_behaviour.onEvent(ev);
+        g_audio_check.onEvent(ev);
         processMacroEvent(ev);
         if (ev.request_type != static_cast<uint8_t>(r2link::MessageType::DomeRequest)) continue;
         if (ev.kind == static_cast<uint8_t>(r2link::EventKind::Completed)) {
@@ -1135,13 +1147,15 @@ void dispatchBodyEvents() {
     }
 }
 
-// Terminal outcomes of the dome's own requests: macros, maintenance and the idle
-// dome scheduler each consume the ones they own. A lost reply counts as NotReady.
+// Terminal outcomes of the dome's own requests: macros, maintenance, the idle dome
+// scheduler, the commissioning wizard and the audio check each consume the ones they own. A lost reply counts as NotReady.
 void dispatchBodyCompletions() {
     r2link::Completion comp;
     while (g_body_client.takeCompletion(comp)) {
         processMacroCompletion(comp);
         processMaintenanceCompletion(comp);
+        g_wizard.onCompletion(comp);
+        g_audio_check.onCompletion(comp);
         if (comp.type == r2link::MessageType::DomeRequest) {
             g_dome_behaviour.onReply(comp.sequence, comp.outcome == r2link::Outcome::Replied
                 ? static_cast<r2link::Result>(comp.result) : r2link::Result::NotReady);
@@ -1176,6 +1190,50 @@ void processCommissioningKeepalive(uint32_t now) {
             g_body_client.requestCommission(req, now);
         }
     }
+}
+
+// Guided commissioning: profile mirror reads, wizard sequencing, radio and audio checks.
+void processCommissioningTools(uint32_t now) {
+    const auto diag = g_body_client.diagnostics(now);
+    g_profile_mirror.tick(now, g_body_client.linkUp(now), diag.value, diag.rx_ms);
+    const auto cs = g_body_client.commissionStatus(now);
+    g_wizard.tick(now, cs.value, cs.fresh, g_body_client.bodyStatus(now).value.control_epoch);
+    g_radio_check.tick(g_body_client.rcSnapshot(now), now);
+    g_audio_check.tick(now);
+}
+
+// Dome-side gate before a wizard step that moves the dome or wheels: live radio,
+// rearmed after STOP (dome stick centred) and no OTA. Ends the dome's own macros,
+// homing and holo motion first, as startCommissionTest() does; the body still
+// enforces CH6/CH9/stick interlocks itself.
+bool prepareCommissionMotion() {
+    if (!rc_connected || dome_motion_inhibited || otaInProgress) {
+        Serial.println(F("[COMMISSION] Rejected: live radio and safety rearmed required."));
+        return false;
+    }
+    stopDomeMotion();
+    return true;
+}
+
+void startAudioCheck() {
+    const RequestHandle h = g_remote_audio.play(255, r2link::AudioPriority::Foreground, millis());
+    g_audio_check.begin(h.sequence, h.queued, millis());
+}
+
+ChecklistInput checklistInput() {
+    const uint32_t now = millis();
+    const auto cs = g_body_client.commissionStatus(now);
+    ChecklistInput in{};
+    in.status_fresh = cs.fresh;
+    in.saved_acceptance = cs.value.saved_acceptance;
+    in.unsaved = cs.value.unsaved != 0;
+    int32_t v = 0;
+    in.baseline_filled = g_profile_mirror.value(12, 0, v) && g_profile_mirror.value(12, 1, v) &&
+                         g_profile_mirror.value(0, 0, v);
+    in.radio_passed = g_radio_check.step() >= 8 || g_radio_check.state() == RadioCheck::State::Passed;
+    in.failsafe_passed = g_radio_check.state() == RadioCheck::State::Passed;
+    in.audio_passed = g_audio_check.state() == AudioCheck::State::Passed;
+    return in;
 }
 
 
@@ -1447,8 +1505,9 @@ void loop() {
     // 4. Process maintenance timeouts
     processMaintenance(now);
 
-    // 5. Process commissioning keepalive and the deferred startup sound
+    // 5. Process commissioning keepalive, the guided tools and the deferred startup sound
     processCommissioningKeepalive(now);
+    processCommissioningTools(now);
     processStartupSound(now);
 
     // 3. Dual Hall sensors publish

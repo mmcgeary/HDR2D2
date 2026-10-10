@@ -14,6 +14,9 @@ PRELUDE = r'''
 #include "CommissionWizard.h"
 #include "RadioCheck.h"
 #include "AudioCheck.h"
+#include <cstring>
+#include <string>
+#include "CommissionChecklist.h"
 struct Sink : ICommissionSink {
     std::vector<r2link::CommissionRequest> sent; uint16_t seq = 0; size_t limit = size_t(-1);
     bool sendCommission(const r2link::CommissionRequest& r, uint32_t, uint16_t& s) override {
@@ -265,6 +268,23 @@ class DomeCommissioningTests(unittest.TestCase):
       c.outcome = r2link::Outcome::Replied; c.result = uint8_t(r2link::Result::NotReady);
       a.onCompletion(c); assert(a.state() == AudioCheck::State::Failed); }
 ''', sources=[ASTRO / "AudioCheck.cpp"])
+
+
+    def test_checklist_lines_and_next_step(self):
+        self.check(r'''
+    ChecklistInput in{}; in.status_fresh = true;
+    char buf[512];
+    formatChecklist(in, buf, sizeof buf);
+    assert(std::strstr(buf, "[ ] Baseline filled") && std::strstr(buf, "[ ] VESC config L"));
+    assert(std::string(nextChecklistStep(in)) == "Baseline filled");
+    in.baseline_filled = true; in.saved_acceptance = 0x0FFF; in.radio_passed = in.failsafe_passed = in.audio_passed = true;
+    formatChecklist(in, buf, sizeof buf);
+    assert(!std::strstr(buf, "[ ]") && std::string(nextChecklistStep(in)) == "All done");
+    in.unsaved = true; assert(std::string(nextChecklistStep(in)) == "Save profile");
+    in.unsaved = false; in.saved_acceptance = 0x0FFF & ~(1u << 9);
+    assert(std::string(nextChecklistStep(in)) == "Direction R");
+    assert(formatChecklist(in, buf, 8) <= 7 && std::strlen(buf) <= 7);   // truncates safely
+''', sources=[ASTRO / "CommissionChecklist.cpp"])
 
 
 if __name__ == "__main__":

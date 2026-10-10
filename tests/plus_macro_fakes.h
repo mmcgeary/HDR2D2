@@ -169,6 +169,18 @@ struct FakeDomeBehaviour {
     void onEvent(const r2link::Event& ev) { events.push_back(ev); }
 } g_dome_behaviour;
 
+struct FakeWizard {
+    std::vector<r2link::Completion> completions;
+    void onCompletion(const r2link::Completion& c) { completions.push_back(c); }
+} g_wizard;
+
+struct FakeAudioCheck {
+    std::vector<r2link::Completion> completions;
+    std::vector<r2link::Event> events;
+    void onCompletion(const r2link::Completion& c) { completions.push_back(c); }
+    void onEvent(const r2link::Event& ev) { events.push_back(ev); }
+} g_audio_check;
+
 struct FakeRemoteAudio {
     RequestHandle play(uint16_t track, r2link::AudioPriority, uint32_t) {
         tracks.push_back(track);

@@ -206,6 +206,7 @@ class PlusBehaviorTests(unittest.TestCase):
     dispatchBodyEvents();
     assert(homing_state == HOMING_INACTIVE && pending_macro_after_home == R2_NONE);
     assert(macro.phase == MacroPhase::Idle && g_dome_behaviour.events.size() == 1);
+    assert(g_audio_check.events.size() == 1 && g_audio_check.events[0].request_seq == 9);
     // A completed home starts the deferred Leia macro
     homing_state = HOMING_SEEKING; pending_macro_after_home = R2_LEIA;
     const int centred = centers;
@@ -502,7 +503,8 @@ class PlusBehaviorTests(unittest.TestCase):
 
     def test_routine_dome_paths_do_not_latch_a_body_stop(self):
         self.run_sketch_body(self.DOME_FUNCTIONS + (
-            "restartNow", "prepareMaintenance", "startCommissionTest", "processBodyRcSnapshot"), r'''
+            "restartNow", "prepareMaintenance", "prepareCommissionMotion", "startCommissionTest",
+            "processBodyRcSnapshot"), r'''
     now = 1000; rc_connected = true; dome_motion_inhibited = false;
     prepareMaintenance(false, false);
     assert(g_body_client.control_requests.back().operation == 2);
@@ -518,6 +520,23 @@ class PlusBehaviorTests(unittest.TestCase):
     g_body_client.rc_state.valid = false;
     processBodyRcSnapshot(now + 300);   // body RC lost: the body owns that failsafe
     stopDomeMotion();
+    assert(g_body_client.stopAllCount() == 0);
+''')
+
+    def test_commission_motion_gate_needs_live_radio_and_rearm(self):
+        self.run_sketch_body(self.DOME_FUNCTIONS + ("prepareCommissionMotion",), r'''
+    now = 1000;
+    rc_connected = false; dome_motion_inhibited = false;
+    assert(!prepareCommissionMotion() && g_body_client.dome_requests.empty());
+    rc_connected = true; dome_motion_inhibited = true;
+    assert(!prepareCommissionMotion());
+    dome_motion_inhibited = false; otaInProgress = true;
+    assert(!prepareCommissionMotion());
+    otaInProgress = false;
+    homing_state = HOMING_SEEKING;
+    assert(prepareCommissionMotion());
+    assert(homing_state == HOMING_INACTIVE && dome_motion_inhibited);   // dome's own motion ended
+    assert(g_body_client.dome_requests.back().operation == 0);
     assert(g_body_client.stopAllCount() == 0);
 ''')
 
@@ -672,6 +691,9 @@ int main() {
     assert(g_dome_behaviour.replies.size() == 2);
     assert(g_dome_behaviour.replies[0].first == 41 && g_dome_behaviour.replies[0].second == r2link::Result::Inhibited);
     assert(g_dome_behaviour.replies[1].first == 42 && g_dome_behaviour.replies[1].second == r2link::Result::NotReady);
+    // The commissioning wizard and the audio check see every completion (each filters its own).
+    assert(g_wizard.completions.size() == 3 && g_audio_check.completions.size() == 3);
+    assert(g_audio_check.completions[2].sequence == 43);
 ''')
 
     def test_ota_aborts_unless_the_body_maintenance_lock_is_held(self):

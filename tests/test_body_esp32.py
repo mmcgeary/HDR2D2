@@ -84,11 +84,14 @@ struct ClientFixture {
         client.tick(t);
     }
 
-    void injectVesc(uint32_t t, uint8_t wheel, uint16_t source_age_ms, int32_t erpm = 1000) {
+    void injectVesc(uint32_t t, uint8_t wheel, uint16_t source_age_ms, int32_t erpm = 1000,
+                    uint16_t valid_fields = 0xFF, uint8_t fw_major = 6, uint8_t fw_minor = 2) {
         VescStatus v{};
         v.wheel = wheel;
         v.source_age_ms = source_age_ms;
-        v.valid_fields = 0xFF;
+        v.valid_fields = valid_fields;
+        v.fw_major = fw_major;
+        v.fw_minor = fw_minor;
         v.pack_cV = 1200;
         v.erpm = erpm;
         inject(port, stamp(frameOf(v), body_seq++, body_session, dome_session, 0));
@@ -174,6 +177,24 @@ class BodyEsp32Tests(unittest.TestCase):
 
     // Wheel 2 out of range is invalid
     assert(!f.client.vescStatus(2, 1100).valid);
+''')
+
+    def test_vesc_firmware_only_frames_are_present_but_not_live(self):
+        self.check(r'''
+    ClientFixture f;
+    f.connect();
+    // Before commissioning the body publishes firmware with valid_fields = 0 and no sample.
+    f.injectVesc(1000, 0, 0xFFFF, 1200, 0, 6, 2);
+    f.injectVesc(1000, 1, 100, 1400, 0x09, 6, 5);   // fresh, but current bit 6 missing
+    f.injectHeartbeat(1050);
+    const BodyVescState l = f.client.vescStatus(0, 1100), r = f.client.vescStatus(1, 1100);
+    assert(!l.valid && l.present && l.fw_major == 6 && l.fw_minor == 2);
+    assert(l.pack_cV == 0 && l.erpm == 0 && l.valid_fields == 0);
+    assert(!r.valid && r.present && r.fw_minor == 5 && r.pack_cV == 0 && r.erpm == 0);
+    f.injectVesc(1100, 1, 100, 1400, 0x49, 6, 5);   // voltage, current and erpm valid
+    assert(f.client.vescStatus(1, 1150).valid && f.client.vescStatus(1, 1150).erpm == 1400);
+    f.injectHeartbeat(1400);
+    assert(!f.client.vescStatus(0, 1550).present);   // no frame for 550 ms
 ''')
 
     def test_body_status_freshness_deadline_300ms(self):

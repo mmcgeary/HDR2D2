@@ -165,32 +165,38 @@ BodyRcState BodyClient::rcSnapshot(uint32_t now_ms) const {
 }
 
 BodyVescState BodyClient::vescStatus(uint8_t wheel, uint32_t now_ms) const {
+    static const uint32_t kFreshMs = 500;
+    static const uint16_t kLiveMask = 0x49;   // voltage, motor current, eRPM (Teensy VescLink validity)
     BodyVescState res;
     if (wheel >= 2 || !endpoint_ || !endpoint_->connected(now_ms) || !has_vesc_[wheel]) {
-        res.valid = false;
         return res;
     }
+    const r2link::VescStatus& raw = vesc_raw_[wheel];
     const uint32_t elapsed = (now_ms >= vesc_rx_ms_[wheel]) ? (now_ms - vesc_rx_ms_[wheel]) : 0;
-    const uint32_t total_age = static_cast<uint32_t>(vesc_raw_[wheel].source_age_ms) + elapsed;
-    if (total_age > 500) {
-        res.valid = false;
-        res.source_age_ms = (total_age > 0xFFFF) ? 0xFFFF : static_cast<uint16_t>(total_age);
+    const uint32_t total_age = static_cast<uint32_t>(raw.source_age_ms) + elapsed;
+    res.wheel = wheel;
+    res.source_age_ms = (total_age > 0xFFFF) ? 0xFFFF : static_cast<uint16_t>(total_age);
+    if (elapsed > kFreshMs) {
+        return res;   // no recent frame at all
+    }
+    // The body publishes firmware before commissioning with valid_fields = 0 and zeroed
+    // measurements; those zeros are never reported as readings.
+    res.present = true;
+    res.fw_major = raw.fw_major;
+    res.fw_minor = raw.fw_minor;
+    if (total_age > kFreshMs || (raw.valid_fields & kLiveMask) != kLiveMask) {
         return res;
     }
     res.valid = true;
-    res.wheel = wheel;
-    res.source_age_ms = static_cast<uint16_t>(total_age);
-    res.valid_fields = vesc_raw_[wheel].valid_fields;
-    res.fw_major = vesc_raw_[wheel].fw_major;
-    res.fw_minor = vesc_raw_[wheel].fw_minor;
-    res.pack_cV = vesc_raw_[wheel].pack_cV;
-    res.motor_mA = vesc_raw_[wheel].motor_mA;
-    res.input_mA = vesc_raw_[wheel].input_mA;
-    res.erpm = vesc_raw_[wheel].erpm;
-    res.mosfet_dC = vesc_raw_[wheel].mosfet_dC;
-    res.motor_dC = vesc_raw_[wheel].motor_dC;
-    res.fault = vesc_raw_[wheel].fault;
-    res.duty_permille = vesc_raw_[wheel].duty_permille;
+    res.valid_fields = raw.valid_fields;
+    res.pack_cV = raw.pack_cV;
+    res.motor_mA = raw.motor_mA;
+    res.input_mA = raw.input_mA;
+    res.erpm = raw.erpm;
+    res.mosfet_dC = raw.mosfet_dC;
+    res.motor_dC = raw.motor_dC;
+    res.fault = raw.fault;
+    res.duty_permille = raw.duty_permille;
     return res;
 }
 

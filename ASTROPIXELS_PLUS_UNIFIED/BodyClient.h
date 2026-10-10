@@ -20,7 +20,8 @@ struct RequestHandle {
 };
 
 struct BodyVescState {
-    bool valid{false};
+    bool valid{false};     // live: fresh sample with voltage, current and eRPM valid (mask 0x49)
+    bool present{false};   // a VescStatus frame arrived recently; fw_major/fw_minor are meaningful
     uint8_t wheel{0};
     uint16_t source_age_ms{0};
     uint16_t valid_fields{0};
