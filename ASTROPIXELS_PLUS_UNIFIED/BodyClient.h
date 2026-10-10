@@ -8,6 +8,7 @@
 #include "Endpoint.h"
 #include "Messages.h"
 #include "DomeBehaviour.h"
+#include "ProfileMirror.h"
 
 struct RequestHandle {
     uint16_t sequence{0};
@@ -61,6 +62,7 @@ struct DiagnosticsSnapshot {
     r2link::Diagnostics value{};
     bool fresh{false};
     uint32_t effective_age_ms{0};
+    uint32_t rx_ms{0};
 };
 
 struct ClientError {
@@ -69,7 +71,7 @@ struct ClientError {
     uint16_t detail{0};
 };
 
-class BodyClient : public IDomeRequestSink {
+class BodyClient : public IDomeRequestSink, public IFieldReader, public ICommissionSink {
 public:
     BodyClient();
     ~BodyClient() override;
@@ -92,6 +94,8 @@ public:
     RequestHandle requestControl(const r2link::ControlRequest& req, uint32_t now_ms);
     RequestHandle requestDrive(const r2link::DriveRequest& req, uint32_t now_ms);
     RequestHandle requestCommission(const r2link::CommissionRequest& req, uint32_t now_ms);
+    bool requestRead(uint8_t field, uint8_t wheel, uint32_t now_ms) override;
+    bool sendCommission(const r2link::CommissionRequest& req, uint32_t now_ms, uint16_t& seq) override;
 
     // IDomeRequestSink interface implementation
     bool submit(const r2link::DomeRequest& req, uint32_t now_ms, uint16_t& sequence) override;

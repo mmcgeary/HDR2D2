@@ -10,6 +10,7 @@ TESTS_DIR = ROOT / "tests"
 
 SOURCES = [
     ASTRO / "BodyClient.cpp",
+    ASTRO / "ProfileMirror.cpp",
     ASTRO / "RemoteAudio.cpp",
     ASTRO / "DomeBehaviour.cpp",
     SHARED / "src/Endpoint.cpp",

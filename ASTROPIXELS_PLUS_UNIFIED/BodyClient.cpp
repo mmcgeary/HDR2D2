@@ -239,6 +239,7 @@ DiagnosticsSnapshot BodyClient::diagnostics(uint32_t now_ms) const {
     const uint32_t elapsed = (now_ms >= diagnostics_rx_ms_) ? (now_ms - diagnostics_rx_ms_) : 0;
     res.value = diagnostics_raw_;
     res.effective_age_ms = elapsed;
+    res.rx_ms = diagnostics_rx_ms_;
     res.fresh = (elapsed <= 1000);
     return res;
 }
@@ -416,4 +417,17 @@ DomeBehaviourInput BodyClient::makeDomeBehaviourInput(uint32_t now_ms, bool even
     input.status_fresh = bodyStatus(now_ms).fresh;
     input.event_active = event_active;
     return input;
+}
+
+bool BodyClient::requestRead(uint8_t field, uint8_t wheel, uint32_t now_ms) {
+    r2link::CommissionRequest req{};
+    req.operation = 0; req.field = 1; req.wheel = wheel; req.value = field;
+    req.control_epoch = bodyStatus(now_ms).value.control_epoch;
+    return requestCommission(req, now_ms).queued;
+}
+
+bool BodyClient::sendCommission(const r2link::CommissionRequest& req, uint32_t now_ms, uint16_t& seq) {
+    const RequestHandle h = requestCommission(req, now_ms);
+    seq = h.sequence;
+    return h.queued;
 }

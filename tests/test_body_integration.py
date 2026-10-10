@@ -24,6 +24,7 @@ SOURCES = [
     BODY / "body/LinkBootstrap.cpp",
     BODY / "body/IbusInput.cpp",
     ASTRO / "BodyClient.cpp",
+    ASTRO / "ProfileMirror.cpp",
     ASTRO / "RemoteAudio.cpp",
     ASTRO / "DomeBehaviour.cpp",
     SHARED / "src/Endpoint.cpp",

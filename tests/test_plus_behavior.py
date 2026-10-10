@@ -641,7 +641,7 @@ int main() {
     return 0;
 }
 '''
-        result = run_cpp(program, extra_sources=[ASTRO / "BodyClient.cpp", ASTRO / "RemoteAudio.cpp",
+        result = run_cpp(program, extra_sources=[ASTRO / "BodyClient.cpp", ASTRO / "ProfileMirror.cpp", ASTRO / "RemoteAudio.cpp",
                                                 SHARED / "src/Endpoint.cpp", SHARED / "src/Codec.cpp"],
                          include_dirs=[ASTRO, SHARED])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
