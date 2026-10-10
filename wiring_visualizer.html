@@ -601,7 +601,7 @@
         "GPIO18 HALL": "AUX4 GPIO18 Rear Hall",
         "GPIO4 UNUSED": "AUX2 GPIO4 UNUSED"
       },
-      "note": "Target AstroPixels dome controller after firmware migration. Serial2 RX GPIO16 and TX GPIO17 exclusively carry body link; disable legacy serial MarcDuino parser on this UART. Front Hall on GPIO19 via dome shifter CH2, Rear Hall on GPIO18 via dome shifter CH3. SDA21/SCL22 direct 3.3V PCA9685 I2C, I2C 5V header unused. Owns lighting/holo servos/Wi-Fi/choreography, not VESC/receiver/DFPlayer/dome-servo output. Fused 3A electronics/lighting rail supplies all factory S/V/G light sockets; internal connections below represent their positive supply conductors only.",
+      "note": "AstroPixels dome controller (split architecture). Serial2 RX GPIO16 and TX GPIO17 exclusively carry body link; legacy serial MarcDuino parser on this UART is disabled. Front Hall on GPIO19 via dome shifter CH2, Rear Hall on GPIO18 via dome shifter CH3. SDA21/SCL22 direct 3.3V PCA9685 I2C, I2C 5V header unused. Owns lighting/holo servos/Wi-Fi/choreography, not VESC/receiver/DFPlayer/dome-servo output. Fused 3A electronics/lighting rail supplies all factory S/V/G light sockets; internal connections below represent their positive supply conductors only.",
       "connections": [
         [
           "5V TERMINAL",

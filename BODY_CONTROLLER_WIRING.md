@@ -1,6 +1,6 @@
 # Teensy Body Controller Wiring
 
-> **Target wiring, not current firmware:** Do not connect this wiring to the old ESP32-only firmware. Complete the firmware migration and flash both boards before combined testing.
+> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Both the Teensy 4.1 body controller and AstroPixels Plus ESP32 firmware are fully implemented; flash both boards before combined testing.
 
 Nothing has been wired yet. Assemble this design only. The body controller is a **Teensy 4.1 in the Treedix socketed screw-terminal carrier [B09NXYWYK7](https://www.amazon.ca/dp/B09NXYWYK7)**. AstroPixels ESP32 stays in the dome.
 

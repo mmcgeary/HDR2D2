@@ -1,28 +1,29 @@
 /*
  * ═══════════════════════════════════════════════════════════════════════════════
  *                 ASTROPIXELS PLUS - UNIFIED R2-D2 DOME BRAIN
- *     (ReelTwo OS + FlySky i-Bus + Wi-Fi Web GUI + OTA + 35kg Dome Drive + Homing)
+ *     (ReelTwo OS + Bi-Directional Body Link + Wi-Fi Web GUI + OTA + Choreography)
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Target Board:   ESP32 Dev Module (30-pin, AstroPixels Motherboard)
- * Architecture:   Cooperative control loop on the Arduino task
+ * Architecture:   Cooperative control loop interfacing with Teensy 4.1 Body Controller
  *
  * Core Allocations:
- *   • Networking (callbacks serviced by loop):
+ *   • Networking & Web Interface:
  *       1. Wi-Fi SoftAP ("AstroPixels" / "Astromech") & Station Client
  *       2. Web Server (Port 80) serving interactive GUI at http://192.168.4.1
- *       3. ArduinoOTA Wireless Firmware Flashing (No USB disassembly needed!)
- *       4. Wi-Fi MarcDuino UDP Receiver
+ *       3. Telemetry page (/diagnostics) and Wireless Commissioning (/commissioning)
+ *       4. ArduinoOTA Wireless Firmware Flashing (gated by Teensy maintenance lock)
+ *       5. Wi-Fi MarcDuino UDP Receiver
  *
- *   • Control (same task; no fixed loop-rate guarantee):
- *       1. Hardware UART2 (115,200 baud / GPIO 16): Non-blocking FlySky i-Bus decoder
- *       2. LEDC Hardware PWM (GPIO 4): 35kg 360° continuous dome servo with zero-creep sleep
- *       3. KY-003 Hall Effect Sensor (GPIO 19): Active 0° Home auto-alignment interrupt
- *       4. PCA9685 I2C 16-Ch Controller (Addr 0x40 / GPIO 21, 22): 6 HoloProjector servos (Ch 0-5)
- *       5. Hardware UART1 (9,600 baud / GPIO 17): Dedicated DFPlayer serial audio transmitter
- *       6. ReelTwo LogicEngine: Movie-accurate FLD1/2, RLD, FPSI, RPSI & text scrolling
- *       7. ReelTwo HoloLights: WS2812 Holo LEDs with dim pulses, rainbow & Leia flicker
- *       8. Procedural Shaders: Plasma, MetaBalls, Fractal, and Bitmap animations
+ *   • Peripherals & Interfaces:
+ *       1. Hardware UART2 (115,200 baud / GPIO 16 RX, GPIO 17 TX): Bi-directional
+ *          SLIP protocol link to Teensy 4.1 Body Controller via Slip Ring CH3/CH6
+ *       2. Dual KY-003 Hall Sensors (GPIO 19 Front, GPIO 18 Rear via LLC):
+ *          Published Hall telemetry for body-controlled homing and calibration
+ *       3. PCA9685 I2C 16-Ch Controller (Addr 0x40 / GPIO 21, 22): 6 HoloProjector servos (Ch 0-5)
+ *       4. ReelTwo LogicEngine: Movie-accurate FLD1/2, RLD, FPSI, RPSI & text scrolling
+ *       5. ReelTwo HoloLights: WS2812 Holo LEDs with dim pulses, rainbow & Leia flicker
+ *       6. Procedural Shaders: Plasma, MetaBalls, Fractal, and Bitmap animations
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */

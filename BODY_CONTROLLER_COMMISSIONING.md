@@ -1,6 +1,6 @@
 # Body and Dome Commissioning
 
-> **Split controller architecture:** Teensy 4.1 body controller and AstroPixels ESP32 dome controller communicate over the slip ring UART link (115200 baud).
+> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Both the Teensy 4.1 body controller and AstroPixels Plus ESP32 firmware are fully implemented; flash both boards before combined testing.
 
 The Teensy body firmware, ESP32 body link client, and `/commissioning` Web UI are fully implemented and verified with 100% test coverage.
 
@@ -25,7 +25,7 @@ Always use resistance/continuity mode with power disconnected. Capacitors can gi
 
 For the first flash, leave Teensy out of the carrier. Before cutting its VUSB/VIN link, USB can power the bare board without energizing any peripherals.
 
-After the firmware phase creates the Teensy project:
+To build and flash the Teensy body controller:
 
 ```sh
 pio run -d TEENSY_BODY_CONTROLLER -e teensy41
@@ -141,7 +141,7 @@ Follow [VESC Drive Setup](VESC_DRIVE_INTEGRATION.md) for each independent USB/UA
 5. Strip the short (`02`, one-byte length) or long (`03`, two-byte big-endian length) header, CRC and `03` terminator for decoding. The FW payload starts `00 major minor`. Named layout **1 / kLayoutLegacyGetValues** has payload offsets including command byte: MOSFET signed dC at 1; motor/input signed current at 5/9 (wire 0.01A -> mA by multiplying by 10); signed duty permille at 21; signed eRPM at 23; signed voltage at 27 (wire 0.1V -> cV by multiplying by 10); fault byte at 53. Motor TEMP at 3 is not connected and is **invalid**, not a usable temperature. CRC and terminator must validate; required fields must fit their body-message representation.
 6. Using each controller's stationary USB connection, compare the observed firmware and decoded voltage, MOSFET temperature, signed motor/input current, duty, eRPM and fault against **VESC Tool** on that same controller under stable conditions. Record differences and units; queries sample averaged current, so note timing differences rather than inventing agreement. A stationary near-zero-current capture alone does not validate current sign/scaling; record remaining checks as unperformed. Check the actual installed firmware's GET_VALUES layout if any field disagrees. Do not select a profile from length alone.
 7. Only after the comparison passes may the later saved-profile workflow explicitly accept that exact per-wheel firmware major/minor and layout using the existing `vesc_config` acceptance bit. Set/save does not imply acceptance; firmware/profile changes clear cached driver readiness and require new validated data. Actuator writes additionally require the separately accepted timeout/brake, direction and reversal records. No current or brake limit is inferred from motor watts or these synthetic fixtures.
-8. Disconnect all external USB/data/programming cables and power before reassembly. Reconnect the keyed ring connectors and restraint, then verify clearances unpowered. Use the planned wireless commissioning page for installed rotation checks; **no rotating tether**.
+8. Disconnect all external USB/data/programming cables and power before reassembly. Reconnect the keyed ring connectors and restraint, then verify clearances unpowered. Use the wireless commissioning page for installed rotation checks; **no rotating tether**.
 
 Set CH6 OFF. Center steering/throttle, turn CH6 ON, keep centered 500ms, then check low-rate movement and wheel direction. A controller fault or stale feedback stops both wheels and requires OFF -> ON -> neutral rearming.
 
@@ -174,7 +174,7 @@ Software detection time is not wheel stopping time. Record physical stopping beh
 
 ## 8. Maintenance lock before OTA
 
-After the firmware phase implements it:
+The firmware implements an acknowledged maintenance lock before OTA flashing:
 
 1. CH6 OFF, center motion sticks, stop routine.
 2. Press **Prepare update** on the firmware page; wait for body maintenance-lock acknowledgement.

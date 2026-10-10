@@ -140,7 +140,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">6</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Foot Drive Subsystem</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Hall Sensor Adapters</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">6-Pin JST-ZH to 5-wire Hall Pigtails</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Connects Razor 5-wire Hall sensors to VESC ports</Data></Cell>
@@ -149,7 +149,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">7</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Foot Drive Subsystem</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Motor Phase Connectors</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2 sets</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">3.5mm or 4.0mm Gold Bullet Connectors</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Connects 3-phase motor wires into VESC outputs</Data></Cell>
@@ -185,7 +185,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">11</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Drive Subsystem</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Center Post Drive Coupler</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">25T Servo Horn to Center Post Coupler</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Couples 35kg servo output directly to dome central pivot post</Data></Cell>
@@ -197,7 +197,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">AstroPixels ESP32 30-Pin Module</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome controller: lights, PCA9685, Hall, choreography, Wi-Fi/OTA. D-LOGIC3A supply. Body link RX16/TX17; target firmware migration pending.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome controller: lights, PCA9685, Hall, choreography, Wi-Fi/OTA. D-LOGIC3A supply. Body link RX16/TX17; target firmware migration complete.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">13</Data></Cell>
@@ -329,7 +329,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">27</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Sound Subsystem (Body)</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Audio Ground Loop Isolator</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">BESIGN3.5mm ground-loop isolator; user-selected Amazon.ca B06XQYN77L, plus2stereo TRS-to-screw-terminal adapters with matching mating connectors</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">DFPlayer DAC_L/GND to source adapter tip/sleeve; isolator to amplifier adapter tip/sleeve to LINE L/GND. Ring/R unused; no external sleeve bridge. Passive, no power. Not B0505S; not SPK outputs. Speaker across ampL+/L-, neither to ground.</Data></Cell>
@@ -374,7 +374,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">32</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Main DC Fuse &amp; Holder</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">25A fuse, matched holder rated at least32V DC/30A with10AWG pigtails or suitable studs</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Battery+ to fuse before cutoff; target at most150mm unfused cable. Protects10AWG harness, does NOT enforce20A battery continuous limit; verify fuse inrush/temperature behavior.</Data></Cell>
@@ -383,7 +383,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">33</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Tier 1 Master Cutoff Switch</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Documented DC load-break battery disconnect rated at least30A at16V, covered terminals; higher rating acceptable</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">After main fuse, before all operating branches; immediately accessible at body hatch/exterior, no reach past wheels. Not anAC-only toggle; charge lead remains live.</Data></Cell>
@@ -392,7 +392,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">34</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome 12V Branch Fuse &amp; Holder</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">7.5A DC branch fuse, installed as F4 in covered12V fuse block (item44)</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Before ringCH1,16AWG extensions/17AWG factory leads. No separate duplicate inline holder if F4 provides source protection. Do not fuse ground; verify factory-lead compatibility.</Data></Cell>
@@ -413,7 +413,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">FlySky FS-i6X 10-Channel 2.4GHz AFHDS 2A</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">No transmitter tank mix; Teensy mixes. CH1steer/2throttle/3holo/4dome/5SwB rates/6SwA enable/7VrA/8SwC trigger/9SwD random;10unused. Verify failsafe CH6OFF and centered sticks.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">No transmitter tank mix; Teensy mixes. CH1steer/2throttle/3unused/4dome/5SwB rates/6SwA enable/7VrA/8SwC trigger/9SwD auto dome;10unused. Verify failsafe CH6OFF and centered sticks.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">37</Data></Cell>
@@ -428,7 +428,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">38</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Wiring &amp; Hardware</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Power Connectors &amp; Wire</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 pack</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Stranded copper 10/12/16/18/20/22AWG; ring lugs matching studs, insulated crimp splices, and ferrules</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Follows wire schedule in POWER_HARNESS_GUIDE.md: 12AWG for motor phases (6x 2m) and VESC power; 22AWG 5-core for motor Halls.</Data></Cell>
@@ -437,7 +437,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">39</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Wiring &amp; Hardware</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Keyed Signal Harness Connectors</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">6 pcs</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Matching COMM TX/RX/GND pigtails, receiver connectors and labelled detachable UART harnesses</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">No VESC PPM cables or supply pins. Keep PCA servo factory plugs, no unnecessary thin extensions. Short22AWG signal leads, strain relief and correct terminal ferrules.</Data></Cell>
@@ -446,7 +446,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">40</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Wiring &amp; Hardware</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Mounting Standoffs Kit</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 kit</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">M2.5 &amp; M3 Nylon / Brass Standoffs &amp; Screws</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Mounts VESC, Buck, Amp, PCA9685, and DFPlayer</Data></Cell>
@@ -455,7 +455,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">41</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Wiring &amp; Hardware</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Programming Cable</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 set</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Data Micro-USB for Teensy4.1/VESC; data cable matching actual ESP32 socket</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Teensy VUSB/VIN cut once and carrier isolation checked before externalVIN plus USB. After cut externalVIN required. ESP32 flashed bare, removed from AstroPixels.</Data></Cell>
@@ -464,7 +464,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">42</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Body 10A 5V Buck Converter</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Second matching B09T954ZV1-equivalent 10-35V input / fixed 5V 10A converter</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">F3 7.5A input; B-SERVO5A and B-LOGIC2A output branches. Powers Teensy,receiver,DFPlayer,body shifter and dome servo. Body/dome5V positives separate.</Data></Cell>
@@ -482,7 +482,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">44</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Covered 12V Fuse Box with Integrated Negative Bus</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 set</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">6-way blade fuse block with + and - feed studs and common negative bus</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Main25A and cutoff. F1VESC15A,F2empty,F3body7.5A,F4dome7.5A,F5amp5A,F6empty. One12V fuse block; no separate5V fuse boxes.</Data></Cell>
@@ -500,7 +500,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">46</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Wiring &amp; Hardware</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Harness Strain Relief &amp; Labels</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Pending / Needed</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 kit</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Grommets, abrasion split-loom, screw-mounted clamps, adhesive heatshrink, and wire labels</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Protects wiring through shell holes; provides service loops at shoulder pivots and secures connectors.</Data></Cell>
@@ -536,7 +536,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">50</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Body / Dome I/O</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Lonely Binary Logic-Level Converter Kit</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">Selected / Purchase not confirmed</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Selected / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 kit; use2 four-channel boards</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Amazon.ca B0FFMLDYNY,27-piece MOSFET kit,10k pull-ups</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Body ch1iBUSinput,ch2single-wiretelemetry,ch3servo; dome ch2 Front Hall, ch3 Rear Hall. LV externally supplied3.3V,HV respective fused5V,common ground. A/B labels alias LV/HV. Short leads; functional115200 checks without scope.</Data></Cell>
@@ -554,7 +554,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">52</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">5V Branch Blade Fuses</Data></Cell>
-    <Cell ss:StyleID="Pending"><Data ss:Type="String">2A/3A needed;5A in holder assortment</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2x5A,1x2A,1x3A plus spares</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Standard automotive ATO/ATC matching item51; not mini-blade</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Indexed included assortment starts5A. Buy matching2A and3A separately. Do not increase approved ratings after a blown fuse; diagnose fault.</Data></Cell>

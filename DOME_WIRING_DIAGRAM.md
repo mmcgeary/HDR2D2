@@ -1,6 +1,6 @@
 # Body/Dome Wiring and AstroPixels Connections
 
-> **Target wiring, not current firmware:** Do not connect this wiring to the old ESP32-only firmware. Complete the firmware migration and flash both boards before combined testing.
+> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Both the Teensy 4.1 body controller and AstroPixels Plus ESP32 firmware are fully implemented; flash both boards before combined testing.
 
 Use [Body Controller Wiring](BODY_CONTROLLER_WIRING.md) for Teensy terminals and [Power Harness](POWER_HARNESS_GUIDE.md) for exact fuse/distribution wiring. The [interactive inspector](wiring_visualizer.html) is the terminal graph.
 
@@ -92,11 +92,11 @@ Test one servo at a time with horns removed, calibrate travel before mounting, t
 | GPIO27 | Top holo LED / THP |
 | GPIO2/4/5 | Unused / spare |
 
-The dedicated body protocol is the sole Serial2 reader at 115200. Firmware migration must disable the old MarcDuino serial reader on that UART; web/internal command dispatch remains. GPIO5 is no longer a UART input, avoiding use of a boot-strapping pin.
+The dedicated body protocol is the sole Serial2 reader at 115200. The firmware migration has disabled the old MarcDuino serial reader on that UART; web/internal command dispatch remains. GPIO5 is no longer a UART input, avoiding use of a boot-strapping pin.
 
 ## 6. Programming and test order
 
-Flash ESP32 **removed from AstroPixels**, then unplug USB before reinstalling with all power off. Never let a computer USB port power assembled lights/servos. Installed ESP32 updates require the planned acknowledged maintenance/OTA path.
+Flash ESP32 **removed from AstroPixels**, then unplug USB before reinstalling with all power off. Never let a computer USB port power assembled lights/servos. Installed ESP32 updates use the acknowledged maintenance/OTA path.
 
 Teensy uses external VIN with the factory VUSB/VIN link cut once and carrier checked for re-bridging; ordinary USB then supplies data/debug only. See the official cut illustration and exact continuity checks in [Commissioning](BODY_CONTROLLER_COMMISSIONING.md).
 

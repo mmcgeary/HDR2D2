@@ -1,3 +1,10 @@
+/*
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *                 HISTORICAL REFERENCE ONLY: LEGACY ARDUINO NANO SKETCH
+ *         (Superseded by TEENSY_BODY_CONTROLLER / ASTROPIXELS_PLUS_UNIFIED)
+ * ═══════════════════════════════════════════════════════════════════════════════
+ */
+
 #include <Arduino.h>
 #include <SoftwareSerial.h>
 #include <DFRobotDFPlayerMini.h>

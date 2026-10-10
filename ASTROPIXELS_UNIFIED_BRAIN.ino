@@ -1,6 +1,16 @@
 /*
  * ═══════════════════════════════════════════════════════════════════════════════
- *                    R2-D2 UNIFIED ASTROPIXELS DOME BRAIN
+ *                    HISTORICAL REFERENCE ONLY: LEGACY ESP32 SKETCH
+ *         (Superseded by TEENSY_BODY_CONTROLLER / ASTROPIXELS_PLUS_UNIFIED)
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * NOTE: This single-board sketch is retained for historical/engineering reference
+ * only. The approved build uses the Teensy 4.1 body controller for real-time drive,
+ * receiver decoding, dome servo pulses, and audio, while ASTROPIXELS_PLUS_UNIFIED
+ * runs on the dome ESP32 for lighting, holo servos, and Wi-Fi diagnostics.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *                    R2-D2 UNIFIED ASTROPIXELS DOME BRAIN (LEGACY)
  *         (ESP32 Master Brain: Persistent Moods, Macros, Servos & Audio)
  * ═══════════════════════════════════════════════════════════════════════════════
  *

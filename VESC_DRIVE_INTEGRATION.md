@@ -1,6 +1,6 @@
 # Dual FSESC4.20: Two Independent UARTs
 
-> **Target wiring, not current firmware:** Do not connect this wiring to the old ESP32-only firmware. Complete the firmware migration and flash both boards before combined testing.
+> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Both the Teensy 4.1 body controller and AstroPixels Plus ESP32 firmware are fully implemented; flash both boards before combined testing.
 
 The Flipsky Dual FSESC4.20 drives two Razor Tekno Pop12V hub/wheel motors, one per foot. Exact motor power is unconfirmed (roughly80-100W discussed). Do not derive safe winding current or braking limits from that estimate.
 
@@ -80,7 +80,7 @@ Do not run a floor test while this table is blank. Use motor/controller identifi
 
 Teensy firmware must ship **motion disabled** until this installed-controller profile is commissioned. Unknown/truncated telemetry layouts inhibit motion; they must not be parsed using guessed field offsets.
 
-## 4. Target receiver and drive behaviour
+## 4. Receiver and drive behaviour
 
 Receiver stays in body: SERVO ->Lonely Binary channel 1->TeensyRX21, SENSOR <->channel 2<->pin 24. No receiver PPM output connects to either VESC.
 
@@ -88,13 +88,13 @@ Receiver stays in body: SERVO ->Lonely Binary channel 1->TeensyRX21, SENSOR <->c
 | --- | --- |
 | CH1 | Steering |
 | CH2 | Throttle |
-| CH3 | Front holo tilt |
+| CH3 | Unused |
 | CH4 | Manual dome rotation |
 | CH5 / SwB | Duty rates35/70/100% |
 | CH6 / SwA | Drive enable |
 | CH7 / VrA | Mood/macro selection |
 | CH8 / SwC | Trigger |
-| CH9 / SwD | Random holo motion |
+| CH9 / SwD | Auto Dome enable |
 | CH10 | Unused |
 
 Disable transmitter-side tank mixing: Teensy mixes throttle/steer. Confirm radio channel mapping in diagnostics.

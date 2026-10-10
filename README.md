@@ -93,8 +93,8 @@ We reviewed the standard AstroPixels firmware (`src/standard/main.cpp`) alongsid
 | Feature | Standard AstroPixels | AstroPixels Plus (Selected) | Notes for this Build |
 | :--- | :--- | :--- | :--- |
 | **User Interface** | Serial / I2C commands only | Built-in Wi-Fi dashboard & web GUI | Plus gives us an easy phone/browser dashboard to trigger sounds, test macros, and adjust settings. |
-| **Remote Control** | Serial2 (9600 baud) or I2C slave | Body client planned on Serial2 (115200 baud) | Target reserves GPIO16/17 for the body protocol; radio/audio move to Teensy. |
-| **Firmware Updates** | USB cable required | Wireless ArduinoOTA & web uploads | Target requires body maintenance-lock acknowledgement before either OTA path writes flash; integration is pending. |
+| **Remote Control** | Serial2 (9600 baud) or I2C slave | Body client on Serial2 (115200 baud) | Reserved GPIO16/17 for the bidirectional body link; radio/drive/audio handled by Teensy. |
+| **Firmware Updates** | USB cable required | Wireless ArduinoOTA & web uploads | Gated by body maintenance-lock acknowledgement before either OTA path writes flash. |
 | **Lighting Effects** | ReelTwo display classes & sequences | ReelTwo display classes & sequences | Both firmware families use the same high-quality ReelTwo lighting engines. |
 | **Library Versions** | Unpinned dependencies | Pinned PlatformIO environment (`esp32@5.2.0`, `ReelTwo@23.5.3`) | Pinned dependencies ensure consistent, reliable builds without unexpected breakage from newer library versions. |
 

@@ -1,7 +1,7 @@
 # AstroPixels Unified ESP32 Dome Brain Guide
 ## (FastLED Alternative Firmware Reference)
 
-> **Historical reference only.** This ESP32-only wiring/code is incompatible with the approved Teensy body-controller build. Do not assemble its pin map, receiver-in-dome layout or CAN forwarding. Use [Body Controller Wiring](BODY_CONTROLLER_WIRING.md), [Dome Wiring](DOME_WIRING_DIAGRAM.md) and [Commissioning](BODY_CONTROLLER_COMMISSIONING.md). The firmware migration is still pending.
+> **Historical reference only.** This ESP32-only wiring/code is incompatible with the approved Teensy body-controller build. Do not assemble its pin map, receiver-in-dome layout or CAN forwarding. Use [Body Controller Wiring](BODY_CONTROLLER_WIRING.md), [Dome Wiring](DOME_WIRING_DIAGRAM.md) and [Commissioning](BODY_CONTROLLER_COMMISSIONING.md). Firmware has been migrated to the Teensy/AstroPixels split architecture.
 
 > [!NOTE]
 > **Primary Firmware:** The recommended firmware for this project is [AstroPixels Plus Unified](ASTROPIXELS_PLUS_UNIFIED/README.md), which includes the mobile Wi-Fi dashboard, OTA updates, and ReelTwo lighting.

@@ -1,6 +1,6 @@
 # AstroPixels Plus Unified: Dome Firmware and Target Wiring
 
-> **Split controller architecture:** AstroPixels Plus ESP32 dome firmware interfaces directly with the Teensy 4.1 body controller via Serial2 (115200 baud).
+> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Both the Teensy 4.1 body controller and AstroPixels Plus ESP32 firmware are fully implemented; flash both boards before combined testing.
 
 This firmware runs on the ESP32 in the dome for lighting (ReelTwo), Wi-Fi, holo servos, Hall reference sensors, sound selection, and web-based diagnostics/commissioning. All radio decoding, motor drive, continuous dome-servo pulsing, and DFPlayer UART ownership are handled by the Teensy body controller.
 
@@ -20,7 +20,7 @@ Follow [Body Wiring](../BODY_CONTROLLER_WIRING.md), [Dome Wiring](../DOME_WIRING
 | GPIO25/26/27 | FHP/RHP/THP LEDs |
 | GPIO2/4/5 | Unused / spare |
 
-Serial2's sole reader will be the framed body client at 115200; the old MarcDuino UART reader must be disabled while web/internal commands remain. Receiver, VESCs, continuous dome-servo pulses and DFPlayer UART move to Teensy.
+Serial2's sole reader is the framed body client at 115200; the old MarcDuino UART reader has been disabled while web/internal commands remain. Receiver, VESCs, continuous dome-servo pulses and DFPlayer UART are handled by Teensy.
 
 | Contact | BODY end | DOME end | Function |
 | --- | --- | --- | --- |
@@ -70,7 +70,7 @@ Keep FAT32 microSD folder `/01/`, three-digit filenames. Ambient chirps/chatter 
 | `:DMS`, `:SE00` | None | Stop |
 | Startup | 255.mp3 | Startup chime |
 
-Folder-play command 0x0F uses `/01/`. Supply your own legally obtained audio. In the target, ESP32 selects tracks while Teensy controls the DFPlayer and returns playback events; an accepted UART request alone does not prove audible sound.
+Folder-play command 0x0F uses `/01/`. Supply your own legally obtained audio. ESP32 selects tracks while Teensy controls the DFPlayer and returns playback events; an accepted UART request alone does not prove audible sound.
 
 ## 4. Wi-Fi & Web Pages
 
@@ -93,12 +93,10 @@ pio device monitor -d ASTROPIXELS_PLUS_UNIFIED -e astropixelsplus --baud 115200
 
 Replace PORT with the discovered device. Use EN/Reset if needed, confirm Wi-Fi boots, then unplug USB before seating the ESP32 with droid power still off. Never connect ordinary computer USB to the mounted, externally powered ESP32.
 
-The future Teensy project is not present yet. Its build/flash sequence and one-time USB-power isolation are documented as future commissioning steps in [Commissioning](../BODY_CONTROLLER_COMMISSIONING.md).
+The Teensy body controller firmware (`TEENSY_BODY_CONTROLLER/`) is fully implemented. Its build/flash sequence and one-time USB-power isolation are documented in [Commissioning](../BODY_CONTROLLER_COMMISSIONING.md).
 
-## 6. Target installed OTA procedure
+## 6. Installed OTA procedure
 
-**Pending firmware integration:** CH6 OFF, centered sticks, no routine; press Prepare update and wait for body maintenance-lock acknowledgement before starting web upload or ArduinoOTA. Both upload paths must reject unprepared updates before flash writes.
+**Maintenance-gated updates:** With CH6 OFF and motion sticks centered, press **Prepare update** on the web dashboard and wait for body maintenance-lock acknowledgement before starting web upload or ArduinoOTA. Both upload paths reject unprepared updates before flash writes.
 
-Build with the command above; binary is `ASTROPIXELS_PLUS_UNIFIED/.pio/build/astropixelsplus/firmware.bin`. After failed upload/reboot, do not automatically unlock motion. The explicit Recover body locks action requires a fresh handshake, CH6 OFF and centered sticks 500ms, and leaves drive disarmed.
-
-Until implemented, use bare-module USB rather than an assembled-target OTA path. Complete the power, communication, servo and failure stages in [Commissioning](../BODY_CONTROLLER_COMMISSIONING.md) before floor operation.
+Build with the command above; binary is `ASTROPIXELS_PLUS_UNIFIED/.pio/build/astropixelsplus/firmware.bin`. After upload or reboot, motion remains safely locked. Use the explicit **Recover body locks** action on the dashboard with fresh handshake, CH6 OFF and centered sticks for 500ms, which leaves drive disarmed until deliberate rearming. Complete the power, communication, servo and failure stages in [Commissioning](../BODY_CONTROLLER_COMMISSIONING.md) before floor operation.

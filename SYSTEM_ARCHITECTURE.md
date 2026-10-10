@@ -1,8 +1,8 @@
 # R2-D2 System Architecture
 
-> **Target wiring, not current firmware:** Do not connect this wiring to the old ESP32-only firmware. Complete the firmware migration and flash both boards before combined testing.
+> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Both the Teensy 4.1 body controller and AstroPixels Plus ESP32 firmware are fully implemented; flash both boards before combined testing.
 
-The selected first-assembly architecture splits real-time body control from dome lighting/choreography. Nothing has been wired. The existing ESP32-only sketch remains in the repository but is incompatible with this target pin map.
+The selected first-assembly architecture splits real-time body control from dome lighting/choreography.
 
 ## Responsibilities
 
@@ -68,6 +68,6 @@ Audio timing uses DFPlayer feedback; command acknowledgement alone does not prov
 | [Commissioning](BODY_CONTROLLER_COMMISSIONING.md) | Unpowered, USB, subsystem and failure acceptance sequence |
 | [BOM](Master_R2D2_BOM.xls) | Selected/owned/ordered/unused inventory |
 | [Inspector](wiring_visualizer.html) | Terminal graph and printable wire schedule |
-| [Firmware plan](docs/superpowers/plans/2026-10-09-teensy-firmware.md) | Pending implementation; not deployed behaviour |
+| [Firmware plan](docs/superpowers/plans/2026-10-09-teensy-firmware.md) | Fully implemented; all unit and integration tests passing |
 
-Firmware migration has not been implemented. Mechanical mount files remain work-in-progress; verify fit, axle retention, leg clearance and dome coupler before powered tests.
+Firmware migration is fully implemented. Mechanical mount files remain work-in-progress; verify fit, axle retention, leg clearance and dome coupler before powered tests.
