@@ -87,4 +87,6 @@ Task 7: implemented and verified. DfPlayer (100ms spacing, foreground/ambient pr
 Task 7: complete.
 Task 8: implemented and verified. BodyController (scheduler, subsystem orchestration, maintenance locks, control epoch validation, Watchdog_t4 feed policy, USB line CLI). main.cpp pipeline refactored to delegate to BodyController. 3 controller tests, 18 drive tests, 12 radio tests, 19 VESC tests, 185 full tests pass.
 Task 8: complete.
-Task 9: starting; ESP32 body client and remote audio adapter (BodyClient, RemoteAudio).
+Task 9: implemented and verified. BodyClient (R2BodyLink client, independent RC and VESC freshness expiry, BodyStatus 300ms deadline, event ring buffer, Hall publishing, DomeBehaviour sink/input integration), RemoteAudio (typed facade for play/stop/pause/resume/volume/status). 8 body ESP32 tests, 193 full tests pass.
+Task 9: complete.
+Task 10: starting; replace only ESP32 hardware integration.
