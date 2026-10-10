@@ -144,7 +144,9 @@ void invalidateFor(CommissioningProfile& p, uint8_t id, uint8_t w) {
     if (id <= 2) clearBits(p, 0x0Fu);
     else if (id == 3 || id == 19 || id == 20) clearBits(p, 1u << kAcceptAutoTiming);
     else if (id == 5) clearBits(p, 1u << (kAcceptDirection + w));
-    else if (id >= 6 && id <= 14) clearBits(p, (1u << (kAcceptVescConfig + w)) | (1u << (kAcceptTimeoutBrake + w)));
+    // Every wheel test ran against fields 6-14, so all of that wheel's sign-offs need the tests again.
+    else if (id >= 6 && id <= 14) clearBits(p, (1u << (kAcceptVescConfig + w)) | (1u << (kAcceptTimeoutBrake + w)) |
+                                               (1u << (kAcceptDirection + w)) | (1u << (kAcceptReversal + w)));
     else if (id == 15 || id == 16) clearBits(p, 1u << (kAcceptTimeoutBrake + w));
     else if (id == 17 || id == 18) clearBits(p, 1u << (kAcceptReversal + w));
 }

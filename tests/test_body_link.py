@@ -1371,6 +1371,22 @@ static void acceptAll(body::CommissioningProfile& p) {
     assert(acceptanceBitName(12) == 0);
 """)
 
+    def test_vesc_limit_change_withdraws_every_wheel_test_signoff_of_that_wheel(self):
+        # Direction and reversal evidence covers fields 6-14 too: a changed limit needs the tests again.
+        self.check(r"""
+    using namespace body;
+    for (uint8_t id = 6; id <= 14; ++id) {
+        if (id == 8) continue;                                                 // layout has a single valid value
+        CommissioningProfile p; fill(p);
+        for (int b = 0; b <= 11; ++b) assert(accept(p, b) == AcceptResult::Ok);
+        int32_t v = 0; assert(getField(p, id, 1, v));
+        assert(setField(p, id, 1, id == 13 ? v - 1 : v + 1) == FieldResult::Ok);   // undervoltage stays below overvoltage
+        const uint32_t right = (1u << 5) | (1u << 7) | (1u << 9) | (1u << 11);
+        assert((p.acceptance & right) == 0);                                   // every right-wheel VESC bit withdrawn
+        assert((p.acceptance & 0x0FFFu) == (0x0FFFu & ~right));                // left wheel and dome untouched
+    }
+""")
+
     def test_vesc_values_layout_is_a_named_protocol_shape(self):
         self.check(r"""
     using namespace body;
