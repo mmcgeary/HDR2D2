@@ -24,6 +24,7 @@ SOURCES = [
     BODY / "body/LinkBootstrap.cpp",
     BODY / "body/IbusInput.cpp",
     ASTRO / "BodyClient.cpp",
+    ASTRO / "CommissionWizard.cpp",
     ASTRO / "ProfileMirror.cpp",
     ASTRO / "RemoteAudio.cpp",
     ASTRO / "DomeBehaviour.cpp",
@@ -42,6 +43,8 @@ INCLUDE_DIRS = [
 
 PRELUDE = r'''
 #include <cassert>
+#include <cmath>
+#include <cstdlib>
 #include <vector>
 #include <deque>
 #include <cstring>
@@ -55,6 +58,7 @@ PRELUDE = r'''
 #include "BodyClient.h"
 #include "RemoteAudio.h"
 #include "DomeBehaviour.h"
+#include "CommissionWizard.h"
 #include "body_fakes.h"
 
 using Bytes = std::vector<uint8_t>;
@@ -117,12 +121,36 @@ static Bytes makeVescValues(int32_t erpm = 0, uint16_t pack_dV = 120) {
     return p;
 }
 
+// A VESC on a raised, freely spinning wheel. Physical state is driven only by
+// the frames the body writes:
+//   SET_DUTY (5)          eRPM follows duty (kErpmPerFullDuty at 100 %), sign included;
+//   SET_CURRENT_BRAKE (7) each brake frame halves the speed;
+//   no command > 150 ms   the VESC's own timeout brake (timeout_ms = 150) decays the speed.
+// With no command and before the timeout the wheel keeps its speed (no friction),
+// so a passing TimeoutBrake test is down to the timeout brake alone.
+// GET_VALUES replies with the modelled eRPM.
 struct ScriptedVescPort : public r2link::BytePort {
+    static constexpr double kErpmPerFullDuty = 8000.0;   // 100 permille -> 800 eRPM
+    static const uint32_t kTimeoutMs = 150;
     Bytes tx;
     std::deque<uint8_t> rx;
     int32_t erpm{0};
     uint16_t pack_dV{120}; // 120 dV = 12.0 V = 1200 cV
     bool fail{false};
+    double wheel_erpm{0};
+    uint32_t last_cmd_ms{0}, clock_ms{0};
+    uint32_t duty_frames{0}, brake_frames{0};
+    int32_t lowest_erpm{0};                  // most negative modelled speed seen
+
+    void advance(uint32_t now) {            // once per rig step, before the body ticks
+        const uint32_t dt = now - clock_ms;
+        clock_ms = now;
+        if (now - last_cmd_ms > kTimeoutMs)
+            for (uint32_t i = 0; i < dt && std::abs(wheel_erpm) > 5; ++i) wheel_erpm *= 0.98;
+        if (std::abs(wheel_erpm) <= 5) wheel_erpm = 0;
+        erpm = int32_t(wheel_erpm);
+        if (erpm < lowest_erpm) lowest_erpm = erpm;
+    }
 
     int read() override {
         if (rx.empty()) return -1;
@@ -134,17 +162,33 @@ struct ScriptedVescPort : public r2link::BytePort {
     size_t write(const uint8_t* b, size_t n) override {
         tx.insert(tx.end(), b, b + n);
         if (fail) return n;
-        for (size_t i = 0; i + 2 < n; ++i) {
-            if (b[i] == 2 && b[i + 1] == 1) {
-                uint8_t cmd = b[i + 2];
-                if (cmd == 0) { // COMM_FW_VERSION
-                    Bytes r = wireVesc({0, 42, 19});
-                    rx.insert(rx.end(), r.begin(), r.end());
-                } else if (cmd == 4) { // COMM_GET_VALUES
-                    Bytes r = wireVesc(makeVescValues(erpm, pack_dV));
-                    rx.insert(rx.end(), r.begin(), r.end());
-                }
+        // Walk whole short frames: 2, len, payload[len], crc16, 3. A frame with a
+        // bad CRC or terminator (e.g. a poisoned aborted command) is ignored.
+        for (size_t i = 0; i + 2 < n;) {
+            const size_t len = b[i + 1];
+            if (b[i] != 2 || !len || i + len + 5 > n || b[i + len + 4] != 3 ||
+                crc16(Bytes(b + i + 2, b + i + 2 + len)) != ((uint16_t(b[i + len + 2]) << 8) | b[i + len + 3])) {
+                ++i;
+                continue;
             }
+            const uint8_t cmd = b[i + 2];
+            if (len == 1 && cmd == 0) { // COMM_FW_VERSION
+                Bytes r = wireVesc({0, 42, 19});
+                rx.insert(rx.end(), r.begin(), r.end());
+            } else if (len == 1 && cmd == 4) { // COMM_GET_VALUES
+                Bytes r = wireVesc(makeVescValues(erpm, pack_dV));
+                rx.insert(rx.end(), r.begin(), r.end());
+            } else if (len == 5 && (cmd == 5 || cmd == 7)) {
+                // int32 big-endian: duty x 100000 (COMM_SET_DUTY) or brake mA (COMM_SET_CURRENT_BRAKE)
+                const int32_t v = int32_t(uint32_t(b[i + 3]) << 24 | uint32_t(b[i + 4]) << 16 |
+                                          uint32_t(b[i + 5]) << 8 | uint32_t(b[i + 6]));
+                if (cmd == 5) { wheel_erpm = v / 100000.0 * kErpmPerFullDuty; ++duty_frames; }
+                else { wheel_erpm *= 0.5; ++brake_frames; }
+                last_cmd_ms = clock_ms;
+                erpm = int32_t(wheel_erpm);
+                if (erpm < lowest_erpm) lowest_erpm = erpm;
+            }
+            i += len + 5;
         }
         return n;
     }
@@ -257,7 +301,8 @@ struct HostRig {
     BodyClient client;
     uint32_t now{1000};
 
-    HostRig()
+    // commissioned=false leaves the EEPROM blank (a droid that was never commissioned).
+    explicit HostRig(bool commissioned = true)
         : storage(),
           config_store(storage),
           controller(config_store, body_slip_port, left_vesc_port, right_vesc_port, audio_port),
@@ -266,8 +311,10 @@ struct HostRig {
         body_slip_port.peer = &dome_slip_port;
         dome_slip_port.peer = &body_slip_port;
 
-        body::CommissioningProfile prof = makeTestProfile();
-        assert(config_store.trySave(prof, true, true) == body::SaveResult::Ok);
+        if (commissioned) {
+            body::CommissioningProfile prof = makeTestProfile();
+            assert(config_store.trySave(prof, true, true) == body::SaveResult::Ok);
+        }
 
         controller.init(now);
         client.begin(dome_slip_port, 0xD0D0);
@@ -275,6 +322,8 @@ struct HostRig {
 
     void step(uint32_t dt = 20) {
         now += dt;
+        left_vesc_port.advance(now);
+        right_vesc_port.advance(now);
         client.tick(now);
         controller.tick(now, now * 1000);
         client.tick(now);
@@ -568,6 +617,126 @@ class BodyIntegrationTests(unittest.TestCase):
     assert(d.value.subtype == 1);
     assert(d.value.field == body::kFieldBrakeMa && d.value.wheel == 1);
     assert(d.value.value == 1500);
+''')
+
+    def test_blank_profile_to_fully_commissioned_from_the_dome_only(self):
+        self.check(r'''
+    HostRig rig(false);                                   // blank EEPROM
+    rig.handshake();
+    CommissionWizard wiz(rig.client);
+    uint32_t hall_counter = 0; uint8_t hall_mask = 0;
+    uint16_t watch_seq = 0; int watch_result = -1;        // reply to a request sent outside the wizard
+    const char* stage = "boot";
+    auto expect = [&](bool ok, const char* what) {
+        if (ok) return;
+        const auto cs = rig.client.commissionStatus(rig.now).value;
+        std::cerr << "FAILED stage '" << stage << "': " << what
+                  << " | wizard state=" << int(wiz.state()) << " test=" << int(wiz.currentTest())
+                  << " lastError=" << wiz.lastError() << " lastResult=" << int(wiz.lastResult())
+                  << " | body run state=" << int(cs.state) << " test=" << int(cs.test)
+                  << " wheel=" << int(cs.wheel) << " error=" << cs.error
+                  << " staged=0x" << std::hex << cs.staged_acceptance << " saved=0x" << cs.saved_acceptance
+                  << std::dec << " | L erpm=" << rig.left_vesc_port.erpm << " R erpm=" << rig.right_vesc_port.erpm
+                  << " | profile_ready=" << int(rig.client.bodyStatus(rig.now).value.profile_ready)
+                  << " t=" << rig.now << std::endl;
+        std::exit(1);
+    };
+    auto pump = [&](int steps) {
+        for (int i = 0; i < steps; ++i) {
+            rig.controller.updateRc(makeRcSnapshot(rig.now, 1000, 1000), rig.now);   // CH6 OFF, CH9 OFF, sticks centred
+            rig.client.publishHall(0x03, hall_mask, ++hall_counter, rig.now);
+            rig.step(20);
+            r2link::Completion c;
+            while (rig.client.takeCompletion(c)) {
+                if (watch_seq && c.sequence == watch_seq)
+                    watch_result = c.outcome == r2link::Outcome::Replied ? int(c.result) : 1000;
+                wiz.onCompletion(c);
+            }
+            const auto cs = rig.client.commissionStatus(rig.now);
+            wiz.tick(rig.now, cs.value, cs.fresh, rig.client.bodyStatus(rig.now).value.control_epoch);
+            if (cs.fresh && cs.value.state == 1) {      // keepalive, as the dome page does
+                r2link::CommissionRequest k{}; k.operation = 2; k.run_id = cs.value.run_id;
+                k.control_epoch = rig.client.bodyStatus(rig.now).value.control_epoch;
+                rig.client.requestCommission(k, rig.now);
+            }
+        }
+    };
+    // 400 x 20 ms = 8 s: the longest settle is the 7-request paced wheel sign-off
+    // (one link round trip each) or a 6 s-capped wheel test.
+    auto settle = [&]() { for (int i = 0; i < 400 && wiz.state() == CommissionWizard::State::Running; ++i) pump(1); };
+    auto done = [&]() { return wiz.state() == CommissionWizard::State::Done; };
+    pump(50);
+    expect(rig.client.bodyStatus(rig.now).value.profile_ready == 0, "blank profile is not ready");
+
+    stage = "apply baseline";
+    expect(wiz.applyBaseline(rig.now), "start"); settle(); expect(done(), "done");
+
+    stage = "accept VESC config & save";
+    const uint8_t cfg[] = {4, 5};
+    expect(wiz.acceptAndSave(cfg, 2, rig.now), "start"); settle(); expect(done(), "done");
+    pump(50);                                             // VESC links re-handshake on the saved profile
+
+    const char* const test_names[2][3] = {{"left TimeoutBrake", "left Direction", "left Reversal"},
+                                          {"right TimeoutBrake", "right Direction", "right Reversal"}};
+    for (uint8_t w = 0; w < 2; ++w) {
+        for (uint8_t test : {6, 7, 8}) {
+            stage = test_names[w][test - 6];
+            ScriptedVescPort& port = w ? rig.right_vesc_port : rig.left_vesc_port;
+            const uint32_t brakes_before = port.brake_frames;
+            expect(wiz.startWheelTest(test, w, true, rig.now), "start"); settle();
+            expect(done(), "done");
+            expect(rig.client.commissionStatus(rig.now).value.peak_erpm >= 100, "the wheel spun forward");
+            if (test == 6) expect(port.brake_frames == brakes_before, "stopped by the VESC timeout brake, not a body brake");
+            if (test == 7) expect(port.brake_frames > brakes_before, "braked out after the spin");
+            if (test == 8) expect(port.lowest_erpm <= -100, "reversed on negative duty");
+            pump(30);                                     // wheel settles below the 100 eRPM "still turning" limit
+        }
+        stage = w ? "right direction answer" : "left direction answer";
+        r2link::CommissionRequest dir{}; dir.operation = 4; dir.field = body::kFieldDirection; dir.wheel = w;
+        dir.value = w ? -1 : 1;
+        dir.control_epoch = rig.client.bodyStatus(rig.now).value.control_epoch;
+        RequestHandle h = rig.client.requestCommission(dir, rig.now);
+        expect(h.queued, "queued");
+        watch_seq = h.sequence; watch_result = -1;
+        pump(10);
+        expect(watch_result == int(r2link::Result::Accepted), "SetField direction accepted");
+        watch_seq = 0;
+    }
+    stage = "accept wheel tests & save";
+    const uint8_t wheels[] = {6, 7, 8, 9, 10, 11};
+    expect(wiz.acceptAndSave(wheels, 6, rig.now), "start"); settle(); expect(done(), "done");
+    pump(20);
+    expect(rig.client.bodyStatus(rig.now).value.profile_ready & 1, "drive ready");
+
+    // Dome: neutral, then refs + timing with a scripted magnet passing the sensors.
+    stage = "neutral hold";
+    expect(wiz.startNeutral(rig.now), "start"); settle(); expect(done(), "done");
+    stage = "accept neutral & save";
+    const uint8_t neu[] = {0};
+    expect(wiz.acceptAndSave(neu, 1, rig.now), "start"); settle(); expect(done(), "done");
+
+    stage = "calibrate dome";
+    expect(wiz.startDomeCalibration(rig.now), "start");
+    for (int i = 0; i < 6000 && wiz.state() == CommissionWizard::State::Running; ++i) {
+        const uint32_t phase = (rig.now / 20) % 200;              // one revolution every 4 s
+        hall_mask = phase < 5 ? 0x01 : (phase >= 100 && phase < 105) ? 0x02 : 0x00;
+        pump(1);
+    }
+    hall_mask = 0;
+    expect(done(), "done");
+    {
+        const auto cs = rig.client.commissionStatus(rig.now).value;
+        expect(cs.proposed_ccw_ddeg_s == 900, "4 s revolution measured as 90 deg/s");
+    }
+    stage = "accept dome & save";
+    const uint8_t dome[] = {1, 2, 3};
+    expect(wiz.acceptAndSave(dome, 3, rig.now), "start"); settle();
+    expect(done(), "done");
+    pump(20);
+    stage = "fully commissioned";
+    const auto cs = rig.client.commissionStatus(rig.now).value;
+    expect(cs.saved_acceptance == 0x0FFF && cs.unsaved == 0, "all twelve bits saved");
+    expect(rig.client.bodyStatus(rig.now).value.profile_ready == 7, "drive | manual dome | auto dome");
 ''')
 
     def test_audio_request_retry_idempotence(self):

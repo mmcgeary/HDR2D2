@@ -183,3 +183,14 @@ The FS-iA6B receiver is programmed with a fail-safe configuration:
   - CH9 (SwD) = `1000µs` (UP / Off)
 * FlySky receivers keep sending iBUS frames after signal loss, carrying these failsafe values, so the Teensy sees CH6 OFF and disarms both feet. Without the CH4 failsafe the receiver would hold the last dome stick position and keep the dome turning.
 * If frames stop entirely (receiver unplugged or unpowered), the Teensy treats RC as stale after **250ms** and disarms. Re-arming always needs SwA UP, then DOWN, with the sticks centred for 500ms.
+
+### Guided radio check (`/commissioning`)
+
+The dome's commissioning page has a **Start radio check** button. It walks through every control and then the failsafe, so you can confirm the channel mapping above without a laptop. Keep the wheels raised (SwA goes DOWN during the check), and reload the page to see each new prompt. Complete each prompt within 15 s:
+
+1. Right stick UP (CH2), then right stick RIGHT (CH1), then left stick RIGHT (CH4).
+2. SwA DOWN (CH6), SwC through all three positions (CH5), SwB DOWN (CH8), SwD DOWN (CH9).
+3. VrA knob fully one way and then the other (CH7).
+4. Set SwA, SwB and SwD DOWN, then **turn the transmitter OFF**.
+
+The check passes when the receiver's failsafe frames show the sticks centred and CH6/CH8/CH9 low. If the receiver stops sending frames instead, the result reads "receiver stops output". The Teensy still disarms on stale radio, but the receiver has no failsafe values set. Wrong values fail the check: set the failsafe as listed above and run it again. Turn the transmitter off for the last step. Flipping the switches back UP with the transmitter on can look like a pass. The **Audio check** button next to it plays track 255 and passes when the DFPlayer confirms playback.

@@ -40,7 +40,8 @@ The controller provides an interactive, bounded line-based USB serial CLI:
 - `profile show`: Shows saved and staged readiness and acceptance masks, plus the staged servo neutral and auto speed.
 - `profile set FIELD VALUE`: Modifies a profile field (only permitted when CH6/CH9 are OFF and actuators are neutral).
 - `profile save`: Persists the staged profile to EEPROM and makes it the active profile immediately (no reboot).
-- `profile accept BIT`: Accepts a sign-off bit by name (`servo_neutral`, `front_reference`, `rear_reference`, `auto_timing`, `vesc_config_left`/`_right`, `timeout_brake_*`, `direction_*`, `reversal_*`), with the same evidence rules and CH6/CH9 OFF gate as the wireless page.
+- `profile accept BIT`: Accepts a sign-off bit by name (`servo_neutral`, `front_reference`, `rear_reference`, `auto_timing`, `vesc_config_left`/`_right`, `timeout_brake_*`, `direction_*`, `reversal_*`), with the same evidence rules and gate as the wireless page (fresh RC, CH6 OFF, sticks centred, no motion lock, no test running). `timeout_brake_*`, `direction_*` and `reversal_*` need that wheel's passed automated wheel test, run from the `/drive` page.
+- `profile baseline`: Stages the recommended baseline into every **unset** field (servo trims, auto speed, slew, VESC layout/currents/voltages/timeout/brake/reversal, and each wheel's firmware as observed over its UART). It never overwrites a set field and never accepts a bit; `profile save` to apply. Same gate as `profile accept`.
 - `profile enable`: Reports the saved profile's readiness (drive, manual dome, auto dome); it does not change anything.
 - `stop`: Immediately latches emergency stop and stops all actuators.
 

@@ -87,7 +87,7 @@ Connect each side to VESC Tool over USB and apply the following recommended sett
 5. **FOC & Hall Sensor Detection Wizard:**
    - With wheels elevated and clear of the floor, run the **FOC Motor Detection Wizard** for each side.
    - Select **Sensored / Hall Sensor** mode. The wizard automatically measures stator resistance (R), inductance (L), flux linkage, and Hall sensor timing offsets.
-   - Verify motor rotation direction. If a wheel spins backwards relative to throttle commands, either toggle **Invert Motor Direction** in VESC Tool, or set that wheel's `direction` field (field 5) to `-1`. Set it on the `/commissioning` page (Field ID 5, Wheel 0 or 1), or over USB with `profile set direction -1 WHEEL`.
+   - Verify motor rotation direction. If a wheel spins backwards relative to throttle commands, either toggle **Invert Motor Direction** in VESC Tool, or set that wheel's `direction` field (field 5) to `-1`. The `/drive` page sets it from your answer after the **Direction test** (**rolled forward** = 1, **rolled backward** = -1); over USB use `profile set direction -1 WHEEL`.
    - Write and save configuration to the controller.
 
 ### Commissioning Record Table
@@ -138,7 +138,12 @@ Both feedback records are polled every 100ms, must be <=500ms old, supported and
 
 ### Signing off the VESC records
 
-Drive stays disabled until both wheels have all four sign-offs (acceptance bits): `vesc_config` 4/5, `timeout_brake` 6/7, `direction` 8/9 and `reversal` 10/11 (left/right). Each one records that **you** checked that item in VESC Tool or on the stand against the values staged in the profile. Set the fields first (`/commissioning` Field ID/Wheel/Value, or `profile set FIELD VALUE WHEEL` over USB). Then, with CH6 OFF, CH9 OFF and sticks centred, accept each bit with the `/commissioning` **Accept bit** box or with `profile accept vesc_config_left` (and the other bit names) over USB. Finally press **Save Profile** (or run `profile save`). The saved profile takes effect at once; no reboot is needed. Changing a field later clears the sign-offs that depend on it.
+Drive stays disabled until both wheels have all four sign-offs (acceptance bits): `vesc_config` 4/5, `timeout_brake` 6/7, `direction` 8/9 and `reversal` 10/11 (left/right). Use the `/drive` page (see [Commissioning](BODY_CONTROLLER_COMMISSIONING.md) section 5.1), with CH6 OFF and sticks centred. CH9 plays no part.
+
+- **`vesc_config` (bits 4/5)** records that **you** compared the detected firmware and the staged fields with VESC Tool on that controller. **Apply baseline** fills any unset field; edit those that differ. Then press **Accept VESC config & Save**.
+- **`timeout_brake`, `direction` and `reversal` (bits 6-11) now require the automated tests.** Each bit is accepted only from that wheel's passed **Timeout**, **Direction** or **Reversal** test, run on the raised wheel against the **saved** settings, and only while the staged settings still match them. Direction also needs your "rolled forward / rolled backward" answer, which stages `direction`. Ticking a box or typing a bit name without a passed run is refused. Run the tests, then press **Accept wheel tests & Save**.
+
+The saved profile takes effect at once; no reboot is needed. Changing a field later clears the sign-offs that depend on it: save the change, then run the affected tests again. Over USB, `profile baseline`, `profile accept BIT` and `profile save` follow the same rules.
 
 ## 5. Acceptance before floor driving
 
