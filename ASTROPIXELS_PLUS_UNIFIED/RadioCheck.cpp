@@ -1,9 +1,12 @@
 #include "RadioCheck.h"
 
 namespace {
+// Shown inside single-quoted JavaScript strings by ReelTwo: no quotes or backslashes.
 const char* const kPrompts[RadioCheck::kSteps] = {
-    "Push the right stick UP", "Push the right stick RIGHT", "Push the left stick RIGHT",
-    "Flip SwA DOWN", "Move SwC through all three positions", "Flip SwB DOWN", "Flip SwD DOWN",
+    "With SwA UP, push the right stick UP", "With SwA UP, push the right stick RIGHT",
+    "With SwA UP, push the left stick RIGHT",
+    "Flip SwA DOWN", "Move SwC through all three positions", "Flip SwB DOWN (macros are off during the check)",
+    "Flip SwD DOWN (if auto dome is saved, the dome may turn: keep clear)",
     "Turn the VrA knob fully both ways",
     "Set SwA, SwB and SwD DOWN, then turn the transmitter OFF"};
 bool centred(uint16_t v) { return v >= 1460 && v <= 1540; }
@@ -20,10 +23,11 @@ void RadioCheck::tick(const BodyRcState& rc, uint32_t now) {
     const uint16_t* ch = rc.channels;
     bool done = false;
     if (step_ < 8 && rc.valid) {
+        const bool swa_up = ch[5] < 1250;   // stick prompts count only with the drive disarmed
         switch (step_) {
-        case 0: done = ch[1] > 1750; break;
-        case 1: done = ch[0] > 1750; break;
-        case 2: done = ch[3] > 1750; break;
+        case 0: done = swa_up && ch[1] > 1750; break;
+        case 1: done = swa_up && ch[0] > 1750; break;
+        case 2: done = swa_up && ch[3] > 1750; break;
         case 3: done = ch[5] > 1750; break;
         case 4:
             if (ch[4] < 1250) seen_ |= 1;

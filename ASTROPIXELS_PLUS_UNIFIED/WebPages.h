@@ -681,9 +681,12 @@ inline String formatWheelResult() {
                      (cs.value.state <= 5) ? kCommissionStates[cs.value.state] : "Unknown";
     const int peak = cs.value.peak_current_cA;
     const unsigned mag = (unsigned)(peak < 0 ? -peak : peak);
-    char buf[128];
-    snprintf(buf, sizeof(buf), "%s %s wheel %c: stop %u ms, peak %s%u.%02u A, peak %ld erpm, fault %u",
-             commissionTestName(cs.value.test), st, cs.value.wheel ? 'R' : 'L', cs.value.stop_ms,
+    int32_t timeout_ms = 0;
+    char timeout[16] = "?";
+    if (g_profile_mirror.value(15, cs.value.wheel ? 1 : 0, timeout_ms)) snprintf(timeout, sizeof(timeout), "%ld", (long)timeout_ms);
+    char buf[144];
+    snprintf(buf, sizeof(buf), "%s %s wheel %c: stop %u ms (VESC timeout %s ms), peak %s%u.%02u A, peak %ld erpm, fault %u",
+             commissionTestName(cs.value.test), st, cs.value.wheel ? 'R' : 'L', cs.value.stop_ms, timeout,
              peak < 0 ? "-" : "", mag / 100, mag % 100, (long)cs.value.peak_erpm, cs.value.vesc_fault);
     return String(buf);
 }
@@ -701,9 +704,30 @@ public:
     }
 } sChecklistView;
 
+// Hidden /drive element: the open page calls it every BrowserHeartbeat::kPeriodMs with the
+// same fetch the buttons use, so a wheel test is kept alive only while the page is open.
+class WHeartbeat : public WElement {
+public:
+    WHeartbeat(const char* id, unsigned period_ms, void (*beat)()) : WElement(new WAction(beat)) {
+        fID = id;
+        appendScriptf("setInterval(function() {fetchNoload('%s', true);}, %u);\n", id, period_ms);
+    }
+};
+
+// Each row is the input plus its state note (two array elements).
+#define FIELD_ROW(label, id, field, wheel) \
+    WTextFieldInteger(label, id, []()->String { return formatFieldValue(field, wheel); }, \
+        [](String val) { stageCommissionField(field, wheel, val); }), \
+    WDynamicElement(fieldStateView<field, wheel>())
+// Direction is -1/+1: the integer field's digits-only filter would block the sign.
+#define FIELD_ROW_SIGNED(label, id, field, wheel) \
+    WTextField(label, id, []()->String { return formatFieldValue(field, wheel); }, \
+        [](String val) { stageCommissionField(field, wheel, val); }), \
+    WDynamicElement(fieldStateView<field, wheel>())
+
 WElement commissioningContents[] = {
     W1("Dome Calibration & Commissioning"),
-    WLabel("Ensure CH6 is OFF and CH9 is ON before initiating motion tests. Reload the page to refresh.", "safety"),
+    WLabel("CH6 OFF and sticks centred; SwD may be in either position. Reload the page to refresh.", "safety"),
     WTextField("Hall Sensors:", "c_hall", []()->String { return formatCommissionHall(); }, [](String) {}),
     WVerticalAlign(),
     WTextField("Radio Status:", "c_rc", []()->String { return formatCommissionRc(); }, [](String) {}),
@@ -719,6 +743,12 @@ WElement commissioningContents[] = {
     W1("Checklist"),
     WDynamicElement(sChecklistView),
     WTextField("Next step:", "c_next", []()->String { return String(nextChecklistStep(checklistInput())); }, [](String) {}),
+    WVerticalAlign(),
+    FIELD_ROW("Servo min us (1000-1499):", "f1", 1, 0),
+    FIELD_ROW("Servo max us (1501-2000):", "f2", 2, 0),
+    FIELD_ROW("Auto speed % (1-25):", "f3", 3, 0),
+    FIELD_ROW("CW rate ddeg/s (timing):", "f19", 19, 0),
+    FIELD_ROW("CCW rate ddeg/s (timing):", "f20", 20, 0),
     WVerticalAlign(),
     WButton("Apply baseline", "c_base", []() { wizardApplyBaseline(); }),
     WHorizontalAlign(),
@@ -759,17 +789,6 @@ WElement commissioningContents[] = {
     rseriesSVG
 };
 
-// Each row is the input plus its state note (two array elements).
-#define FIELD_ROW(label, id, field, wheel) \
-    WTextFieldInteger(label, id, []()->String { return formatFieldValue(field, wheel); }, \
-        [](String val) { stageCommissionField(field, wheel, val); }), \
-    WDynamicElement(fieldStateView<field, wheel>())
-// Direction is -1/+1: the integer field's digits-only filter would block the sign.
-#define FIELD_ROW_SIGNED(label, id, field, wheel) \
-    WTextField(label, id, []()->String { return formatFieldValue(field, wheel); }, \
-        [](String val) { stageCommissionField(field, wheel, val); }), \
-    WDynamicElement(fieldStateView<field, wheel>())
-
 WElement driveContents[] = {
     W1("Drive Commissioning (CH6 OFF, sticks centred)"),
     WLabel("Reload the page to refresh. Field edits are staged; accept and Save to keep them.", "d_note"),
@@ -780,6 +799,10 @@ WElement driveContents[] = {
     WTextField("Right VESC:", "d_vr", []()->String { return formatVesc(1); }, [](String) {}),
     WVerticalAlign(),
     WLabel("Compare these with VESC Tool for each controller, then accept VESC config.", "d_hint"),
+    WHeartbeat("d_hb", BrowserHeartbeat::kPeriodMs, []() { g_drive_heartbeat.beat(millis()); }),
+    FIELD_ROW("L VESC FW major:", "f6l", 6, 0), FIELD_ROW("R VESC FW major:", "f6r", 6, 1),
+    FIELD_ROW("L VESC FW minor:", "f7l", 7, 0), FIELD_ROW("R VESC FW minor:", "f7r", 7, 1),
+    FIELD_ROW("L values layout (1):", "f8l", 8, 0), FIELD_ROW("R values layout (1):", "f8r", 8, 1),
     FIELD_ROW("Slew permille/s:", "f4", 4, 0),
     FIELD_ROW("L motor mA:", "f9l", 9, 0), FIELD_ROW("R motor mA:", "f9r", 9, 1),
     FIELD_ROW("L battery mA:", "f10l", 10, 0), FIELD_ROW("R battery mA:", "f10r", 10, 1),
@@ -787,6 +810,7 @@ WElement driveContents[] = {
     FIELD_ROW("L brake mA:", "f12l", 12, 0), FIELD_ROW("R brake mA:", "f12r", 12, 1),
     FIELD_ROW("L undervolt cV:", "f13l", 13, 0), FIELD_ROW("R undervolt cV:", "f13r", 13, 1),
     FIELD_ROW("L overvolt cV:", "f14l", 14, 0), FIELD_ROW("R overvolt cV:", "f14r", 14, 1),
+    FIELD_ROW("L VESC timeout ms (150):", "f15l", 15, 0), FIELD_ROW("R VESC timeout ms (150):", "f15r", 15, 1),
     FIELD_ROW("L timeout brake mA:", "f16l", 16, 0), FIELD_ROW("R timeout brake mA:", "f16r", 16, 1),
     FIELD_ROW("L reversal erpm:", "f17l", 17, 0), FIELD_ROW("R reversal erpm:", "f17r", 17, 1),
     FIELD_ROW("L reversal dwell ms:", "f18l", 18, 0), FIELD_ROW("R reversal dwell ms:", "f18r", 18, 1),

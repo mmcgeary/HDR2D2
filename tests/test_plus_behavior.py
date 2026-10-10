@@ -471,17 +471,75 @@ class PlusBehaviorTests(unittest.TestCase):
                        "processMacroCompletion", "processMacroEvent", "startR2Macro", "processR2Macro")
     DOME_FUNCTIONS = ("sendDomeRequest", "stopDomeMotion", "startDomeHoming") + MACRO_FUNCTIONS
 
-    def sketch_program(self, names, body):
+    def sketch_program(self, names, body, extra=""):
         source = SKETCH.read_text()
         functions = "\n".join(function(source, name) for name in names)
         prelude = (ROOT / "tests/plus_macro_fakes.h").read_text()
         # Forward declarations so extracted functions may call each other in any order.
-        return prelude + "\nvoid emergencyStop();\nvoid stopDomeMotion();\n" + functions + \
+        return prelude + "\nvoid emergencyStop();\nvoid stopDomeMotion();\n" + extra + functions + \
             "\nint main() {\n" + body + "\nreturn 0;\n}\n"
 
-    def run_sketch_body(self, names, body):
-        result = run_sketch(self.sketch_program(names, body))
+    def run_sketch_body(self, names, body, extra="", sources=()):
+        result = run_cpp(self.sketch_program(names, body, extra), extra_sources=list(sources),
+                         include_dirs=[ASTRO, SHARED])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_wheel_test_keepalive_follows_the_drive_page_heartbeat(self):
+        self.run_sketch_body(("processCommissioningKeepalive",), r'''
+    CommissionStatusSnapshot& cs = g_body_client.commission_status;
+    cs.fresh = true; cs.value.state = 1; cs.value.test = 6; cs.value.run_id = 55;
+    processCommissioningKeepalive(1000);
+    assert(g_body_client.commission_requests.empty());          // no /drive heartbeat: no keepalive
+    g_drive_heartbeat.beat(1000);
+    processCommissioningKeepalive(1100);
+    assert(g_body_client.commission_requests.size() == 1);
+    const r2link::CommissionRequest& k = g_body_client.commission_requests.back();
+    assert(k.operation == 2 && k.run_id == 55 && k.control_epoch == 7);
+    processCommissioningKeepalive(1500);                         // heartbeat 500 ms old: still forwarded
+    assert(g_body_client.commission_requests.size() == 2);
+    processCommissioningKeepalive(1601);                         // page closed: the body times the test out
+    processCommissioningKeepalive(1800);
+    assert(g_body_client.commission_requests.size() == 2);
+    cs.value.test = 8;
+    processCommissioningKeepalive(1900);
+    assert(g_body_client.commission_requests.size() == 2);
+    cs.value.test = 2;                                           // dome tests keep the dome-driven keepalive
+    processCommissioningKeepalive(2000);
+    assert(g_body_client.commission_requests.size() == 3);
+    cs.value.state = 2;                                          // not running: nothing sent
+    processCommissioningKeepalive(2200);
+    assert(g_body_client.commission_requests.size() == 3);
+''', extra='#include "CommissionKeepalive.h"\nBrowserHeartbeat g_drive_heartbeat;\n')
+
+    def test_transmitter_macros_are_suppressed_during_the_radio_check(self):
+        extra = r'''
+#include <string>
+#include "RadioCheck.h"
+RadioCheck g_radio_check;
+#define RC_CH_MOOD_SELECT 6
+#define RC_CH_MACRO_TRIGGER 7
+std::vector<std::string> marc_commands;
+int dome_homes = 0;
+struct Player {} player;
+namespace Marcduino { void processCommand(Player&, const char* c) { marc_commands.push_back(c); } }
+void startDomeHoming(R2Macro = R2_NONE) { ++dome_homes; }
+'''
+        self.run_sketch_body(("dialPosition", "processTransmitterInputs"), r'''
+    rc_connected = true;
+    rc_channels[6] = 1150;                                       // VrA position 2
+    rc_channels[7] = 1000;
+    g_radio_check.start(0);
+    rc_channels[7] = 2000; processTransmitterInputs();          // SwB DOWN prompt
+    assert(marc_commands.empty() && sMarcSound.plays == 0);
+    BodyRcState none{};
+    g_radio_check.tick(none, 20000);                             // check over (timed out)
+    assert(g_radio_check.state() != RadioCheck::State::Prompting);
+    processTransmitterInputs();                                  // SwB still DOWN: no macro
+    assert(marc_commands.empty() && sMarcSound.plays == 0);
+    rc_channels[7] = 1000; processTransmitterInputs();
+    rc_channels[7] = 2000; processTransmitterInputs();          // a fresh flip fires
+    assert(marc_commands.size() == 1 && sMarcSound.plays == 1);
+''', extra=extra, sources=[ASTRO / "RadioCheck.cpp"])
 
     def test_dome_requests_carry_current_epoch_and_wire_owner(self):
         self.run_sketch_body(self.DOME_FUNCTIONS, r'''

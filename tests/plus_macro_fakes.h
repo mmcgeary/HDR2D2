@@ -12,6 +12,8 @@ long random(long low, long) { return low; }
 struct Console {
     void println(const char*) {}
     void print(const char*) {}
+    void println(int) {}
+    void print(int) {}
     template <class... A> void printf(const char*, A...) {}
 } Serial;
 
@@ -118,6 +120,9 @@ struct FakeBodyClient {
 
     bool linkUp(uint32_t) const { return link_up; }
 
+    CommissionStatusSnapshot commission_status{};
+    CommissionStatusSnapshot commissionStatus(uint32_t) const { return commission_status; }
+
     BodyRcState rc_state{};
     BodyRcState rcSnapshot(uint32_t) const { return rc_state; }
 
@@ -190,7 +195,10 @@ struct FakeRemoteAudio {
 
 struct Sound {
     int start_sounds = 0;
+    int plays = 0;
     void playStartSound() { ++start_sounds; }
+    void playSound(int, int) { ++plays; }
+    void playRandom() { ++plays; }
     void suspendRandom() {}
     void stop() {}
     void startRandomInSeconds(int) {}

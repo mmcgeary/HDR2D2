@@ -145,11 +145,13 @@ static DomeBehaviour g_dome_behaviour(g_body_client, g_dome_random, 25);
 #include "RadioCheck.h"
 #include "AudioCheck.h"
 #include "CommissionChecklist.h"
+#include "CommissionKeepalive.h"
 static ProfileMirror g_profile_mirror(g_body_client);
 static CommissionWizard g_wizard(g_body_client);
 static RadioCheck g_radio_check;
 static AudioCheck g_audio_check;
 static bool g_wheels_raised = false;
+static BrowserHeartbeat g_drive_heartbeat;   // /drive page open: wheel tests may keep running
 
 #define MARC_SOUND_PLAYER    MarcSound::kDFMini
 #define MARC_SOUND_VOLUME    333   // 0 - 1000; ceil(333 / 1000 * 30) = 10
@@ -1053,7 +1055,7 @@ void acceptCommissionBit(uint8_t bit) {
     g_body_client.requestCommission(req, millis());
 }
 
-// Stage one profile field on the body (CH6 OFF, CH9 OFF, sticks centred). Field ids
+// Stage one profile field on the body (CH6 OFF, sticks centred; SwD either way). Field ids
 // follow ConfigStore.h; Save is still required before actuators use the value.
 void setCommissionField(uint8_t field, uint8_t wheel, int32_t value) {
     auto status = g_body_client.bodyStatus(millis());
@@ -1145,9 +1147,12 @@ void processStartupSound(uint32_t now) {
     }
 }
 
+// Keeps a running test alive every 100 ms. A wheel test is only kept alive while the
+// /drive page's heartbeat is fresh, so a closed tab lets the body brake the wheel.
 void processCommissioningKeepalive(uint32_t now) {
     auto cstatus = g_body_client.commissionStatus(now);
-    if (cstatus.fresh && cstatus.value.state == 1) { // Running
+    if (cstatus.fresh && cstatus.value.state == 1 && // Running
+        commissionKeepaliveAllowed(cstatus.value.test, g_drive_heartbeat.fresh(now))) {
         if (now - g_last_commission_keepalive_ms >= 100) {
             g_last_commission_keepalive_ms = now;
             auto status = g_body_client.bodyStatus(now);
@@ -1243,6 +1248,13 @@ void processTransmitterInputs() {
     // 3. Macro Fire Trigger (Switch SwB / CH8: Flip DOWN > 1750us)
     static bool macro_trigger_latched = false;
     bool macro_swc_down = (rc_channels[RC_CH_MACRO_TRIGGER] > 1750);
+
+    // The radio check asks for SwB DOWN: no macro fires while it prompts, and a SwB
+    // still DOWN when it ends needs a fresh flip.
+    if (g_radio_check.state() == RadioCheck::State::Prompting) {
+        macro_trigger_latched = macro_swc_down;
+        return;
+    }
 
     if (macro_swc_down && !macro_trigger_latched) {
         macro_trigger_latched = true;

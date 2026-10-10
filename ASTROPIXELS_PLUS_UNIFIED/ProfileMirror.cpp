@@ -15,7 +15,11 @@ int ProfileMirror::find(uint8_t field, uint8_t wheel) const {
 }
 
 void ProfileMirror::tick(uint32_t now, bool link_up, const r2link::Diagnostics& d, uint32_t rx_ms) {
-    if (!link_up) { outstanding_ = -1; return; }
+    if (!link_up) {                     // the body may restart or change: forget every cached field
+        outstanding_ = -1;
+        for (Slot& slot : slots_) slot.known = false;
+        return;
+    }
     if (outstanding_ >= 0) {
         Slot& s = slots_[outstanding_];
         if (d.subtype == 1 && d.field == s.field && d.wheel == s.wheel && rx_ms >= sent_ms_ && rx_ms != 0) {

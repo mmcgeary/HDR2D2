@@ -113,6 +113,7 @@ void CommissionWizard::onCompletion(const r2link::Completion& c) {
         if (pending_[i] != c.sequence) continue;
         for (uint8_t j = i + 1; j < pending_count_; ++j) pending_[j - 1] = pending_[j];
         --pending_count_;
+        if (state_ != State::Running) return;                          // late reply after Cancel/Done/Failed
         const bool ok = c.outcome == r2link::Outcome::Replied && c.result == uint8_t(r2link::Result::Accepted);
         const uint8_t result = c.outcome == r2link::Outcome::Replied ? c.result : uint8_t(r2link::Result::NotReady);
         if (saving_) {

@@ -17,6 +17,7 @@ PRELUDE = r'''
 #include <cstring>
 #include <string>
 #include "CommissionChecklist.h"
+#include "CommissionKeepalive.h"
 struct Sink : ICommissionSink {
     std::vector<r2link::CommissionRequest> sent; uint16_t seq = 0; size_t limit = size_t(-1);
     bool sendCommission(const r2link::CommissionRequest& r, uint32_t, uint16_t& s) override {
@@ -324,6 +325,83 @@ class DomeCommissioningTests(unittest.TestCase):
     { RadioCheck r; r.start(0); uint32_t t = 0; toFailsafe(r, t);
       for (int i = 0; i < 60; ++i) { t += 20; r.tick(rc({{3, 1800}}), t); }   // CH4 held off-centre
       assert(r.state() == RadioCheck::State::Failed && r.failsafe() == RadioCheck::Failsafe::BadValues); }
+''', sources=[ASTRO / "RadioCheck.cpp"])
+
+    def test_mirror_forgets_every_cached_field_when_the_link_drops(self):
+        self.check(r'''
+    Reader r; ProfileMirror m(r); r2link::Diagnostics none{};
+    m.tick(1000, true, none, 0);
+    m.tick(1010, true, reply(0, 0, 1512), 1010);
+    int32_t v = 0; assert(m.value(0, 0, v) && v == 1512 && m.known(0, 0));
+    m.tick(1100, false, none, 0);                                         // link lost
+    assert(!m.known(0, 0) && !m.value(0, 0, v));
+    for (uint8_t w = 0; w < 2; ++w) for (uint8_t f = 5; f <= 18; ++f) assert(!m.known(f, w));
+    const size_t asked = r.asked.size();
+    m.tick(1200, true, none, 0);                                          // link back: reads resume
+    assert(r.asked.size() == asked + 1);
+''')
+
+    def test_wizard_ignores_late_replies_once_it_is_no_longer_running(self):
+        self.check(r'''
+    Sink s; CommissionWizard w(s); w.tick(0, status(0, 0, 0), true, 9);
+    assert(w.startNeutral(10));
+    const uint16_t begin_seq = s.seq;
+    assert(w.cancel(20) && w.state() == CommissionWizard::State::Idle);
+    w.onCompletion(done(begin_seq, r2link::Result::Inhibited));          // late refusal of the Begin
+    assert(w.state() == CommissionWizard::State::Idle && w.lastResult() == 0);
+    w.onCompletion(done(s.seq, r2link::Result::NotReady));               // the Cancel refused late
+    assert(w.state() == CommissionWizard::State::Idle && w.lastResult() == 0);
+    // A Failed wizard keeps its first error.
+    Sink f; CommissionWizard x(f); x.tick(0, status(0, 0, 0), true, 9);
+    x.startDomeCalibration(10);
+    x.tick(20, status(f.sent.back().run_id, 2, 4, 3), true, 9);
+    assert(x.state() == CommissionWizard::State::Failed && x.lastError() == 3);
+    x.onCompletion(done(f.seq, r2link::Result::Busy));
+    assert(x.state() == CommissionWizard::State::Failed && x.lastError() == 3 && x.lastResult() == 0);
+''')
+
+    def test_browser_heartbeat_gates_the_wheel_test_keepalive_only(self):
+        self.check(r'''
+    static_assert(BrowserHeartbeat::kPeriodMs == 150 && BrowserHeartbeat::kWindowMs == 500, "spec values");
+    BrowserHeartbeat hb;
+    assert(!hb.fresh(0) && !hb.fresh(1000));                              // never seen
+    for (uint8_t t = 1; t <= 5; ++t) assert(commissionKeepaliveAllowed(t, false));   // dome tests: ESP32 keepalive
+    for (uint8_t t = 6; t <= 8; ++t) assert(!commissionKeepaliveAllowed(t, false) && commissionKeepaliveAllowed(t, true));
+    hb.beat(1000);
+    assert(hb.fresh(1000) && hb.fresh(1500) && !hb.fresh(1501));
+    hb.beat(0);                                                           // a beat at t=0 still counts
+    assert(hb.fresh(400));
+    hb.beat(0xFFFFFF00u);                                                 // millis() wrap
+    assert(hb.fresh(0x000000F0u) && !hb.fresh(0x00000200u));
+''')
+
+    def test_radio_check_stick_prompts_need_swa_up_and_prompts_are_js_safe(self):
+        self.check(r'''
+    RadioCheck r; r.start(0); uint32_t t = 0;
+    auto feed = [&](BodyRcState s) { t += 20; r.tick(s, t); };
+    assert(std::strstr(r.prompt(), "SwA UP"));
+    feed(rc({{1, 1900}, {5, 1900}})); assert(r.step() == 0);            // SwA DOWN: does not count
+    assert(std::strstr(r.prompt(), "SwA UP"));
+    feed(rc({{1, 1900}})); assert(r.step() == 1);
+    assert(std::strstr(r.prompt(), "SwA UP"));
+    feed(rc({{0, 1900}, {5, 1300}})); assert(r.step() == 1);            // CH6 not below 1250
+    feed(rc({{0, 1900}})); assert(r.step() == 2);
+    assert(std::strstr(r.prompt(), "SwA UP"));
+    feed(rc({{3, 1900}, {5, 1900}})); assert(r.step() == 2);
+    feed(rc({{3, 1900}})); assert(r.step() == 3);
+    feed(rc({{5, 1900}}));
+    feed(rc({{4, 1000}})); feed(rc({{4, 1500}})); feed(rc({{4, 2000}}));
+    feed(rc({{7, 1900}}));
+    assert(r.step() == 6 && std::strstr(r.prompt(), "dome may turn"));
+    // ReelTwo puts prompts into single-quoted JavaScript strings without escaping.
+    RadioCheck all; all.start(0); uint32_t u = 0;
+    const std::initializer_list<std::pair<int, uint16_t>> steps[] = {
+        {{1, 1900}}, {{0, 1900}}, {{3, 1900}}, {{5, 1900}}, {{4, 1000}}, {{4, 1500}}, {{4, 2000}},
+        {{7, 1900}}, {{8, 1900}}, {{6, 1000}}, {{6, 2000}}};
+    auto safe = [](const char* p) { return !std::strchr(p, '\'') && !std::strchr(p, '"') && !std::strchr(p, '\\'); };
+    assert(safe(all.prompt()));
+    for (auto& s : steps) { u += 20; all.tick(rc(s), u); assert(safe(all.prompt())); }
+    assert(all.step() == 8);
 ''', sources=[ASTRO / "RadioCheck.cpp"])
 
     def test_audio_check(self):
