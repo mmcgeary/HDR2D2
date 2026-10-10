@@ -8,7 +8,7 @@ This guide explains in plain language what every switch, knob, and stick on your
 
 ## 1. Visual Layout & Controls Overview
 
-![FlySky FS-i6X Controller Layout](docs/images/flysky_fs_i6x_layout.jpg)
+![FlySky FS-i6X Controller Vector Layout](docs/images/flysky_fs_i6x_layout.svg)
 
 ```
        [ SwA ] (2-pos)                         [ SwD ] (2-pos)
