@@ -18,6 +18,7 @@ enum
 WMenuData mainMenu[] = {
     { "Logics", "/logics" },
     { "Dome & Macros", "/dome" },
+    { "Body Status", "/body" },
     { "Setup", "/setup" }
 };
 
@@ -42,11 +43,11 @@ WElement setupContents[] = {
 
 WElement domeContents[] = {
     WLabel("Motion requires a live radio. Center the dome stick to rearm after STOP.", "safety"),
-    WButton("STOP", "stop", []() { stopDomeMotion(); cancelR2Macro(); }),
+    WButton("STOP", "stop", []() { stopDomeMotion(); }),
     WButton("Home dome", "homeDome", []() { startDomeHoming(); }),
     WButton("Scream", "scream", []() { startR2Macro(R2_SCREAM); }),
     WButton("Cantina", "cantina", []() { startR2Macro(R2_CANTINA); }),
-    WButton("Leia (home first)", "leia", []() { startDomeHoming(R2_LEIA); }),
+    WButton("Leia", "leia", []() { startR2Macro(R2_LEIA); }),
     WButton("Disco", "disco", []() { startR2Macro(R2_DISCO); }),
     WButton("Faint", "faint", []() { startR2Macro(R2_FAINT); }),
     WButton("Back", "back", "/")
@@ -174,8 +175,8 @@ WElement logicsContents[] = {
 ////////////////////////////////
 
 WElement serialContents[] = {
-    WLabel("UART2: FlySky i-Bus RX on GPIO16 at 115200 baud (fixed)", "ibus"),
-    WLabel("UART1: DFPlayer TX on GPIO17 at 9600 baud (fixed)", "audio"),
+    WLabel("Serial2: Bidirectional Body Link on GPIO16 (RX) / GPIO17 (TX) at 115200 baud", "bodylink"),
+    WLabel("Radio, dual VESCs and DFPlayer managed remotely via Teensy 4.1", "remote"),
     WHorizontalAlign(),
     WButton("Back", "back", "/setup"),
     WHorizontalAlign(),
@@ -207,7 +208,7 @@ int marcSoundRandomMin;
 int marcSoundRandomMax;
 
 WElement soundContents[] = {
-    WLabel("DFPlayer Mini: fixed UART1 TX, files /01/001.mp3 through /01/255.mp3", "player"),
+    WLabel("DFPlayer Mini: remote body management via Teensy 4.1", "player"),
     WVerticalAlign(),
     WSlider("Sound Volume", "soundVolume", 0, 1000,
         []() { return (marcSoundVolume = preferences.getInt(PREFERENCE_MARCSOUND_VOLUME, MARC_SOUND_VOLUME)); },
@@ -307,6 +308,7 @@ WElement wifiContents[] = {
 
 WElement firmwareContents[] = {
     W1("Firmware Setup"),
+    WButton("Prepare update", "prepareUpdate", []() { prepareMaintenance(); }),
     WFirmwareFile("Firmware:", "firmware"),
     WFirmwareUpload("Reflash", "firmware"),
     WLabel("Current Firmware Build Date:", "label"),
@@ -316,8 +318,7 @@ WElement firmwareContents[] = {
 #endif
     WButton("Clear Prefs", "clear", []() {
         DEBUG_PRINTLN("Clear all preference settings");
-        preferences.clear();
-        reboot();
+        clearPrefsAndReboot();
     }),
     WHorizontalAlign(),
     WButton("Reboot", "reboot", []() {
@@ -333,9 +334,111 @@ WElement firmwareContents[] = {
 
 //////////////////////////////////////////////////////////////////
 
+inline String formatBodyVesc(uint8_t wheel) {
+    auto v = g_body_client.vescStatus(wheel, millis());
+    if (!v.valid) {
+        return String("Unavailable");
+    }
+    char buf[128];
+    snprintf(buf, sizeof(buf), "%u.%02uV %ldmA %ld eRPM %d.%uC",
+             v.pack_cV / 100, v.pack_cV % 100,
+             (long)v.motor_mA, (long)v.erpm,
+             v.mosfet_dC / 10, abs(v.mosfet_dC % 10));
+    return String(buf);
+}
+
+inline String formatBodyState() {
+    auto s = g_body_client.bodyStatus(millis());
+    if (!s.fresh) {
+        return String("Unavailable");
+    }
+    char buf[128];
+    const char* dstate = (s.value.drive_state == 3) ? "Active" :
+                         (s.value.drive_state == 2) ? "Ready" :
+                         (s.value.drive_state == 1) ? "Failsafe" : "Disabled";
+    snprintf(buf, sizeof(buf), "Drive: %s | Epoch: %u | Age: %ums",
+             dstate, s.value.control_epoch, (unsigned)s.effective_age_ms);
+    return String(buf);
+}
+
+inline String formatBodyLocks() {
+    auto s = g_body_client.bodyStatus(millis());
+    if (!s.fresh) {
+        return String("Unavailable");
+    }
+    if (s.value.motion_locked_reasons == 0) {
+        return String("Unlocked");
+    }
+    String out = "Locked [";
+    if (s.value.motion_locked_reasons & 1) out += "Operator ";
+    if (s.value.motion_locked_reasons & (1 << 1)) out += "Reserved ";
+    if (s.value.motion_locked_reasons & (1 << 2)) out += "Maintenance ";
+    if (s.value.motion_locked_reasons & (1 << 3)) out += "Commissioning ";
+    out.trim();
+    out += "]";
+    return out;
+}
+
+inline String formatBodyAudio() {
+    auto a = g_body_client.audioStatus(millis());
+    if (a.state == 0) {
+        return String("Idle");
+    }
+    if (a.state == 1) {
+        return String("Starting");
+    }
+    if (a.state == 2) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "Playing track %u", a.track);
+        return String(buf);
+    }
+    if (a.state == 3) {
+        return String("Finished");
+    }
+    return String("Unavailable");
+}
+
+inline String formatBodyLastError() {
+    auto err = g_body_client.lastError();
+    if (err.result == 0 && err.code == 0) {
+        return String("None");
+    }
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Result %u (Code %u, Detail %u)",
+             err.result, err.code, err.detail);
+    return String(buf);
+}
+
+WElement bodyContents[] = {
+    W1("Body Status"),
+    WLabel("Requires CH6 OFF and sticks neutral for lock recovery.", "safety"),
+    WTextField("Left VESC:", "b_vescl", []()->String { return formatBodyVesc(0); }, [](String) {}),
+    WVerticalAlign(),
+    WTextField("Right VESC:", "b_vescr", []()->String { return formatBodyVesc(1); }, [](String) {}),
+    WVerticalAlign(),
+    WTextField("Body State:", "b_state", []()->String { return formatBodyState(); }, [](String) {}),
+    WVerticalAlign(),
+    WTextField("Motion Locks:", "b_locks", []()->String { return formatBodyLocks(); }, [](String) {}),
+    WVerticalAlign(),
+    WTextField("Audio Status:", "b_audio", []()->String { return formatBodyAudio(); }, [](String) {}),
+    WVerticalAlign(),
+    WTextField("Last Error:", "b_err", []()->String { return formatBodyLastError(); }, [](String) {}),
+    WVerticalAlign(),
+    WButton("Recover body locks", "recover", []() { recoverBodyLocks(); }),
+    WHorizontalAlign(),
+    WButton("Back", "back", "/"),
+    WHorizontalAlign(),
+    WButton("Home", "home", "/"),
+    WVerticalAlign(),
+    rseriesSVG
+};
+
+//////////////////////////////////////////////////////////////////
+
 WPage pages[] = {
     WPage("/", mainContents, SizeOfArray(mainContents)),
       WPage("/dome", domeContents, SizeOfArray(domeContents)),
+      WPage("/body", bodyContents, SizeOfArray(bodyContents)),
       WPage("/logics", logicsContents, SizeOfArray(logicsContents)),
     WPage("/setup", setupContents, SizeOfArray(setupContents)),
       WPage("/serial", serialContents, SizeOfArray(serialContents)),
@@ -345,7 +448,7 @@ WPage pages[] = {
         WUpload("/upload/firmware",
             [](Client& client)
             {
-                if (Update.hasError())
+                if (!maintenanceReady() || Update.hasError())
                     client.println("HTTP/1.0 200 FAIL");
                 else
                     client.println("HTTP/1.0 200 OK");
@@ -354,7 +457,7 @@ WPage pages[] = {
                 client.println();
                 client.println();
                 client.stop();
-                if (!Update.hasError())
+                if (maintenanceReady() && !Update.hasError())
                 {
                     delay(1000);
                     preferences.end();
@@ -371,6 +474,11 @@ WPage pages[] = {
             {
                 if (upload.status == UPLOAD_FILE_START)
                 {
+                    if (!maintenanceReady())
+                    {
+                        Serial.println(F("[UPLOAD] Rejected: maintenance lock not ready"));
+                        return;
+                    }
                     otaInProgress = true;
                     stopDomeMotion();
                     cancelR2Macro();
@@ -383,15 +491,14 @@ WPage pages[] = {
                     Serial.printf("Update: %s\n", upload.filename.c_str());
                     if (!Update.begin(upload.fileSize))
                     {
-                        //start with max available size
                         Update.printError(Serial);
                     }
                 }
                 else if (upload.status == UPLOAD_FILE_WRITE)
                 {
+                    if (!maintenanceReady() || Update.hasError()) return;
                     float range = (float)upload.receivedSize / (float)upload.fileSize;
                     DEBUG_PRINTLN("Received: "+String(range*100)+"%");
-                   /* flashing firmware to ESP*/
                     if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
                     {
                         Update.printError(Serial);
@@ -401,10 +508,10 @@ WPage pages[] = {
                 }
                 else if (upload.status == UPLOAD_FILE_END)
                 {
+                    if (!maintenanceReady() || Update.hasError()) return;
                     DEBUG_PRINTLN("GAME OVER");
                     if (Update.end(true))
                     {
-                        //true to set the size to the current progress
                         Serial.printf("Update Success: %u\nRebooting...\n", upload.receivedSize);
                     }
                     else

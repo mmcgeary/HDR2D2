@@ -8,10 +8,19 @@ ROOT = Path(__file__).resolve().parents[1]
 SKETCH = ROOT / "ASTROPIXELS_PLUS_UNIFIED/ASTROPIXELS_PLUS_UNIFIED.ino"
 
 
-def function(source, name):
-    start = source.index(f"void {name}(")
+def function(source, name, return_type=None):
+    if return_type:
+        prefix = f"{return_type} {name}("
+    else:
+        for rt in ("void", "bool", "int", "uint32_t", "RequestHandle"):
+            if f"{rt} {name}(" in source:
+                prefix = f"{rt} {name}("
+                break
+        else:
+            raise ValueError(f"Function {name} not found in source")
+    start = source.index(prefix)
     while source.find(";", start) < source.find("{", start):
-        start = source.index(f"void {name}(", start + 1)
+        start = source.index(prefix, start + 1)
     opening = source.index("{", start)
     depth = 1
     end = opening + 1
@@ -126,7 +135,22 @@ class PlusBehaviorTests(unittest.TestCase):
             int stops=0;
             void stopDomeMotion() { ++stops; }
             void cancelR2Macro() {}
+            #define RC_CH_DRIVE_STEER 0
+            #define RC_CH_DRIVE_THROTTLE 1
+            #define RC_CH_AUTO_DOME 8
             bool rcNeutral() { return true; }
+            bool driveNeutral() { return true; }
+            enum class MacroPhase { Idle, WaitingHome, WaitingAudio, Running, Finishing };
+            struct MacroState {
+                MacroPhase phase{MacroPhase::Idle};
+                uint16_t home_sequence{0};
+                uint16_t audio_sequence{0};
+                bool dome_cancelled{false};
+                uint32_t dome_generation{0};
+                uint32_t guard_deadline_ms{0};
+            } macro;
+            enum { HOMING_INACTIVE, HOMING_SEEKING, HOMING_ALIGNED };
+            int homing_state = HOMING_INACTIVE;
         """ + fn + """
             int main() {
                 g_body_client.state.valid = true;
@@ -164,6 +188,7 @@ class PlusBehaviorTests(unittest.TestCase):
             uint32_t now = 100;
             uint32_t millis() { return now; }
             void cancelR2Macro() {}
+            void disableHoloServos() {}
             struct Console { void println(const char*) {} } Serial;
             namespace r2link {
                 enum class DomeOperation : uint8_t { Cancel=0, Velocity=1, SeekReference=2 };
@@ -175,15 +200,31 @@ class PlusBehaviorTests(unittest.TestCase):
                     uint8_t reference{0};
                     int16_t speed_percent{0};
                     uint16_t lease_ms{0};
-                    uint32_t generation{0};
+                    uint16_t control_epoch{0};
+                    uint32_t dome_authority_generation{0};
                 };
-                struct BodyStatus { uint32_t dome_authority_generation{5}; };
+                struct ControlRequest {
+                    uint8_t operation{0};
+                    uint8_t reason{0};
+                    uint16_t token{0};
+                    uint16_t control_epoch{0};
+                };
+                struct BodyStatus { uint32_t dome_authority_generation{5}; uint16_t control_epoch{1}; };
+                const uint8_t kReasonOperator = 0;
             }
             struct BodyStatusSnapshot { r2link::BodyStatus value; };
+            struct RequestHandle {
+                uint16_t sequence{0};
+                bool queued{false};
+                RequestHandle() = default;
+                RequestHandle(uint16_t s, bool q) : sequence(s), queued(q) {}
+            };
             struct FakeBodyClient {
                 std::vector<r2link::DomeRequest> requests;
+                std::vector<r2link::ControlRequest> control_requests;
                 BodyStatusSnapshot bodyStatus(uint32_t) const { return BodyStatusSnapshot{}; }
-                void requestDome(const r2link::DomeRequest& req, uint32_t) { requests.push_back(req); }
+                RequestHandle requestDome(const r2link::DomeRequest& req, uint32_t) { requests.push_back(req); return RequestHandle{1, true}; }
+                RequestHandle requestControl(const r2link::ControlRequest& req, uint32_t) { control_requests.push_back(req); return RequestHandle{1, true}; }
             } g_body_client;
             bool rcNeutral() { return rc_channels[3] >= 1460 && rc_channels[3] <= 1540; }
         """ + stop_fn + start_fn + """
@@ -315,17 +356,25 @@ class PlusBehaviorTests(unittest.TestCase):
         self.assertIn("void startR2Macro(R2Macro macro) {", source,
                       "Plus needs one shared macro owner for Wi-Fi and RC")
         functions = "\n".join(function(source, name) for name in
-                              ("startR2Macro", "processR2Macro"))
+                              ("cancelR2Macro", "finishR2Macro", "startMacroChoreography",
+                               "processMacroCompletion", "processMacroEvent",
+                               "startR2Macro", "processR2Macro"))
         prelude = (ROOT / "tests/plus_macro_fakes.h").read_text()
         result = run_cpp(prelude + functions + """
             int main() {
                 now = 100;
                 startR2Macro(R2_CANTINA);
                 if (tracks.size()!=1 || tracks[0]!=106) return 1;
+                deliverReply(macro.audio_sequence, r2link::Result::Accepted);
+                deliverEvent(r2link::EventKind::PlaybackStarted, macro.audio_sequence);
+                if (macro.phase != MacroPhase::Running) return 10;
                 now = 30100;
                 processR2Macro();
                 if (active_macro!=R2_NONE) return 2;
+                dome_motion_inhibited = false;
                 startR2Macro(R2_FAINT);
+                deliverReply(macro.audio_sequence, r2link::Result::Accepted);
+                deliverEvent(r2link::EventKind::PlaybackStarted, macro.audio_sequence);
                 if (!outputs_off) return 3;
                 now += 600;
                 processR2Macro();
@@ -335,6 +384,181 @@ class PlusBehaviorTests(unittest.TestCase):
                 now += 4400;
                 processR2Macro();
                 if (active_macro!=R2_NONE || centers==0) return 6;
+                return 0;
+            }
+        """)
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_macro_ordering_and_acknowledgement(self):
+        source = SKETCH.read_text()
+        functions = "\n".join(function(source, name) for name in
+                              ("cancelR2Macro", "finishR2Macro", "startMacroChoreography",
+                               "processMacroCompletion", "processMacroEvent",
+                               "startR2Macro", "processR2Macro"))
+        prelude = (ROOT / "tests/plus_macro_fakes.h").read_text()
+        result = run_cpp(prelude + functions + """
+            int main() {
+                now = 1000;
+                rc_channels[RC_CH_AUTO_DOME] = 2000;
+                rc_channels[RC_CH_DOME_STEER] = 1500;
+                rc_channels[RC_CH_DRIVE_STEER] = 1500;
+                rc_channels[RC_CH_DRIVE_THROTTLE] = 1500;
+
+                startR2Macro(R2_LEIA);
+                assert(macro.phase == MacroPhase::WaitingHome);
+                const uint16_t homeSequence = macro.home_sequence;
+                assert(homeSequence > 0);
+
+                // Home ACCEPTED alone must not start Leia
+                deliverReply(homeSequence, r2link::Result::Accepted);
+                assert(macro.phase == MacroPhase::WaitingHome);
+                assert(tracks.empty());
+
+                // Home COMPLETED -> play request
+                deliverEvent(r2link::EventKind::Completed, homeSequence);
+                assert(macro.phase == MacroPhase::WaitingAudio);
+                const uint16_t audioSequence = macro.audio_sequence;
+                assert(audioSequence > 0);
+                assert(tracks.size() == 1 && tracks[0] == 109);
+
+                // Audio ACCEPTED alone must not start choreography
+                deliverReply(audioSequence, r2link::Result::Accepted);
+                assert(macro.phase == MacroPhase::WaitingAudio);
+
+                // PLAYBACK_STARTED -> Running
+                deliverEvent(r2link::EventKind::PlaybackStarted, audioSequence);
+                assert(macro.phase == MacroPhase::Running);
+
+                // Completion ends routine
+                deliverEvent(r2link::EventKind::Completed, audioSequence);
+                assert(macro.phase == MacroPhase::Idle);
+                assert(active_macro == R2_NONE);
+                return 0;
+            }
+        """)
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_macro_entry_points_takeover_and_guards(self):
+        source = SKETCH.read_text()
+        functions = "\n".join(function(source, name) for name in
+                              ("stopDomeMotion", "cancelR2Macro", "finishR2Macro", "startMacroChoreography",
+                               "processMacroCompletion", "processMacroEvent",
+                               "startR2Macro", "processR2Macro"))
+        prelude = (ROOT / "tests/plus_macro_fakes.h").read_text()
+        result = run_cpp(prelude + functions + """
+            int main() {
+                now = 1000;
+
+                // 1. Auto Dome OFF at trigger goes directly WaitingAudio, no seek
+                rc_channels[RC_CH_AUTO_DOME] = 1000;
+                startR2Macro(R2_LEIA);
+                assert(macro.phase == MacroPhase::WaitingAudio);
+                assert(macro.home_sequence == 0);
+                assert(macro.dome_cancelled == false);
+                assert(tracks.back() == 109);
+                cancelR2Macro();
+
+                // 2. Auto Dome ON but manual stick deflecting at trigger -> alignment rejected, goes to WaitingAudio
+                rc_channels[RC_CH_AUTO_DOME] = 2000;
+                rc_channels[RC_CH_DOME_STEER] = 1800;
+                startR2Macro(R2_LEIA);
+                assert(macro.phase == MacroPhase::WaitingAudio);
+                assert(macro.home_sequence == 0);
+                assert(macro.dome_cancelled == true);
+                cancelR2Macro();
+
+                // 3. Manual takeover during WaitingHome cancels seek, invalidates sequence
+                rc_channels[RC_CH_DOME_STEER] = 1500;
+                startR2Macro(R2_LEIA);
+                assert(macro.phase == MacroPhase::WaitingHome);
+                const uint16_t oldHomeSeq = macro.home_sequence;
+                macro.dome_cancelled = true;
+                homing_state = HOMING_INACTIVE;
+                macro.home_sequence = 0;
+                cancelR2Macro();
+                assert(macro.phase == MacroPhase::Idle);
+                deliverEvent(r2link::EventKind::Completed, oldHomeSeq);
+                assert(macro.phase == MacroPhase::Idle);
+
+                // 4. Manual takeover during Running sets dome_cancelled, keeps audio/lights running
+                startR2Macro(R2_SCREAM);
+                assert(macro.phase == MacroPhase::WaitingAudio);
+                deliverReply(macro.audio_sequence, r2link::Result::Accepted);
+                deliverEvent(r2link::EventKind::PlaybackStarted, macro.audio_sequence);
+                assert(macro.phase == MacroPhase::Running);
+                assert(macro.dome_cancelled == false);
+                macro.dome_cancelled = true;
+                assert(macro.phase == MacroPhase::Running);
+
+                // 5. STOP cancels everything and issues ControlRequest operation 0
+                stopDomeMotion();
+                assert(macro.phase == MacroPhase::Idle);
+                assert(active_macro == R2_NONE);
+                assert(!g_body_client.control_requests.empty());
+                assert(g_body_client.control_requests.back().operation == 0);
+
+                // 6. Faint macro runs without issuing LOCK/UNLOCK ControlRequests
+                size_t ctrl_before = g_body_client.control_requests.size();
+                dome_motion_inhibited = false;
+                startR2Macro(R2_FAINT);
+                assert(g_body_client.control_requests.size() == ctrl_before);
+                deliverReply(macro.audio_sequence, r2link::Result::Accepted);
+                deliverEvent(r2link::EventKind::PlaybackStarted, macro.audio_sequence);
+                assert(g_body_client.control_requests.size() == ctrl_before);
+                cancelR2Macro();
+
+                return 0;
+            }
+        """)
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_maintenance_lock_gates_ota_and_reboot(self):
+        source = SKETCH.read_text()
+        functions = "\n".join(function(source, name) for name in
+                              ("stopDomeMotion", "cancelR2Macro", "prepareMaintenance",
+                               "maintenanceReady", "releaseMaintenance", "recoverBodyLocks",
+                               "processMaintenanceCompletion", "reboot"))
+        prelude = (ROOT / "tests/plus_macro_fakes.h").read_text()
+        result = run_cpp(prelude + functions + """
+            int main() {
+                now = 1000;
+                assert(!maintenanceReady());
+
+                // prepareMaintenance issues ControlRequest LOCK with token 0xBEEF
+                prepareMaintenance(false, false);
+                assert(g_maintenance.state == MaintenanceState::Requested);
+                assert(g_maintenance.token == 0xBEEF);
+                assert(!g_body_client.control_requests.empty());
+                assert(g_body_client.control_requests.back().operation == 2);
+                assert(g_body_client.control_requests.back().token == 0xBEEF);
+
+                // When body confirms lock:
+                r2link::Completion comp{};
+                comp.type = static_cast<uint8_t>(r2link::MessageType::ControlRequest);
+                comp.sequence = g_maintenance.sequence;
+                comp.result = static_cast<uint8_t>(r2link::Result::Accepted);
+                processMaintenanceCompletion(comp);
+                assert(maintenanceReady());
+                assert(g_maintenance.state == MaintenanceState::Locked);
+
+                // releaseMaintenance issues UNLOCK
+                releaseMaintenance();
+                assert(g_maintenance.state == MaintenanceState::Idle);
+                assert(!maintenanceReady());
+                assert(g_body_client.control_requests.back().operation == 3);
+                assert(g_body_client.control_requests.back().token == 0xBEEF);
+
+                // recoverBodyLocks issues RECOVER_LOCKS (operation 4, reason 0, token 0)
+                recoverBodyLocks();
+                assert(g_body_client.control_requests.back().operation == 4);
+                assert(g_body_client.control_requests.back().reason == 0);
+                assert(g_body_client.control_requests.back().token == 0);
+
+                // reboot initiates prepareMaintenance asynchronously
+                reboot();
+                assert(g_maintenance.state == MaintenanceState::Requested);
+                assert(g_maintenance.pending_reboot == true);
+
                 return 0;
             }
         """)

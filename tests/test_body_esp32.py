@@ -125,6 +125,16 @@ struct ClientFixture {
         inject(port, stamp(frameOf(ev), body_seq++, body_session, dome_session, 0));
         client.tick(t);
     }
+
+    void injectReply(uint32_t t, MessageType req_type, uint16_t req_seq, Result result, uint16_t detail = 0) {
+        Reply rep{};
+        rep.request_type = static_cast<uint8_t>(req_type);
+        rep.request_seq = req_seq;
+        rep.result = static_cast<uint8_t>(result);
+        rep.detail = detail;
+        inject(port, stamp(frameOf(rep), body_seq++, body_session, dome_session, 0));
+        client.tick(t);
+    }
 };
 '''
 
@@ -355,6 +365,61 @@ class BodyEsp32Tests(unittest.TestCase):
     // Generation bumped and cached state invalidated
     assert(!f.client.rcSnapshot(1020).valid);
     assert(!f.client.bodyStatus(1020).fresh);
+''')
+
+    def test_maintenance_lock_requests_and_completions(self):
+        self.check(r'''
+    ClientFixture f;
+    f.connect();
+
+    // 1. Submit ControlRequest for maintenance lock
+    ControlRequest cr{};
+    cr.operation = 2; // LockMaintenance
+    cr.reason = kReasonMaintenance;
+    cr.token = 0xBEEF;
+    cr.control_epoch = 1;
+
+    RequestHandle h = f.client.requestControl(cr, 1000);
+    assert(h.queued);
+    assert(h.sequence > 0);
+    f.client.tick(1000);
+
+    // 2. Deliver Reply with Accepted
+    f.injectReply(1020, MessageType::ControlRequest, h.sequence, Result::Accepted, 0);
+
+    // 3. Verify takeCompletion yields Accepted completion
+    Completion comp{};
+    assert(f.client.takeCompletion(comp));
+    assert(comp.sequence == h.sequence);
+    assert(comp.outcome == Outcome::Replied);
+    assert(comp.result == static_cast<uint8_t>(Result::Accepted));
+    assert(!f.client.takeCompletion(comp)); // Queue emptied
+
+    // 4. Release maintenance lock
+    cr.operation = 3; // UnlockMaintenance
+    RequestHandle h_rel = f.client.requestControl(cr, 1040);
+    assert(h_rel.queued);
+    assert(h_rel.sequence > 0);
+    f.client.tick(1040);
+
+    f.injectReply(1050, MessageType::ControlRequest, h_rel.sequence, Result::Accepted, 0);
+    assert(f.client.takeCompletion(comp));
+    assert(comp.sequence == h_rel.sequence);
+    assert(comp.result == static_cast<uint8_t>(Result::Accepted));
+
+    // 5. Test rejected control request
+    cr.operation = 4; // RecoverLocks
+    cr.reason = kReasonOperator;
+    RequestHandle h_rec = f.client.requestControl(cr, 1060);
+    assert(h_rec.queued);
+    f.client.tick(1060);
+
+    f.injectReply(1070, MessageType::ControlRequest, h_rec.sequence, Result::Inhibited, 12);
+    assert(f.client.takeCompletion(comp));
+    assert(comp.sequence == h_rec.sequence);
+    assert(comp.result == static_cast<uint8_t>(Result::Inhibited));
+    assert(comp.detail == 12);
+    assert(f.client.lastError().code == 4); // Rejected
 ''')
 
 

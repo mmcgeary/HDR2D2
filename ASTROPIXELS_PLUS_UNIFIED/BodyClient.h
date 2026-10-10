@@ -81,8 +81,9 @@ public:
     // IDomeRequestSink interface implementation
     bool submit(const r2link::DomeRequest& req, uint32_t now_ms, uint16_t& sequence) override;
 
-    // Event extraction
+    // Event and completion extraction
     bool takeEvent(r2link::Event& out);
+    bool takeCompletion(r2link::Completion& out);
 
     // Telemetry publishing
     void publishHall(uint8_t valid_mask, uint8_t active_mask, uint32_t sample_counter, uint32_t now_ms);
@@ -100,6 +101,7 @@ private:
     void processCompletions(uint32_t now_ms);
 
     static const size_t kEventCapacity = 8;
+    static const size_t kCompletionCapacity = 8;
     alignas(r2link::Endpoint) uint8_t endpoint_storage_[sizeof(r2link::Endpoint)];
     r2link::Endpoint* endpoint_{nullptr};
 
@@ -122,6 +124,10 @@ private:
     r2link::Event event_queue_[kEventCapacity]{};
     size_t event_head_{0};
     size_t event_count_{0};
+
+    r2link::Completion completion_queue_[kCompletionCapacity]{};
+    size_t completion_head_{0};
+    size_t completion_count_{0};
 
     uint32_t last_peer_generation_{0};
     ClientError last_error_{};

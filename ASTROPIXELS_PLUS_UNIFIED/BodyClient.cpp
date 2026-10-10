@@ -22,6 +22,8 @@ void BodyClient::begin(r2link::BytePort& port, uint32_t local_session) {
     has_audio_status_ = false;
     event_count_ = 0;
     event_head_ = 0;
+    completion_count_ = 0;
+    completion_head_ = 0;
     last_peer_generation_ = 0;
     last_error_ = {};
 }
@@ -39,6 +41,8 @@ void BodyClient::tick(uint32_t now_ms) {
         has_audio_status_ = false;
         event_count_ = 0;
         event_head_ = 0;
+        completion_count_ = 0;
+        completion_head_ = 0;
     }
 
     processReceived(now_ms);
@@ -111,6 +115,11 @@ void BodyClient::processCompletions(uint32_t now_ms) {
             last_error_.code = 4; // Rejected
             last_error_.result = c.result;
             last_error_.detail = c.detail;
+        }
+        if (completion_count_ < kCompletionCapacity) {
+            const size_t tail = (completion_head_ + completion_count_) % kCompletionCapacity;
+            completion_queue_[tail] = c;
+            ++completion_count_;
         }
     }
 }
@@ -321,6 +330,14 @@ bool BodyClient::takeEvent(r2link::Event& out) {
     out = event_queue_[event_head_];
     event_head_ = (event_head_ + 1) % kEventCapacity;
     --event_count_;
+    return true;
+}
+
+bool BodyClient::takeCompletion(r2link::Completion& out) {
+    if (completion_count_ == 0) return false;
+    out = completion_queue_[completion_head_];
+    completion_head_ = (completion_head_ + 1) % kCompletionCapacity;
+    --completion_count_;
     return true;
 }
 

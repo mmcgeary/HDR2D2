@@ -217,13 +217,62 @@ const ServoSettings servoSettings[] PROGMEM = {
 };
 
 enum R2Macro : uint8_t { R2_NONE, R2_SCREAM, R2_CANTINA, R2_LEIA, R2_DISCO, R2_FAINT };
+
+enum class MacroPhase : uint8_t {
+    Idle = 0,
+    WaitingHome,
+    WaitingAudio,
+    Running,
+    Finishing
+};
+
+struct MacroState {
+    MacroPhase phase{MacroPhase::Idle};
+    R2Macro kind{R2_NONE};
+    uint16_t home_sequence{0};
+    uint16_t audio_sequence{0};
+    bool dome_cancelled{false};
+    uint32_t dome_generation{0};
+    uint32_t guard_deadline_ms{0};
+    uint32_t started_ms{0};
+    uint32_t duration_ms{0};
+    uint32_t last_step{UINT32_MAX};
+};
+
+enum class MaintenanceState : uint8_t {
+    Idle = 0,
+    Requested,
+    Locked,
+    Updating,
+    Failed
+};
+
+struct MaintenanceInfo {
+    MaintenanceState state{MaintenanceState::Idle};
+    uint16_t token{0};
+    uint16_t sequence{0};
+    uint32_t deadline_ms{0};
+    bool pending_reboot{false};
+    bool clear_prefs_on_reboot{false};
+};
+
+extern MacroState macro;
+extern MaintenanceInfo g_maintenance;
+extern R2Macro& active_macro;
+
 void startR2Macro(R2Macro macro);
 void stopDomeMotion();
 void cancelR2Macro();
+void finishR2Macro();
 void disableHoloServos();
 bool r2MacroActive();
 void startDomeHoming(R2Macro macro = R2_NONE);
 void playDFPlayerTrack(uint16_t track_num);
+bool maintenanceReady();
+void prepareMaintenance(bool for_reboot = false, bool clear_prefs = false);
+void releaseMaintenance();
+void recoverBodyLocks();
+void clearPrefsAndReboot();
 
 ServoDispatchPCA9685<SizeOfArray(servoSettings)> servoDispatch(servoSettings);
 ServoSequencer servoSequencer(servoDispatch);
@@ -286,10 +335,13 @@ void unmountFileSystems() {
 void reboot() {
     DEBUG_PRINTLN("[SYSTEM] Restarting...");
     stopDomeMotion();
-    unmountFileSystems();
-    preferences.end();
-    delay(1000);
-    ESP.restart();
+    prepareMaintenance(true, false);
+}
+
+void clearPrefsAndReboot() {
+    DEBUG_PRINTLN("[SYSTEM] Clearing preferences and restarting...");
+    stopDomeMotion();
+    prepareMaintenance(true, true);
 }
 
 void resetSequence() {
@@ -357,10 +409,13 @@ unsigned long last_rc_packet_ms = 0;
 // FlySky FS-i6X Channel Mapping
 #define RC_CH_STEER            0  // Right Stick X (CH1): Tank Differential Steering
 #define RC_CH_THROTTLE         1  // Right Stick Y (CH2): Forward / Reverse Throttle
+#define RC_CH_DRIVE_STEER      0
+#define RC_CH_DRIVE_THROTTLE   1
 #define RC_CH_DOME_STEER       3  // Left Stick X (CH4): Manual Dome Rotation
 #define RC_CH_SPEED_MODE       4  // Switch SwB   (CH5): Transmitter Dual Rates
 #define RC_CH_MOOD_SELECT      6  // Knob VrA     (CH7): Persistent Mood & Macro Selector (1-13)
 #define RC_CH_MACRO_TRIGGER    7  // Switch SwC   (CH8): Macro Fire Trigger (Flip DOWN)
+#define RC_CH_AUTO_DOME        8  // Switch SwD   (CH9): Auto Dome Enable
 
 // Dome Homing & Macro Tracking
 enum HomingState : uint8_t {
@@ -372,7 +427,9 @@ enum HomingState : uint8_t {
 HomingState homing_state = HOMING_INACTIVE;
 R2Macro pending_macro_after_home = R2_NONE;
 bool dome_motion_inhibited = true;
-R2Macro active_macro = R2_NONE;
+MacroState macro{};
+MaintenanceInfo g_maintenance{};
+R2Macro& active_macro = macro.kind;
 uint32_t macro_started_ms = 0;
 uint32_t macro_duration_ms = 0;
 uint32_t last_macro_step = UINT32_MAX;
@@ -385,25 +442,43 @@ void processTransmitterInputs();
 void playDFPlayerTrack(uint16_t track_num);
 void stopDomeMotion();
 void startDomeHoming(R2Macro macro = R2_NONE);
+void processMacroCompletion(const r2link::Completion& comp);
+void processMacroEvent(const r2link::Event& ev);
+void processMaintenanceCompletion(const r2link::Completion& comp);
+void processMaintenance(uint32_t now);
 
 bool rcNeutral() {
     return rc_channels[RC_CH_DOME_STEER] >= 1460 &&
            rc_channels[RC_CH_DOME_STEER] <= 1540;
 }
 
+bool driveNeutral() {
+    return rc_channels[RC_CH_DRIVE_STEER] >= 1460 &&
+           rc_channels[RC_CH_DRIVE_STEER] <= 1540 &&
+           rc_channels[RC_CH_DRIVE_THROTTLE] >= 1460 &&
+           rc_channels[RC_CH_DRIVE_THROTTLE] <= 1540;
+}
+
 void stopDomeMotion() {
     homing_state = HOMING_INACTIVE;
     pending_macro_after_home = R2_NONE;
     dome_motion_inhibited = true;
-    r2link::DomeRequest req{};
-    req.operation = static_cast<uint8_t>(r2link::DomeOperation::Cancel);
-    req.owner = static_cast<uint8_t>(r2link::DomeOwner::Event);
-    req.reference = 0;
-    req.speed_percent = 0;
-    req.lease_ms = 0;
+    cancelR2Macro();
+    disableHoloServos();
+
+    r2link::DomeRequest dreq{};
+    dreq.operation = static_cast<uint8_t>(r2link::DomeOperation::Cancel);
+    dreq.owner = static_cast<uint8_t>(r2link::DomeOwner::Event);
     auto status = g_body_client.bodyStatus(millis());
-    req.generation = status.value.dome_authority_generation;
-    g_body_client.requestDome(req, millis());
+    dreq.dome_authority_generation = status.value.dome_authority_generation;
+    g_body_client.requestDome(dreq, millis());
+
+    r2link::ControlRequest creq{};
+    creq.operation = 0; // STOP_ALL
+    creq.reason = r2link::kReasonOperator;
+    creq.token = 0;
+    creq.control_epoch = status.value.control_epoch;
+    g_body_client.requestControl(creq, millis());
 }
 
 void startDomeHoming(R2Macro macro) {
@@ -421,7 +496,7 @@ void startDomeHoming(R2Macro macro) {
     req.speed_percent = 0;
     req.lease_ms = 0;
     auto status = g_body_client.bodyStatus(millis());
-    req.generation = status.value.dome_authority_generation;
+    req.dome_authority_generation = status.value.dome_authority_generation;
     g_body_client.requestDome(req, millis());
     Serial.println(F("[HOMING] Active 0° Dome Homing Routine Initiated via Body..."));
 }
@@ -464,6 +539,21 @@ void processBodyRcSnapshot(uint32_t now_ms) {
         if (dome_motion_inhibited && rcNeutral()) {
             dome_motion_inhibited = false;
         }
+
+        const bool manual_active = !rcNeutral();
+        const bool drive_active = !driveNeutral();
+        const bool ch9_off = (rc_channels[RC_CH_AUTO_DOME] < 1750);
+
+        if (manual_active || drive_active || ch9_off) {
+            if (macro.phase == MacroPhase::WaitingHome) {
+                macro.dome_cancelled = true;
+                homing_state = HOMING_INACTIVE;
+                macro.home_sequence = 0;
+                cancelR2Macro();
+            } else if (macro.phase == MacroPhase::WaitingAudio || macro.phase == MacroPhase::Running) {
+                macro.dome_cancelled = true;
+            }
+        }
     } else {
         if (rc_connected) {
             rc_connected = false;
@@ -496,8 +586,80 @@ void disableHoloServos() {
     servoDispatch.setOutputAll(false);
 }
 
+inline uint16_t getMacroTrack(R2Macro m) {
+    switch (m) {
+        case R2_SCREAM: return 102;
+        case R2_CANTINA: return 106;
+        case R2_LEIA: return 109;
+        case R2_DISCO: return 110;
+        case R2_FAINT: return 107;
+        default: return 0;
+    }
+}
+
+inline uint32_t getMacroDuration(R2Macro m) {
+    switch (m) {
+        case R2_SCREAM: return 4500;
+        case R2_CANTINA: return 30000;
+        case R2_LEIA: return 14000;
+        case R2_DISCO: return 20000;
+        case R2_FAINT: return 5000;
+        default: return 0;
+    }
+}
+
+inline uint32_t getMacroGuard(R2Macro m) {
+    return getMacroDuration(m) + 2000;
+}
+
+void startMacroChoreography(R2Macro macro_arg) {
+    setHoloServoOwnership(false);
+    centerHoloServos();
+    uint8_t effect = LogicEngineDefaults::NORMAL;
+    switch (macro_arg) {
+        case R2_SCREAM:
+            effect = LogicEngineDefaults::ALARM;
+            break;
+        case R2_CANTINA:
+            effect = LogicEngineDefaults::MARCH;
+            break;
+        case R2_LEIA:
+            effect = LogicEngineDefaults::LEIA;
+            servoDispatch.moveToPulse(1, 250, 1300);
+            break;
+        case R2_DISCO:
+            effect = LogicEngineDefaults::RAINBOW;
+            break;
+        case R2_FAINT:
+            effect = LogicEngineDefaults::FAILURE;
+            disableHoloServos();
+            break;
+        default: return;
+    }
+    LogicEngineRenderer::ColorVal color = (macro_arg == R2_SCREAM)
+        ? LogicEngineRenderer::kRed : LogicEngineRenderer::kDefault;
+    FLD.selectSequence(effect, color);
+    RLD.selectSequence(effect, color);
+    frontPSI.selectSequence(effect, color);
+    rearPSI.selectSequence(effect, color);
+    if (macro_arg == R2_LEIA) {
+        frontHolo.selectSequence(1, 14);
+    } else if (macro_arg == R2_DISCO) {
+        CommandEvent::process(F("HPA006|20"));
+    } else if (macro_arg == R2_CANTINA) {
+        CommandEvent::process(F("HPA00331|30"));
+    } else if (macro_arg == R2_SCREAM) {
+        CommandEvent::process(F("HPA00315|5"));
+    } else {
+        CommandEvent::process(F("HPA002|1"));
+    }
+}
+
 void finishR2Macro() {
-    active_macro = R2_NONE;
+    macro.phase = MacroPhase::Idle;
+    macro.kind = R2_NONE;
+    macro.home_sequence = 0;
+    macro.audio_sequence = 0;
     dome_motion_inhibited = true;
     centerHoloServos();
     resetSequence();
@@ -508,13 +670,27 @@ void finishR2Macro() {
 }
 
 bool r2MacroActive() {
-    return active_macro != R2_NONE;
+    return macro.phase != MacroPhase::Idle;
 }
 
 void cancelR2Macro() {
-    if (active_macro != R2_NONE) {
-        active_macro = R2_NONE;
-        sMarcSound.stop();
+    if (macro.phase != MacroPhase::Idle) {
+        if (macro.phase == MacroPhase::WaitingHome) {
+            homing_state = HOMING_INACTIVE;
+            r2link::DomeRequest req{};
+            req.operation = static_cast<uint8_t>(r2link::DomeOperation::Cancel);
+            req.owner = static_cast<uint8_t>(r2link::DomeOwner::Event);
+            auto status = g_body_client.bodyStatus(millis());
+            req.dome_authority_generation = status.value.dome_authority_generation;
+            g_body_client.requestDome(req, millis());
+        }
+        if (macro.phase == MacroPhase::WaitingAudio || macro.phase == MacroPhase::Running) {
+            sMarcSound.stop();
+        }
+        macro.phase = MacroPhase::Idle;
+        macro.kind = R2_NONE;
+        macro.home_sequence = 0;
+        macro.audio_sequence = 0;
         if (preferences.getBool(PREFERENCE_MARCSOUND_RANDOM, MARC_SOUND_RANDOM))
             sMarcSound.startRandomInSeconds(12);
         else
@@ -532,66 +708,140 @@ void startR2Macro(R2Macro macro) {
     homing_state = HOMING_INACTIVE;
     pending_macro_after_home = R2_NONE;
     sMarcSound.suspendRandom();
-    active_macro = macro;
-    macro_started_ms = millis();
-    last_macro_step = UINT32_MAX;
-    setHoloServoOwnership(false);
-    centerHoloServos();
-    uint16_t track = 0;
-    uint8_t effect = LogicEngineDefaults::NORMAL;
-    switch (macro) {
-        case R2_SCREAM:
-            track = 102; macro_duration_ms = 4500;
-            effect = LogicEngineDefaults::ALARM;
-            break;
-        case R2_CANTINA:
-            track = 106; macro_duration_ms = 30000; // Provisional audio length.
-            effect = LogicEngineDefaults::MARCH;
-            break;
-        case R2_LEIA:
-            track = 109; macro_duration_ms = 14000;
-            effect = LogicEngineDefaults::LEIA;
-            servoDispatch.moveToPulse(1, 250, 1300);
-            break;
-        case R2_DISCO:
-            track = 110; macro_duration_ms = 20000;
-            effect = LogicEngineDefaults::RAINBOW;
-            break;
-        case R2_FAINT:
-            track = 107; macro_duration_ms = 5000;
-            effect = LogicEngineDefaults::FAILURE;
-            disableHoloServos();
-            break;
-        default: return;
-    }
-    LogicEngineRenderer::ColorVal color = macro == R2_SCREAM
-        ? LogicEngineRenderer::kRed : LogicEngineRenderer::kDefault;
-    FLD.selectSequence(effect, color);
-    RLD.selectSequence(effect, color);
-    frontPSI.selectSequence(effect, color);
-    rearPSI.selectSequence(effect, color);
+
+    ::macro.kind = macro;
+    ::macro.started_ms = millis();
+    ::macro.duration_ms = getMacroDuration(macro);
+    ::macro.guard_deadline_ms = millis() + getMacroGuard(macro);
+    ::macro.dome_cancelled = false;
+    ::macro.last_step = UINT32_MAX;
+    ::macro.home_sequence = 0;
+    ::macro.audio_sequence = 0;
+
+    auto bstatus = g_body_client.bodyStatus(millis());
+    ::macro.dome_generation = bstatus.value.dome_authority_generation;
+
+    const bool auto_dome_on = (rc_channels[RC_CH_AUTO_DOME] >= 1750);
+    const bool sticks_neutral = rcNeutral() && driveNeutral();
+
     if (macro == R2_LEIA) {
-        frontHolo.selectSequence(1, 14);
-    } else if (macro == R2_DISCO) {
-        CommandEvent::process(F("HPA006|20"));
-    } else if (macro == R2_CANTINA) {
-        CommandEvent::process(F("HPA00331|30"));
-    } else if (macro == R2_SCREAM) {
-        CommandEvent::process(F("HPA00315|5"));
-    } else {
-        CommandEvent::process(F("HPA002|1"));
+        if (auto_dome_on && sticks_neutral) {
+            ::macro.phase = MacroPhase::WaitingHome;
+            homing_state = HOMING_SEEKING;
+            r2link::DomeRequest req{};
+            req.operation = static_cast<uint8_t>(r2link::DomeOperation::SeekReference);
+            req.reference = static_cast<uint8_t>(r2link::DomeReference::Front);
+            req.owner = static_cast<uint8_t>(r2link::DomeOwner::Event);
+            req.dome_authority_generation = bstatus.value.dome_authority_generation;
+            req.speed_percent = 0;
+            req.lease_ms = 0;
+            RequestHandle h = g_body_client.requestDome(req, millis());
+            ::macro.home_sequence = h.sequence;
+            Serial.println(F("[MACRO] Princess Leia: Seeking 0° front reference..."));
+            return;
+        } else if (auto_dome_on && !sticks_neutral) {
+            Serial.println(F("[MACRO] Princess Leia: Alignment rejected (manual/drive active)."));
+            ::macro.dome_cancelled = true;
+        }
     }
-    playDFPlayerTrack(track);
+
+    ::macro.phase = MacroPhase::WaitingAudio;
+    uint16_t track = getMacroTrack(macro);
+    RequestHandle ah = g_remote_audio.play(track, r2link::AudioPriority::Foreground, millis());
+    ::macro.audio_sequence = ah.sequence;
+}
+
+void processMacroCompletion(const r2link::Completion& comp) {
+    if (macro.phase == MacroPhase::WaitingHome && comp.sequence == macro.home_sequence) {
+        if (comp.result != static_cast<uint8_t>(r2link::Result::Accepted)) {
+            macro.dome_cancelled = true;
+            cancelR2Macro();
+        }
+    } else if (macro.phase == MacroPhase::WaitingAudio && comp.sequence == macro.audio_sequence) {
+        if (comp.result != static_cast<uint8_t>(r2link::Result::Accepted)) {
+            cancelR2Macro();
+        }
+    }
+}
+
+void processMacroEvent(const r2link::Event& ev) {
+    if (macro.phase == MacroPhase::WaitingHome) {
+        if (ev.request_type == static_cast<uint8_t>(r2link::MessageType::DomeRequest) &&
+            ev.request_seq == macro.home_sequence) {
+            if (ev.kind == static_cast<uint8_t>(r2link::EventKind::Completed)) {
+                homing_state = HOMING_INACTIVE;
+                centerHoloServos();
+                if (macro.dome_cancelled) {
+                    cancelR2Macro();
+                    return;
+                }
+                macro.phase = MacroPhase::WaitingAudio;
+                uint16_t track = getMacroTrack(macro.kind);
+                RequestHandle ah = g_remote_audio.play(track, r2link::AudioPriority::Foreground, millis());
+                macro.audio_sequence = ah.sequence;
+            } else if (ev.kind == static_cast<uint8_t>(r2link::EventKind::Fault) ||
+                       ev.kind == static_cast<uint8_t>(r2link::EventKind::Cancelled)) {
+                homing_state = HOMING_INACTIVE;
+                cancelR2Macro();
+            }
+        }
+    } else if (macro.phase == MacroPhase::WaitingAudio) {
+        if (ev.request_type == static_cast<uint8_t>(r2link::MessageType::AudioRequest) &&
+            ev.request_seq == macro.audio_sequence) {
+            if (ev.kind == static_cast<uint8_t>(r2link::EventKind::PlaybackStarted)) {
+                macro.phase = MacroPhase::Running;
+                macro.started_ms = millis();
+                startMacroChoreography(macro.kind);
+            } else if (ev.kind == static_cast<uint8_t>(r2link::EventKind::Fault) ||
+                       ev.kind == static_cast<uint8_t>(r2link::EventKind::Cancelled)) {
+                cancelR2Macro();
+            }
+        }
+    } else if (macro.phase == MacroPhase::Running) {
+        if (ev.request_type == static_cast<uint8_t>(r2link::MessageType::AudioRequest) &&
+            ev.request_seq == macro.audio_sequence) {
+            if (ev.kind == static_cast<uint8_t>(r2link::EventKind::Completed)) {
+                finishR2Macro();
+            } else if (ev.kind == static_cast<uint8_t>(r2link::EventKind::Fault) ||
+                       ev.kind == static_cast<uint8_t>(r2link::EventKind::Cancelled)) {
+                cancelR2Macro();
+            }
+        }
+    }
 }
 
 void processR2Macro() {
-    if (active_macro == R2_NONE) return;
-    uint32_t elapsed = millis() - macro_started_ms;
-    if (elapsed >= macro_duration_ms) {
+    if (macro.phase == MacroPhase::Idle) return;
+    uint32_t now = millis();
+
+    // Check generation change during WaitingHome
+    if (macro.phase == MacroPhase::WaitingHome) {
+        auto status = g_body_client.bodyStatus(now);
+        if (status.fresh && status.value.dome_authority_generation != macro.dome_generation) {
+            macro.dome_cancelled = true;
+            homing_state = HOMING_INACTIVE;
+            macro.home_sequence = 0;
+            cancelR2Macro();
+            return;
+        }
+    }
+
+    if (now >= macro.guard_deadline_ms) {
+        if (macro.phase == MacroPhase::Running) {
+            finishR2Macro();
+        } else {
+            cancelR2Macro();
+        }
+        return;
+    }
+    if (macro.phase != MacroPhase::Running) return;
+
+    uint32_t elapsed = now - macro.started_ms;
+    if (elapsed >= macro.duration_ms) {
         finishR2Macro();
         return;
     }
-    if (active_macro == R2_FAINT && elapsed >= 600) {
+    if (macro.kind == R2_FAINT && elapsed >= 600) {
         FLD.selectSequence(LogicEngineDefaults::LIGHTSOUT);
         RLD.selectSequence(LogicEngineDefaults::LIGHTSOUT);
         frontPSI.selectSequence(LogicEngineDefaults::LIGHTSOUT);
@@ -599,15 +849,116 @@ void processR2Macro() {
         frontHolo.selectSequence(7, 0);
         rearHolo.selectSequence(7, 0);
         topHolo.selectSequence(7, 0);
-    } else if (active_macro == R2_CANTINA || active_macro == R2_SCREAM) {
-        uint32_t step = elapsed / (active_macro == R2_CANTINA ? 250 : 150);
-        if (step != last_macro_step) {
-            last_macro_step = step;
+    } else if (macro.kind == R2_CANTINA || macro.kind == R2_SCREAM) {
+        uint32_t step = elapsed / (macro.kind == R2_CANTINA ? 250 : 150);
+        if (step != macro.last_step) {
+            macro.last_step = step;
             uint8_t ch = step % 6;
-            uint16_t pulse = active_macro == R2_CANTINA
+            uint16_t pulse = (macro.kind == R2_CANTINA)
                 ? (((step / 6) % 2 == 0) ? 1670 : 1330)
                 : random(1330, 1671);
             servoDispatch.moveToPulse(ch, 100, pulse);
+        }
+    }
+}
+
+bool maintenanceReady() {
+    return g_maintenance.state == MaintenanceState::Locked;
+}
+
+void prepareMaintenance(bool for_reboot, bool clear_prefs) {
+    if (g_maintenance.state == MaintenanceState::Locked) {
+        if (for_reboot) {
+            if (clear_prefs) {
+                preferences.clear();
+            }
+            preferences.end();
+            unmountFileSystems();
+            ESP.restart();
+        }
+        return;
+    }
+    stopDomeMotion();
+    auto status = g_body_client.bodyStatus(millis());
+    r2link::ControlRequest req{};
+    req.operation = 2; // LOCK
+    req.reason = r2link::kReasonMaintenance;
+    req.token = 0xBEEF;
+    req.control_epoch = status.value.control_epoch;
+    RequestHandle h = g_body_client.requestControl(req, millis());
+    g_maintenance.state = MaintenanceState::Requested;
+    g_maintenance.token = req.token;
+    g_maintenance.sequence = h.sequence;
+    g_maintenance.deadline_ms = millis() + 3000;
+    g_maintenance.pending_reboot = for_reboot;
+    g_maintenance.clear_prefs_on_reboot = clear_prefs;
+}
+
+void releaseMaintenance() {
+    if (g_maintenance.state == MaintenanceState::Locked) {
+        auto status = g_body_client.bodyStatus(millis());
+        r2link::ControlRequest req{};
+        req.operation = 3; // UNLOCK
+        req.reason = r2link::kReasonMaintenance;
+        req.token = g_maintenance.token;
+        req.control_epoch = status.value.control_epoch;
+        g_body_client.requestControl(req, millis());
+    }
+    g_maintenance.state = MaintenanceState::Idle;
+    g_maintenance.token = 0;
+    g_maintenance.sequence = 0;
+    g_maintenance.pending_reboot = false;
+    g_maintenance.clear_prefs_on_reboot = false;
+}
+
+void recoverBodyLocks() {
+    auto status = g_body_client.bodyStatus(millis());
+    r2link::ControlRequest req{};
+    req.operation = 4; // RECOVER_LOCKS
+    req.reason = r2link::kReasonOperator;
+    req.token = 0;
+    req.control_epoch = status.value.control_epoch;
+    g_body_client.requestControl(req, millis());
+}
+
+void processMaintenanceCompletion(const r2link::Completion& comp) {
+    if (comp.type == static_cast<uint8_t>(r2link::MessageType::ControlRequest) &&
+        comp.sequence == g_maintenance.sequence) {
+        if (comp.result == static_cast<uint8_t>(r2link::Result::Accepted)) {
+            g_maintenance.state = MaintenanceState::Locked;
+            if (g_maintenance.pending_reboot) {
+                if (g_maintenance.clear_prefs_on_reboot) {
+                    preferences.clear();
+                }
+                preferences.end();
+                unmountFileSystems();
+                ESP.restart();
+            }
+        } else {
+            g_maintenance.state = MaintenanceState::Failed;
+            Serial.println(F("[MAINTENANCE] Lock rejected by body controller."));
+        }
+    }
+}
+
+void processMaintenance(uint32_t now) {
+    if (g_maintenance.state == MaintenanceState::Requested) {
+        auto bstatus = g_body_client.bodyStatus(now);
+        if (bstatus.fresh && (bstatus.value.motion_locked_reasons & (1 << 2))) {
+            g_maintenance.state = MaintenanceState::Locked;
+            if (g_maintenance.pending_reboot) {
+                if (g_maintenance.clear_prefs_on_reboot) {
+                    preferences.clear();
+                }
+                preferences.end();
+                unmountFileSystems();
+                ESP.restart();
+            }
+            return;
+        }
+        if (now >= g_maintenance.deadline_ms) {
+            g_maintenance.state = MaintenanceState::Failed;
+            Serial.println(F("[MAINTENANCE] Lock request timed out. USB recovery required."));
         }
     }
 }
@@ -728,8 +1079,7 @@ MARCDUINO_ACTION(WifiToggle, #APWIFI, ({
 }))
 
 MARCDUINO_ACTION(ClearPrefs, #APZERO, ({
-    preferences.clear();
-    reboot();
+    clearPrefsAndReboot();
 }))
 
 MARCDUINO_ACTION(Restart, #APRESTART, ({
@@ -832,6 +1182,10 @@ void setup() {
 
 #ifdef USE_OTA
         ArduinoOTA.onStart([]() {
+            if (!maintenanceReady()) {
+                Serial.println(F("[OTA] Rejected: Body maintenance lock not held. Prepare update first."));
+                return;
+            }
             otaInProgress = true;
             stopDomeMotion();
             cancelR2Macro();
@@ -868,10 +1222,18 @@ void loop() {
     // 1. Tick body client and process incoming frames from Teensy
     g_body_client.tick(now);
 
-    // 2. Drain events and forward to DomeBehaviour and macro sequencer
+    // 2. Drain completions and forward to macro and maintenance
+    r2link::Completion comp;
+    while (g_body_client.takeCompletion(comp)) {
+        processMacroCompletion(comp);
+        processMaintenanceCompletion(comp);
+    }
+
+    // 3. Drain events and forward to DomeBehaviour and macro sequencer
     r2link::Event ev;
     while (g_body_client.takeEvent(ev)) {
         g_dome_behaviour.onEvent(ev);
+        processMacroEvent(ev);
         if (ev.kind == static_cast<uint8_t>(r2link::EventKind::Completed) &&
             ev.request_type == static_cast<uint8_t>(r2link::MessageType::DomeRequest)) {
             homing_state = HOMING_INACTIVE;
@@ -888,6 +1250,9 @@ void loop() {
             pending_macro_after_home = R2_NONE;
         }
     }
+
+    // 4. Process maintenance timeouts
+    processMaintenance(now);
 
     // 3. Dual Hall sensors publish
     processHallSensors(now);

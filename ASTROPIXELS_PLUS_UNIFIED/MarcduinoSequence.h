@@ -21,7 +21,7 @@ MARCDUINO_ACTION(CantinaSequence, :SE07, ({
 }))
 
 MARCDUINO_ACTION(LeiaMessage, :SE08, ({
-    startDomeHoming(R2_LEIA);
+    startR2Macro(R2_LEIA);
 }))
 
 MARCDUINO_ACTION(DiscoSequence, :SE09, ({
