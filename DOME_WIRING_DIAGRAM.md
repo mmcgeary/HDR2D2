@@ -59,17 +59,24 @@ The AstroPixels I2C header letters are **G** ground, **V** supply, **C** clock, 
 
 **Leave I2C V disconnected.** No level shifter on I2C. Logic ground and servo ground are common on PCA9685; the heavy return still goes directly to its ground screw terminal, not through the small I2C ground lead.
 
-Use16AWG positive/negative power trunks and MG90S factory plugs. Align each plug to the labelled GND/V+/signal rows; wire colours do not override PCB labels. The PCA9685 is address **0x40**,50Hz servo output.
+### Servo Header Pinout & 3-Pin Connector Installation
 
-| PCA channel | Servo |
-| --- | --- |
-| 0 | Front pan |
-| 1 | Front tilt |
-| 2 | Rear pan |
-| 3 | Rear tilt |
-| 4 | Top pan |
-| 5 | Top tilt |
-| 6-15 | Unused |
+The PCA9685 driver is configured at default I2C address **0x40** with 50Hz PWM servo output. Each channel on the PCA9685 provides a standard 3-pin 0.1" (2.54mm) male header in three rows:
+- **`S` / PWM (Signal row):** Pulse signal from PCA9685 channel
+- **`+` / V+ (Center row):** +5V servo power, connected internally across the PCB to the green V+ screw terminal
+- **`-` / GND (Ground row):** Common ground, connected internally across the PCB to the green GND screw terminal
+
+Each of the six MG90S holoprojector servos plugs **directly onto its 3-pin channel header** using its standard factory 3-pin connector. Do **not** splice servo power/ground together or run separate wires to the screw terminals; the PCA9685 board's internal copper plane distributes 5V power and ground from the screw terminal to all 16 channel headers.
+
+| PCA Channel | Servo | Connection |
+| :---: | :--- | :--- |
+| **0** | Front pan | Direct 3-pin servo plug (Signal, V+, GND) |
+| **1** | Front tilt | Direct 3-pin servo plug (Signal, V+, GND) |
+| **2** | Rear pan | Direct 3-pin servo plug (Signal, V+, GND) |
+| **3** | Rear tilt | Direct 3-pin servo plug (Signal, V+, GND) |
+| **4** | Top pan | Direct 3-pin servo plug (Signal, V+, GND) |
+| **5** | Top tilt | Direct 3-pin servo plug (Signal, V+, GND) |
+| **6–15** | Unused | Leave unconnected |
 
 Test one servo at a time with horns removed, calibrate travel before mounting, then test all six without hitting mechanical stops. Check for mechanical binding or excessive heating. If a fuse blows, investigate and resolve mechanical binding or short circuits rather than increasing the fuse rating.
 

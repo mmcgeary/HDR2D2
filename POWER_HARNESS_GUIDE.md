@@ -79,9 +79,9 @@ The two 5V positive rails never join. Common ground connects throughout via ring
 
 ### PCA9685 supply and servo checks
 
-Run16AWG from D-SERVO 5A to PCA9685 **V+ screw terminal** and16AWG return to its ground screw. VCC is a separate3.3V logic supply from ESP32. Do not feed servo power through I2C/header wiring.
+Run 16AWG from D-SERVO 5A to PCA9685 **V+ screw terminal** and 16AWG return to its ground screw. VCC is a separate 3.3V logic supply from ESP32. Do not feed servo power through I2C/header wiring.
 
-Keep six MG90S factory connectors; no unnecessary thin extensions. Connect/test one servo at a time, then all six together through their calibrated travel. Check for mechanical binding, excessive heating, or travel limits. If a fuse blows, investigate and resolve mechanical binding or short circuits rather than increasing the fuse rating.
+Each servo plugs directly into its designated 3-pin channel header (Channels 0–5) using its factory 3-pin servo plug. The green screw terminal is exclusively for the main 16AWG 5V feed and ground return; the board's internal copper plane powers all 16 channel headers. Connect/test one servo at a time, then all six together through their calibrated travel. Check for mechanical binding, excessive heating, or travel limits. If a fuse blows, investigate and resolve mechanical binding or short circuits rather than increasing the fuse rating.
 
 ## 3. Slip ring
 
