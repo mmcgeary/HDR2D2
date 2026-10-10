@@ -85,4 +85,6 @@ Task 6b: implemented and verified. DomeBehaviour (WaitingIdle 20s deadline postp
 Task 6b: complete (commit e391bad).
 Task 7: implemented and verified. DfPlayer (100ms spacing, foreground/ambient priority, startup reset, 500ms status polling, request-correlated PlaybackStarted/Completed/Cancelled/Timeout events, pause/resume elapsed bookkeeping, completion guards). TrackCatalog generator from CSV into ignored include/TrackCatalog.h. Teensy main.cpp integration with AudioPort and publishAudioStatus. 4 catalog tests, 8 audio tests, 182 full tests pass.
 Task 7: complete.
-Task 8: starting; integrate the Teensy scheduler, locks and diagnostics (BodyController).
+Task 8: implemented and verified. BodyController (scheduler, subsystem orchestration, maintenance locks, control epoch validation, Watchdog_t4 feed policy, USB line CLI). main.cpp pipeline refactored to delegate to BodyController. 3 controller tests, 18 drive tests, 12 radio tests, 19 VESC tests, 185 full tests pass.
+Task 8: complete.
+Task 9: starting; ESP32 body client and remote audio adapter (BodyClient, RemoteAudio).

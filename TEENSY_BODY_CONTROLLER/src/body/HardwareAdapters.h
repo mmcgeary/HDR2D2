@@ -1,9 +1,13 @@
 #pragma once
 #include <Arduino.h>
+#if __has_include(<EEPROM.h>)
+#include <EEPROM.h>
+#endif
 #include "BytePort.h"
 #include "IbusInput.h"
 #include "IbusTelemetry.h"
 #include "Pins.h"
+#include "body/ConfigStore.h"
 
 namespace body {
 
@@ -86,6 +90,37 @@ public:
         uart_.setRX(body_pins::kAudioRx);
         uart_.setTX(body_pins::kAudioTx);
         uart_.begin(9600, SERIAL_8N1);
+    }
+private:
+    HardwareSerialIMXRT& uart_;
+};
+
+class EepromStorage : public RawStorage {
+public:
+    size_t size() const override { return EEPROM.length(); }
+    StorageResult read(size_t address, uint8_t* destination, size_t length) override {
+        if (address + length > size()) return StorageResult::OutOfRange;
+        for (size_t i = 0; i < length; ++i) {
+            destination[i] = EEPROM.read(static_cast<int>(address + i));
+        }
+        return StorageResult::Ok;
+    }
+    StorageResult write(size_t address, const uint8_t* source, size_t length) override {
+        if (address + length > size()) return StorageResult::OutOfRange;
+        for (size_t i = 0; i < length; ++i) {
+            EEPROM.update(static_cast<int>(address + i), source[i]);
+        }
+        return StorageResult::Ok;
+    }
+};
+
+class DomeLinkPort : public HardwareSerialPort {
+public:
+    explicit DomeLinkPort(HardwareSerialIMXRT& serial) : HardwareSerialPort(serial), uart_(serial) {}
+    void begin() {
+        uart_.setRX(body_pins::kDomeLinkRx);
+        uart_.setTX(body_pins::kDomeLinkTx);
+        uart_.begin(115200, SERIAL_8N1);
     }
 private:
     HardwareSerialIMXRT& uart_;

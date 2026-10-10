@@ -296,13 +296,15 @@ assert(f.drive.deadlineMisses()==0);
 ''')
 
     def test_actual_main_uses_paired_output_and_disabled_boot(self):
-        source = (BODY / "main.cpp").read_text()
-        self.assertIn("g_drive.update(", source)
-        self.assertIn("applyWheelCommands(", source)
-        self.assertIn("g_profile", source)
-        self.assertIn("publishDriveStatus(now_ms)", source)
-        self.assertIn("g_drive.intent()", source)
-        self.assertIn("g_body_status.drive_intent", source)
+        main_source = (BODY / "main.cpp").read_text()
+        controller_source = (BODY / "body/BodyController.cpp").read_text()
+        self.assertIn("g_controller.tick(", main_source)
+        self.assertIn("g_controller.updateRc(", main_source)
+        self.assertIn("g_profile", main_source)
+        self.assertIn("g_body_status = g_controller.status()", main_source)
+        self.assertIn("drive_.update(", controller_source)
+        self.assertIn("applyWheelCommands(", controller_source)
+        self.assertIn("drive_.intent()", controller_source)
 
     def test_command_revision_schedules_20ms_renewal_and_immediate_brake(self):
         self.check(r'''
@@ -398,7 +400,8 @@ assert(count(lp.tx,5)==0);
         program = PRELUDE + r'''
 #include "main.cpp"
 HardwareSerial Serial;
-HardwareSerialIMXRT Serial1, Serial2, Serial3, Serial5, Serial6;
+HardwareSerialIMXRT Serial1, Serial2, Serial3, Serial4, Serial5, Serial6;
+FakeEeprom EEPROM;
 uint32_t fake_ms=0,fake_us=0;
 int main() {
     Fixture fixture;g_profile=fixture.profile;setup();
@@ -436,7 +439,7 @@ int main() {
         result = run_cpp(program, extra_sources=SOURCES + [
             BODY / "body/IbusTelemetry.cpp", BODY / "body/LinkBootstrap.cpp",
             BODY / "body/DomePosition.cpp", BODY / "body/DomeController.cpp",
-            BODY / "body/DfPlayer.cpp",
+            BODY / "body/DfPlayer.cpp", BODY / "body/BodyController.cpp",
             SHARED / "src/Endpoint.cpp"],
             include_dirs=[BODY.parent.parent / "tests/radio_fakes", BODY, SHARED, BODY.parent / "include"])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

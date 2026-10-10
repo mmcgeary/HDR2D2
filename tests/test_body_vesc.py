@@ -495,16 +495,17 @@ class VescTests(unittest.TestCase):
 
     def test_main_target_serial_pins_and_capture_diagnostic_only(self):
         source = (BODY / "main.cpp").read_text()
+        controller = (BODY / "body/BodyController.cpp").read_text()
         adapter = (BODY / "body/HardwareAdapters.h").read_text()
         self.assertIn("g_left_vesc(Serial1", source)
         self.assertIn("g_right_vesc(Serial2", source)
-        self.assertIn("g_left.tick(now_ms)", source)
-        self.assertIn("g_right.tick(now_ms)", source)
+        self.assertIn("left_vesc_.tick(now_ms)", controller)
+        self.assertIn("right_vesc_.tick(now_ms)", controller)
         self.assertIn("kLeftVescRx", adapter)
         self.assertIn("kRightVescTx", adapter)
         self.assertIn(".requestCapture(", source)
-        self.assertIn("body::applyWheelCommands(", source)
-        self.assertIn("static body::CommissioningProfile g_profile;", source)
+        self.assertIn("applyWheelCommands(", controller)
+        self.assertIn("g_profile", source)
 
 
 if __name__ == "__main__":

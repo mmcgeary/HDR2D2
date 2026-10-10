@@ -316,7 +316,8 @@ int main() {
         program = PRELUDE + r'''
 #include "main.cpp"
 HardwareSerial Serial;
-HardwareSerialIMXRT Serial1, Serial2, Serial3, Serial5, Serial6;
+HardwareSerialIMXRT Serial1, Serial2, Serial3, Serial4, Serial5, Serial6;
+FakeEeprom EEPROM;
 uint32_t fake_ms=0, fake_us=0;
 int main() {
     setup();
@@ -348,7 +349,7 @@ int main() {
                              BODY / "body/VescLink.cpp", BODY / "body/ConfigStore.cpp",
                              BODY / "body/DriveController.cpp",
                              BODY / "body/DomePosition.cpp", BODY / "body/DomeController.cpp",
-                             BODY / "body/DfPlayer.cpp",
+                             BODY / "body/DfPlayer.cpp", BODY / "body/BodyController.cpp",
                              SHARED / "src/Endpoint.cpp", SHARED / "src/Codec.cpp"],
                          include_dirs=[ROOT / "tests/radio_fakes", BODY, SHARED, ROOT / "TEENSY_BODY_CONTROLLER/include"])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

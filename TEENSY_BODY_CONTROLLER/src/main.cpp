@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <stdio.h>
+#include <string.h>
 #include "Codec.h"
 #include "Endpoint.h"
 #include "body/ConfigStore.h"
@@ -11,137 +12,103 @@
 #include "body/DomePosition.h"
 #include "body/DomeController.h"
 #include "body/DfPlayer.h"
+#include "body/BodyController.h"
 #include "TrackCatalog.h"
 #include <Servo.h>
 
-// No saved acceptance is injected yet: boot profile keeps motion disabled.
-// Pin 2 attached to continuous dome servo; body/dome link remains NullPort.
-static body::CommissioningProfile g_profile;
-static body::DriveController g_drive;
-static body::DomeController g_dome(g_profile);
-static Servo g_dome_servo;
-static body::LinkBootstrap g_link(0);
-static body::IbusInput g_input;
-static body::IbusTelemetry g_telemetry;
+#if __has_include(<Watchdog_t4.h>)
+#include <Watchdog_t4.h>
+static WDT_T4<WDT1> g_wdt;
+#endif
+
+static body::EepromStorage g_eeprom;
+static body::ConfigStore g_config_store(g_eeprom);
 static body::ReceiverPort g_receiver(Serial5);
 static body::TelemetryPort g_sensor(Serial6);
 static body::VescPort g_left_vesc(Serial1, 0);
 static body::VescPort g_right_vesc(Serial2, 1);
-static body::VescLink g_left(g_left_vesc, 0);
-static body::VescLink g_right(g_right_vesc, 1);
 static body::AudioPort g_audio_port(Serial3);
-static body::DfPlayer g_dfplayer(g_audio_port, kTrackCatalog, kTrackCatalogCount);
-// Shared immediate body-status view published over the link.
+static body::DomeLinkPort g_dome_link(Serial4);
+
+static body::BodyController g_controller(g_config_store, g_dome_link, g_left_vesc, g_right_vesc, g_audio_port);
+static body::CommissioningProfile& g_profile = g_controller.profile();
+static body::DriveController& g_drive = g_controller.drive();
+static body::DomeController& g_dome = g_controller.dome();
+static body::DfPlayer& g_dfplayer = g_controller.audio();
+static body::VescLink& g_left = g_controller.leftVesc();
+static body::VescLink& g_right = g_controller.rightVesc();
+static r2link::Endpoint& g_link = g_controller.linkEndpoint();
+static Servo g_dome_servo;
+static body::IbusInput g_input;
+static body::IbusTelemetry g_telemetry;
 static r2link::BodyStatus g_body_status{};
 
-static void publishDriveStatus(uint32_t now_ms) {
-    const body::Readiness ready = body::readiness(g_profile);
-    const uint8_t state = uint8_t(g_drive.driveState());
-    const uint8_t intent = uint8_t(g_drive.intent());
-    const uint8_t locks = g_drive.motionLocks();
-    const uint8_t profile_ready = (ready.drive ? 1 : 0) |
-        (ready.manual_dome ? 2 : 0) | (ready.auto_dome ? 4 : 0);
-    const body::RcSnapshot rc = g_input.snapshot(now_ms);
-    const body::VescSample left = g_left.sample(now_ms), right = g_right.sample(now_ms);
-    const uint32_t faults = (!body::validateProfile(g_profile) ? 2u : !ready.drive ? 1u : 0u) |
-        (!rc.valid ? (1u << 3) : 0u) |
-        (left.stale ? (1u << 4) : 0u) | (right.stale ? (1u << 5) : 0u) |
-        (left.fault ? (1u << 6) : 0u) | (right.fault ? (1u << 7) : 0u) |
-        (left.unsupported || right.unsupported ? (1u << 8) : 0u) |
-        (g_drive.deadlineMisses() ? (1u << 9) : 0u);
-    const uint8_t dome_state = uint8_t(g_dome.state());
-    const uint8_t dome_owner = uint8_t(g_dome.owner());
-    const uint32_t dome_gen = g_dome.authorityGeneration();
-    const uint8_t angle_valid = g_dome.position().valid() ? 1 : 0;
-    const int16_t angle_ddeg = g_dome.position().angleDdeg();
-    const bool changed = g_body_status.drive_state != state ||
-        g_body_status.drive_intent != intent || g_body_status.lock_reasons != locks ||
-        g_body_status.profile_ready != profile_ready ||
-        g_body_status.control_epoch != g_drive.controlEpoch() || g_body_status.faults != faults ||
-        g_body_status.dome_state != dome_state ||
-        g_body_status.dome_owner != dome_owner ||
-        g_body_status.dome_authority_generation != dome_gen ||
-        g_body_status.angle_valid != angle_valid ||
-        g_body_status.estimated_angle_ddeg != angle_ddeg;
-    g_body_status.drive_state = state;
-    g_body_status.drive_intent = intent;
-    g_body_status.lock_reasons = locks;
-    g_body_status.profile_ready = profile_ready;
-    g_body_status.control_epoch = g_drive.controlEpoch();
-    g_body_status.faults = faults;
-    g_body_status.dome_state = dome_state;
-    g_body_status.dome_owner = dome_owner;
-    g_body_status.dome_authority_generation = dome_gen;
-    g_body_status.angle_valid = angle_valid;
-    g_body_status.estimated_angle_ddeg = angle_ddeg;
-    static bool published = false;
-    static uint32_t published_ms = 0;
-    if (changed || !published || uint32_t(now_ms - published_ms) >= 200) {
-        r2link::Frame frame{};
-        r2link::ErrorCounters errors;
-        if (r2link::encode(g_body_status, frame, errors) == r2link::Status::Ok &&
-            g_link.endpoint().publishLatest(frame, now_ms)) {
-            published = true; published_ms = now_ms;
-        }
-    }
-}
+static bool g_capture_waiting = false;
+static bool g_capture_reporting = false;
+static size_t g_capture_offset = 0;
+static body::VescCapture g_capture{};
 
-static void publishAudioStatus(uint32_t now_ms) {
-    const r2link::AudioStatus current = g_dfplayer.status(now_ms);
-    static r2link::AudioStatus published_status{};
-    static bool published = false;
-    static uint32_t published_ms = 0;
-    const bool changed = !published ||
-        published_status.state != current.state ||
-        published_status.folder != current.folder ||
-        published_status.track != current.track ||
-        published_status.volume != current.volume ||
-        published_status.validity != current.validity ||
-        published_status.owner_request_seq != current.owner_request_seq ||
-        published_status.duration_ms != current.duration_ms;
-    if (changed || uint32_t(now_ms - published_ms) >= 500) {
-        r2link::Frame frame{};
-        r2link::ErrorCounters errors;
-        if (r2link::encode(current, frame, errors) == r2link::Status::Ok &&
-            g_link.endpoint().publishLatest(frame, now_ms)) {
-            published = true;
-            published_ms = now_ms;
-            published_status = current;
-        }
-    }
-}
-
-// At most one explicitly requested packet; print 16 raw bytes per loop only
-// when USB has room. No wait-for-host, flush, or continuous raw stream.
 static bool usbCaptureTick() {
-    static body::VescCapture capture{};
-    static bool waiting = false, reporting = false;
-    static size_t offset = 0;
-    if (!waiting && !reporting) {
-        const int command = Serial.read();
-        if (command == 'l' || command == 'L') {
-            g_left.requestCapture(command == 'l' ? 4 : 0); waiting = true;
-        } else if (command == 'r' || command == 'R') {
-            g_right.requestCapture(command == 'r' ? 4 : 0); waiting = true;
-        }
+    if (g_capture_waiting && (g_left.takeCapture(g_capture) || g_right.takeCapture(g_capture))) {
+        g_capture_waiting = false;
+        g_capture_reporting = true;
+        g_capture_offset = 0;
     }
-    if (waiting && (g_left.takeCapture(capture) || g_right.takeCapture(capture))) {
-        waiting = false; reporting = true; offset = 0;
-    }
-    if (!reporting) return waiting;
+    if (!g_capture_reporting) return g_capture_waiting;
+
     char line[128];
     int n = snprintf(line, sizeof line, "VESC_RAW wheel=%u offset=%u length=%u ",
-        unsigned(capture.wheel), unsigned(offset), unsigned(capture.length));
-    const size_t end = offset + 16 < capture.length ? offset + 16 : capture.length;
-    for (size_t i = offset; i < end; ++i)
-        n += snprintf(line + n, sizeof line - size_t(n), "%02X", unsigned(capture.bytes[i]));
+        unsigned(g_capture.wheel), unsigned(g_capture_offset), unsigned(g_capture.length));
+    const size_t end = g_capture_offset + 16 < g_capture.length ? g_capture_offset + 16 : g_capture.length;
+    for (size_t i = g_capture_offset; i < end; ++i)
+        n += snprintf(line + n, sizeof line - size_t(n), "%02X", unsigned(g_capture.bytes[i]));
     line[n++] = '\n';
     if (Serial.availableForWrite() >= n) {
         Serial.write(reinterpret_cast<const uint8_t*>(line), size_t(n));
-        offset = end;
-        if (offset == capture.length) reporting = false;
+        g_capture_offset = end;
+        if (g_capture_offset == g_capture.length) g_capture_reporting = false;
     }
     return true;
+}
+
+static void usbCliTick(uint32_t now_ms) {
+    static char line_buf[128];
+    static size_t line_len = 0;
+
+    int b = 0;
+    while ((b = Serial.read()) >= 0) {
+        const char c = static_cast<char>(b);
+
+        if (c == 'l' || c == 'L') {
+            if (line_len == 0) {
+                g_left.requestCapture(c == 'l' ? 4 : 0);
+                g_capture_waiting = true;
+                continue;
+            }
+        } else if (c == 'r' || c == 'R') {
+            if (line_len == 0) {
+                g_right.requestCapture(c == 'r' ? 4 : 0);
+                g_capture_waiting = true;
+                continue;
+            }
+        }
+
+        if (c == '\r' || c == '\n') {
+            if (line_len > 0) {
+                line_buf[line_len] = '\0';
+                char response[256];
+                if (g_controller.processCli(line_buf, response, sizeof(response), now_ms)) {
+                    const size_t resp_len = strlen(response);
+                    if (resp_len > 0 && Serial.availableForWrite() >= (int)resp_len) {
+                        Serial.write(reinterpret_cast<const uint8_t*>(response), resp_len);
+                    }
+                }
+                line_len = 0;
+            }
+        } else if (line_len + 1 < sizeof(line_buf)) {
+            line_buf[line_len++] = c;
+        }
+    }
 }
 
 void setup() {
@@ -151,92 +118,58 @@ void setup() {
     g_left_vesc.begin();
     g_right_vesc.begin();
     g_audio_port.begin();
-    g_left.setProfile(body::VescProfile::fromSaved(g_profile, 0));
-    g_right.setProfile(body::VescProfile::fromSaved(g_profile, 1));
+    g_dome_link.begin();
+    g_controller.init(millis());
     g_dome_servo.attach(body_pins::kDomeServo);
     g_dome_servo.writeMicroseconds(g_profile.servo_neutral ? g_profile.servo_neutral : 1500);
+
+#if __has_include(<Watchdog_t4.h>)
+    WDT_timings_t wdt_config{};
+    wdt_config.timeout = 1.0f;
+    wdt_config.pin = 0;
+    wdt_config.callback = nullptr;
+    g_wdt.begin(wdt_config);
+#endif
 }
 
 void loop() {
     const uint32_t now_ms = millis();
+    const uint32_t now_us = micros();
+
+    // 1. Receiver sensor processing first
+    g_telemetry.tick(now_us, g_sensor);
+    g_sensor.pump(g_telemetry, now_us);
+
+    // 2. RC / VESC RX bounded pump
     g_receiver.pump(g_input, now_ms);
-    g_left.tick(now_ms);
-    g_right.tick(now_ms);
-    g_drive.update(g_input.snapshot(now_ms), g_left.sample(now_ms),
-                   g_right.sample(now_ms), g_profile, now_ms);
-    // Nonblocking injection only. Safety brakes apply on the same loop;
-    // drive renewals follow the owner's 20ms cadence.
-    static bool sent = false;
-    static uint32_t command_revision = 0;
-    const body::WheelCommands& commands = g_drive.commands();
-    if (!sent || command_revision != g_drive.commandRevision()) {
-        body::applyWheelCommands(commands, g_left, g_right);
-        command_revision = g_drive.commandRevision(); sent = true;
-    }
-    g_dome.updateDrive(g_drive.intent(), now_ms);
-    g_dome.updateRc(g_input.snapshot(now_ms), now_ms);
-    g_dome.setControlEpoch(g_drive.controlEpoch());
-    g_dome.tick(now_ms);
+    g_controller.updateRc(g_input.snapshot(now_ms), now_ms);
+
+    // 3. Controller tick (VESC links, link endpoint, drive 20ms, dome, audio, events, status)
+    g_controller.tick(now_ms, now_us);
+    g_body_status = g_controller.status();
+
+    // 4. Actuator servo pulse output
     const body::ServoCommand dome_cmd = g_dome.output();
     if (dome_cmd.pulses) {
         g_dome_servo.writeMicroseconds(dome_cmd.pulse_us);
     }
-    g_dfplayer.tick(now_ms);
+
+    // 5. Telemetry measurements
     g_telemetry.setMeasurements(body::vescMeasurements(g_left.sample(now_ms), g_right.sample(now_ms)));
-    g_sensor.pump(g_telemetry, micros());
-    g_telemetry.tick(micros(), g_sensor);
-    g_link.tick(now_ms);
-    r2link::Frame rx_frame{};
-    uint32_t rx_ms = 0;
-    while (g_link.endpoint().takeReceived(rx_frame, rx_ms)) {
-        if (rx_frame.type == r2link::MessageType::DomeRequest) {
-            r2link::DomeRequest req{};
-            r2link::ErrorCounters err{};
-            if (r2link::decode(rx_frame, req, err) == r2link::Status::Ok) {
-                r2link::Result res = g_dome.request(req, rx_frame.sequence, now_ms);
-                g_link.endpoint().reply(rx_frame, res, 0);
-            }
-        } else if (rx_frame.type == r2link::MessageType::AudioRequest) {
-            r2link::AudioRequest req{};
-            r2link::ErrorCounters err{};
-            if (r2link::decode(rx_frame, req, err) == r2link::Status::Ok) {
-                r2link::Result res = g_dfplayer.request(req, rx_frame.sequence, now_ms);
-                g_link.endpoint().reply(rx_frame, res, 0);
-            }
-        } else if (rx_frame.type == r2link::MessageType::HallState) {
-            r2link::HallState hall{};
-            r2link::ErrorCounters err{};
-            if (r2link::decode(rx_frame, hall, err) == r2link::Status::Ok) {
-                g_dome.updateHall(hall, rx_ms);
-            }
-        }
-    }
-    if (!g_link.endpoint().connected(now_ms)) {
-        g_dome.peerLost(now_ms);
-        g_dfplayer.peerLost(now_ms);
-    }
-    r2link::Event ev{};
-    while (g_dome.takeEvent(ev)) {
-        r2link::Frame ev_frame{};
-        r2link::ErrorCounters err{};
-        if (r2link::encode(ev, ev_frame, err) == r2link::Status::Ok) {
-            uint16_t seq = 0;
-            g_link.endpoint().request(ev_frame, now_ms, seq);
-        }
-    }
-    while (g_dfplayer.takeEvent(ev)) {
-        r2link::Frame ev_frame{};
-        r2link::ErrorCounters err{};
-        if (r2link::encode(ev, ev_frame, err) == r2link::Status::Ok) {
-            uint16_t seq = 0;
-            g_link.endpoint().request(ev_frame, now_ms, seq);
-        }
-    }
-    publishDriveStatus(now_ms);
-    publishAudioStatus(now_ms);
-    g_telemetry.tick(micros(), g_sensor);
+    g_telemetry.tick(now_us, g_sensor);
+
+    // 6. USB CLI and diagnostic capture
+    usbCliTick(now_ms);
     const bool usb_busy = usbCaptureTick();
 
+    // 7. Watchdog feed
+#if __has_include(<Watchdog_t4.h>)
+    if (g_controller.deadlineHealthy()) {
+        g_wdt.feed();
+    }
+#endif
+
+    // 8. Low-priority periodic USB status banner
     static uint32_t last = 0;
     if (!usb_busy && uint32_t(now_ms - last) >= 5000) {
         last = now_ms;
@@ -255,7 +188,6 @@ void loop() {
             (unsigned long)r.channel_errors, (unsigned long)r.partial_timeouts,
             (unsigned long)t.responses, (unsigned long)t.deadline_misses,
             (unsigned long)t.echo_bytes);
-        // USB output is best effort and never waits for a host or buffer space.
         if (n > 0 && size_t(n) < sizeof line && Serial.availableForWrite() >= n)
             Serial.write(reinterpret_cast<const uint8_t*>(line), size_t(n));
     }
