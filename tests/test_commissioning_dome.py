@@ -360,6 +360,13 @@ class DomeCommissioningTests(unittest.TestCase):
     assert(x.state() == CommissionWizard::State::Failed && x.lastError() == 3 && x.lastResult() == 0);
 ''')
 
+    def test_only_a_drive_page_status_poll_counts_as_the_heartbeat(self):
+        self.check(r'''
+    assert(liveStatusFromDrive("p=d&") && liveStatusFromDrive("x=1&p=d&"));
+    assert(!liveStatusFromDrive("p=c&") && !liveStatusFromDrive("") && !liveStatusFromDrive(nullptr));
+    assert(!liveStatusFromDrive("p=dx&") && !liveStatusFromDrive("xp=d&"));   // exact key and value only
+''')
+
     def test_browser_heartbeat_gates_the_wheel_test_keepalive_only(self):
         self.check(r'''
     static_assert(BrowserHeartbeat::kPeriodMs == 150 && BrowserHeartbeat::kWindowMs == 500, "spec values");

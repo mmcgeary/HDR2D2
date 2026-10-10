@@ -21,7 +21,7 @@ Decisions taken with the operator:
 
 | Topic | Decision |
 | --- | --- |
-| Wheel tests | Web page only, CH6 OFF, sticks centred, "wheels are raised" confirmation, browser keepalive (the open `/drive` page sends a heartbeat every 150 ms; the ESP32 forwards Keepalive only while the last heartbeat is ≤500 ms old; dome tests keep the ESP32-driven keepalive), duty ≤10%, spin ≤2 s; CH6 ON / stick / keepalive loss brakes |
+| Wheel tests | Web page only, CH6 OFF, sticks centred, "wheels are raised" confirmation, browser keepalive (the open `/drive` page's live status poll is a heartbeat every ~150 ms; the ESP32 forwards Keepalive only while the last heartbeat is ≤500 ms old; dome tests keep the ESP32-driven keepalive), duty ≤10%, spin ≤2 s; CH6 ON / stick / keepalive loss brakes |
 | Wheel sign-off evidence | Bits 6–11 require that wheel's completed automated test against the saved settings |
 | CH9 | Not used by any commissioning test, Accept, SetField or Save. After a Save makes auto dome ready, auto dome waits for CH9 OFF→ON |
 | Baseline | Fills unset fields only |

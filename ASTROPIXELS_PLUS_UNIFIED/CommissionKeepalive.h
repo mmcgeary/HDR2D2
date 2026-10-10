@@ -2,8 +2,8 @@
 
 #include <cstdint>
 
-// Browser keepalive for the wheel tests. The open /drive page calls a heartbeat
-// element every kPeriodMs; the dome forwards the commissioning Keepalive for a
+// Browser keepalive for the wheel tests. The open /drive page polls the live status
+// every kPeriodMs; the dome forwards the commissioning Keepalive for a
 // wheel test only while a heartbeat arrived within kWindowMs, so closing the tab
 // (or losing Wi-Fi) lets the body's 300 ms keepalive timeout brake the wheel.
 class BrowserHeartbeat {
@@ -21,4 +21,15 @@ private:
 // fresh browser heartbeat; dome tests (1-5) keep the dome-driven keepalive.
 inline bool commissionKeepaliveAllowed(uint8_t test, bool heartbeat_fresh) {
     return test < 6 || test > 8 || heartbeat_fresh;
+}
+
+// The open /commissioning and /drive pages poll a live-status endpoint; only a poll
+// from /drive (query "p=d&") is the wheel-test browser heartbeat.
+inline bool liveStatusFromDrive(const char* query) {
+    if (!query) return false;
+    for (const char* p = query; *p; ++p) {
+        const bool key_start = (p == query) || p[-1] == '&';
+        if (key_start && p[0] == 'p' && p[1] == '=' && p[2] == 'd' && (p[3] == '&' || p[3] == '\0')) return true;
+    }
+    return false;
 }

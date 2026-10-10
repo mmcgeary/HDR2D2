@@ -704,13 +704,51 @@ public:
     }
 } sChecklistView;
 
-// Hidden /drive element: the open page calls it every BrowserHeartbeat::kPeriodMs with the
-// same fetch the buttons use, so a wheel test is kept alive only while the page is open.
-class WHeartbeat : public WElement {
+// Live status for the open commissioning pages: one "<field id>=<text>" line per read-only
+// field, so a running test can be watched without reloading (a reload of /drive would stop
+// the heartbeat and brake the wheel). A poll from /drive is the wheel-test browser heartbeat.
+inline void emitLiveStatus(Print& out, String query) {
+    const bool drive = liveStatusFromDrive(query.c_str());
+    if (drive) g_drive_heartbeat.beat(millis());
+    out.println("HTTP/1.0 200 OK");
+    out.println("Content-type:text/plain");
+    out.println("Cache-Control: no-store");
+    out.println("Connection: close");
+    out.println();
+    auto line = [&out](const char* id, const String& text) { out.print(id); out.print('='); out.println(text); };
+    if (drive) {
+        line("d_saved", formatProfileSaved());
+        line("d_vl", formatVesc(0));
+        line("d_vr", formatVesc(1));
+        line("d_res", formatWheelResult());
+        line("d_wiz", formatWizard());
+    } else {
+        line("c_hall", formatCommissionHall());
+        line("c_rc", formatCommissionRc());
+        line("c_status", formatCommissionTestState());
+        line("c_revs", formatCommissionRevolutions());
+        line("c_rates", formatCommissionRates());
+        line("c_accept", formatCommissionAcceptance());
+        line("c_next", String(nextChecklistStep(checklistInput())));
+        line("c_wiz", formatWizard());
+        line("c_rprompt", formatRadioCheck());
+        line("c_aresult", formatAudioCheck());
+    }
+}
+
+// Hidden page element: polls the live status (the next poll starts when the last one ends,
+// so a slow link never piles requests up) and fills each named field, except the one being
+// edited.
+class WLiveStatus : public WElement {
 public:
-    WHeartbeat(const char* id, unsigned period_ms, void (*beat)()) : WElement(new WAction(beat)) {
-        fID = id;
-        appendScriptf("setInterval(function() {fetchNoload('%s', true);}, %u);\n", id, period_ms);
+    WLiveStatus(const char* page, unsigned period_ms) {
+        appendScriptf(
+            "function liveStatus() {fetch('/cstatus?p=%s&').then(function(r) {return r.text();})"
+            ".then(function(t) {t.split('\\n').forEach(function(l) {var i = l.indexOf('=');"
+            " if (i < 1) return; var e = document.getElementById(l.substring(0, i) + '_fld');"
+            " if (e && e !== document.activeElement) e.value = l.substring(i + 1).trim();});})"
+            ".catch(function() {}).then(function() {setTimeout(liveStatus, %u);});}\n"
+            "liveStatus();\n", page, period_ms);
     }
 };
 
@@ -727,7 +765,8 @@ public:
 
 WElement commissioningContents[] = {
     W1("Dome Calibration & Commissioning"),
-    WLabel("CH6 OFF and sticks centred; SwD may be in either position. Reload the page to refresh.", "safety"),
+    WLabel("CH6 OFF and sticks centred; SwD may be in either position. Status lines update live.", "safety"),
+    WLiveStatus("c", 500),
     WTextField("Hall Sensors:", "c_hall", []()->String { return formatCommissionHall(); }, [](String) {}),
     WVerticalAlign(),
     WTextField("Radio Status:", "c_rc", []()->String { return formatCommissionRc(); }, [](String) {}),
@@ -791,7 +830,7 @@ WElement commissioningContents[] = {
 
 WElement driveContents[] = {
     W1("Drive Commissioning (CH6 OFF, sticks centred)"),
-    WLabel("Reload the page to refresh. Field edits are staged; accept and Save to keep them.", "d_note"),
+    WLabel("Status lines update live; keep this page open while a wheel test runs. Field edits are staged; accept and Save to keep them.", "d_note"),
     WTextField("Profile:", "d_saved", []()->String { return formatProfileSaved(); }, [](String) {}),
     WVerticalAlign(),
     WTextField("Left VESC:", "d_vl", []()->String { return formatVesc(0); }, [](String) {}),
@@ -799,7 +838,7 @@ WElement driveContents[] = {
     WTextField("Right VESC:", "d_vr", []()->String { return formatVesc(1); }, [](String) {}),
     WVerticalAlign(),
     WLabel("Compare these with VESC Tool for each controller, then accept VESC config.", "d_hint"),
-    WHeartbeat("d_hb", BrowserHeartbeat::kPeriodMs, []() { g_drive_heartbeat.beat(millis()); }),
+    WLiveStatus("d", BrowserHeartbeat::kPeriodMs),   // also the wheel-test heartbeat
     FIELD_ROW("L VESC FW major:", "f6l", 6, 0), FIELD_ROW("R VESC FW major:", "f6r", 6, 1),
     FIELD_ROW("L VESC FW minor:", "f7l", 7, 0), FIELD_ROW("R VESC FW minor:", "f7r", 7, 1),
     FIELD_ROW("L values layout (1):", "f8l", 8, 0), FIELD_ROW("R values layout (1):", "f8r", 8, 1),
@@ -865,6 +904,7 @@ WPage pages[] = {
       WPage("/body", bodyContents, SizeOfArray(bodyContents)),
       WPage("/commissioning", commissioningContents, SizeOfArray(commissioningContents)),
       WPage("/drive", driveContents, SizeOfArray(driveContents)),
+      WAPI("/cstatus", emitLiveStatus),
       WPage("/logics", logicsContents, SizeOfArray(logicsContents)),
     WPage("/setup", setupContents, SizeOfArray(setupContents)),
       WPage("/serial", serialContents, SizeOfArray(serialContents)),
