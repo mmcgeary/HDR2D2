@@ -215,7 +215,7 @@ class DomeCalibrationTests(unittest.TestCase):
     assert(cmd.pulse_us == 1500);
 ''')
 
-    def test_ch6_on_manual_or_ch9_off_cancels(self):
+    def test_ch6_on_or_manual_cancels_and_ch9_off_does_not(self):
         self.check(r'''
     CalibrationFixture f;
     f.setCommissionedNeutral(1500);
@@ -233,26 +233,70 @@ class DomeCalibrationTests(unittest.TestCase):
     f.rc.channels[5] = 1000;
     f.tick(1100);
 
-    // 2. CH9 OFF cancels test
+    // 2. CH9 OFF does not cancel a running test any more.
     assert(f.cal.handleRequest(f.makeBegin(static_cast<uint8_t>(CommissionTest::TimingCw), 2), f.now) == Result::Accepted);
+    f.rc.channels[8] = 1000;
+    f.advance(f.now + 200);
     assert(f.cal.active());
-    f.rc.channels[8] = 1000; // CH9 OFF!
-    f.tick(1150);
-    assert(!f.cal.active());
-    assert(f.cal.status().state == static_cast<uint8_t>(CommissionState::Cancelled));
+    f.cal.handleRequest(f.makeCancel(2), f.now);
 
     // Reset RC
     f.rc.channels[8] = 2000;
-    f.tick(1200);
+    f.tick(f.now + 20);
 
     // 3. Manual stick deflection cancels test
     assert(f.cal.handleRequest(f.makeBegin(static_cast<uint8_t>(CommissionTest::TimingCw), 3), f.now) == Result::Accepted);
     assert(f.cal.active());
     f.rc.channels[3] = 1800; // Manual dome stick deflected!
-    f.tick(1250);
+    f.tick(f.now + 20);
     assert(!f.cal.active());
     assert(f.cal.status().state == static_cast<uint8_t>(CommissionState::Cancelled));
 ''')
+
+    def test_dome_tests_accept_and_save_never_need_ch9(self):
+        self.check(r"""
+    CalibrationFixture f;
+    f.rc.channels[8] = 1000; f.tick(f.now + 20);          // CH9 OFF throughout
+    assert(f.cal.handleRequest(f.makeSetField(kFieldServoNeutral, 0, 1500), f.now) == Result::Accepted);
+    assert(f.cal.handleRequest(f.makeSetField(kFieldServoMin, 0, 1000), f.now) == Result::Accepted);
+    assert(f.cal.handleRequest(f.makeSetField(kFieldServoMax, 0, 2000), f.now) == Result::Accepted);
+    assert(f.cal.handleRequest(f.makeBegin(static_cast<uint8_t>(CommissionTest::Neutral), 3), f.now) == Result::Accepted);
+    f.advance(f.now + 3100);
+    assert(f.cal.status().state == static_cast<uint8_t>(CommissionState::Completed));
+    assert(f.cal.handleRequest(f.makeAccept(kAcceptServoNeutral), f.now) == Result::Accepted);
+    f.rc.channels[8] = 2000; f.tick(f.now + 20);          // and CH9 ON is fine too
+    CommissionRequest save{}; save.operation = static_cast<uint8_t>(CommissionOp::Save); save.control_epoch = 1;
+    assert(f.cal.handleRequest(save, f.now) == Result::Accepted);
+    // CH6 ON still closes the gate.
+    f.rc.channels[5] = 2000; f.tick(f.now + 20);
+    assert(f.cal.handleRequest(f.makeSetField(kFieldServoNeutral, 0, 1505), f.now) == Result::Inhibited);
+""")
+
+    def test_apply_baseline_op_and_acceptance_masks_in_status(self):
+        self.check(r"""
+    CalibrationFixture f;
+    CommissioningProfile saved;
+    f.cal.setSavedProfile(saved);
+    f.cal.setObservedFirmware(0, true, 6, 2);
+    f.cal.setObservedFirmware(1, false, 0, 0);
+    CommissionRequest b{}; b.operation = 7; b.control_epoch = 1;
+    assert(f.cal.handleRequest(b, f.now) == Result::Accepted);
+    int32_t v = 0;
+    assert(getField(f.profile, kFieldFwMajor, 0, v) && v == 6);
+    assert(!getField(f.profile, kFieldFwMajor, 1, v));
+    assert(getField(f.profile, kFieldBrakeMa, 1, v) && v == 3000);
+    f.profile.acceptance = 0x011;
+    f.tick(f.now + 20);
+    assert(f.cal.status().staged_acceptance == 0x011 && f.cal.status().saved_acceptance == 0);
+    assert(f.cal.status().unsaved == 1);
+    saved = f.profile; f.tick(f.now + 20);
+    assert(f.cal.status().unsaved == 0 && f.cal.status().saved_acceptance == 0x011);
+    f.rc.channels[5] = 2000; f.tick(f.now + 20);
+    assert(f.cal.handleRequest(b, f.now) == Result::Inhibited);   // stationary gate
+    // Field reads say whether the field is set.
+    assert(f.cal.diagnostics(1, kFieldBrakeMa, 1, 0).known == 1 && f.cal.diagnostics(1, kFieldBrakeMa, 1, 0).value == 3000);
+    assert(f.cal.diagnostics(1, kFieldDirection, 0, 0).known == 0);
+""")
 
     def test_stop_remains_absolute(self):
         self.check(r'''
@@ -416,8 +460,7 @@ class DomeCalibrationTests(unittest.TestCase):
     CalibrationFixture f;
     f.rc.channels[5] = 2000; f.setCh9(1000);  // CH6 ON
     assert(f.cal.handleRequest(f.makeSetField(kFieldServoNeutral, 0, 1510), f.now) == Result::Inhibited);
-    f.rc.channels[5] = 1000; f.setCh9(2000);  // CH9 ON
-    assert(f.cal.handleRequest(f.makeSetField(kFieldServoNeutral, 0, 1510), f.now) == Result::Inhibited);
+    f.rc.channels[5] = 1000; f.setCh9(2000);  // CH9 ON no longer matters
     f.rc.channels[3] = 1800; f.setCh9(1000);  // dome stick deflected
     assert(f.cal.handleRequest(f.makeSetField(kFieldServoNeutral, 0, 1510), f.now) == Result::Inhibited);
     assert(f.profile.servo_neutral == 0);
@@ -535,12 +578,12 @@ class DomeCalibrationTests(unittest.TestCase):
     req.operation = static_cast<uint8_t>(CommissionOp::Save);
     req.control_epoch = 1;
 
-    // While CH9 is ON (2000), Save must be rejected (GateClosed / InvalidArgument)
-    f.rc.channels[8] = 2000;
+    // While CH6 is ON (2000), Save must be rejected
+    f.rc.channels[5] = 2000;
     f.tick(1000);
     assert(f.cal.handleRequest(req, f.now) != Result::Accepted);
 
-    // With CH6 OFF (1000) and CH9 OFF (1000) and neutral sticks, Save succeeds
+    // With CH6 OFF (1000) and neutral sticks, Save succeeds (CH9 irrelevant)
     f.rc.channels[5] = 1000;
     f.rc.channels[8] = 1000;
     f.tick(1020);

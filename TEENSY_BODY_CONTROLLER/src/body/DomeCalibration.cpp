@@ -40,7 +40,7 @@ bool DomeCalibration::isSticksNeutral() const {
 }
 
 bool DomeCalibration::stationaryGate() const {
-    return rc_.valid && rc_.channels[5] < 1250 && rc_.channels[8] < 1250 && isSticksNeutral();
+    return rc_.valid && rc_.channels[5] < 1250 && isSticksNeutral() && !motion_locked_;
 }
 
 uint32_t DomeCalibration::evidenceDigest() const {
@@ -100,6 +100,26 @@ uint16_t DomeCalibration::speedToPulse(int16_t speed_percent, uint16_t neutral_u
 }
 
 r2link::Result DomeCalibration::handleRequest(const r2link::CommissionRequest& req, uint32_t now_ms) {
+    const r2link::Result r = handleRequestImpl(req, now_ms);
+    refreshStatus();
+    return r;
+}
+
+void DomeCalibration::setObservedFirmware(uint8_t wheel, bool valid, uint8_t major, uint8_t minor) {
+    if (wheel > 1) return;
+    observed_fw_[wheel].valid = valid;
+    observed_fw_[wheel].major = major;
+    observed_fw_[wheel].minor = minor;
+}
+
+void DomeCalibration::refreshStatus() {
+    const CommissioningProfile& saved = saved_ ? *saved_ : profile_;
+    status_.staged_acceptance = static_cast<uint16_t>(profile_.acceptance & 0x0FFFu);
+    status_.saved_acceptance = static_cast<uint16_t>(saved.acceptance & 0x0FFFu);
+    status_.unsaved = sameProfile(profile_, saved) ? 0 : 1;
+}
+
+r2link::Result DomeCalibration::handleRequestImpl(const r2link::CommissionRequest& req, uint32_t now_ms) {
     const CommissionOp op = static_cast<CommissionOp>(req.operation);
 
     if (op == CommissionOp::Begin) {
@@ -111,14 +131,11 @@ r2link::Result DomeCalibration::handleRequest(const r2link::CommissionRequest& r
         if (rc_.channels[5] >= 1250) return r2link::Result::Inhibited; // CH6 must be OFF
 
         const CommissionTest test = static_cast<CommissionTest>(req.test);
-        if (test == CommissionTest::None || static_cast<uint8_t>(test) > 6) {
+        if (test == CommissionTest::None || static_cast<uint8_t>(test) > 5) {
             return r2link::Result::InvalidArgument;
         }
 
-        if (test != CommissionTest::VescTimeout) {
-            if (rc_.channels[8] < 1750) return r2link::Result::Inhibited; // CH9 must be ON
-            if (!isSticksNeutral()) return r2link::Result::Inhibited;
-        }
+        if (!isSticksNeutral()) return r2link::Result::Inhibited;
 
         if (test == CommissionTest::FrontRef || test == CommissionTest::RearRef ||
             test == CommissionTest::TimingCw || test == CommissionTest::TimingCcw) {
@@ -248,6 +265,14 @@ r2link::Result DomeCalibration::handleRequest(const r2link::CommissionRequest& r
         return r2link::Result::Inhibited;
     }
 
+    if (op == CommissionOp::ApplyBaseline) {
+        if (status_.state == static_cast<uint8_t>(CommissionState::Running)) return r2link::Result::Busy;
+        if (!stationaryGate()) return r2link::Result::Inhibited;
+        applyBaseline(profile_, observed_fw_);
+        refreshStatus();
+        return r2link::Result::Accepted;
+    }
+
     if (op == CommissionOp::Read) {
         return r2link::Result::Accepted;
     }
@@ -256,6 +281,7 @@ r2link::Result DomeCalibration::handleRequest(const r2link::CommissionRequest& r
 }
 
 void DomeCalibration::tick(uint32_t now_ms) {
+    refreshStatus();
     if (status_.state != static_cast<uint8_t>(CommissionState::Running)) return;
 
     if (motion_locked_) {
@@ -276,11 +302,9 @@ void DomeCalibration::tick(uint32_t now_ms) {
     }
 
     const CommissionTest test = static_cast<CommissionTest>(status_.test);
-    if (test != CommissionTest::VescTimeout) {
-        if (rc_.channels[8] < 1750 || !isSticksNeutral()) {
-            cancel(now_ms);
-            return;
-        }
+    if (!isSticksNeutral()) {
+        cancel(now_ms);
+        return;
     }
 
     if (test == CommissionTest::FrontRef || test == CommissionTest::RearRef ||
@@ -430,6 +454,7 @@ r2link::Diagnostics DomeCalibration::diagnostics(uint8_t subtype, uint8_t field,
         int32_t val = 0;
         if (getField(profile_, field, wheel, val)) {
             d.value = val;
+            d.known = 1;
         }
     }
     return d;

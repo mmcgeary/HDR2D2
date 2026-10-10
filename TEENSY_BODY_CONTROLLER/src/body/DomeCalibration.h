@@ -15,7 +15,8 @@ enum class CommissionOp : uint8_t {
     Cancel = 3,
     SetField = 4,
     Save = 5,
-    Accept = 6
+    Accept = 6,
+    ApplyBaseline = 7
 };
 
 enum class CommissionState : uint8_t {
@@ -34,7 +35,9 @@ enum class CommissionTest : uint8_t {
     RearRef = 3,
     TimingCw = 4,
     TimingCcw = 5,
-    VescTimeout = 6
+    WheelTimeout = 6,
+    WheelDirection = 7,
+    WheelReversal = 8
 };
 
 class DomeCalibration {
@@ -44,6 +47,9 @@ public:
     void updateRc(const RcSnapshot& rc, uint32_t now_ms);
     void updateHall(const r2link::HallState& hall, uint32_t now_ms);
     void setMotionLocked(bool locked) { motion_locked_ = locked; }
+    // Actuators run the saved profile; status() compares staged against it.
+    void setSavedProfile(const CommissioningProfile& saved) { saved_ = &saved; }
+    void setObservedFirmware(uint8_t wheel, bool valid, uint8_t major, uint8_t minor);
 
     r2link::Result handleRequest(const r2link::CommissionRequest& req, uint32_t now_ms);
     void tick(uint32_t now_ms);
@@ -62,8 +68,10 @@ public:
 private:
     uint16_t speedToPulse(int16_t speed_percent, uint16_t neutral_us) const;
     bool isSticksNeutral() const;
-    bool stationaryGate() const;   // CH6 OFF, CH9 OFF, sticks neutral, fresh RC
+    bool stationaryGate() const;   // CH6 OFF, sticks neutral, fresh RC (CH9 plays no part)
     void updateStatusFlags();
+    void refreshStatus();
+    r2link::Result handleRequestImpl(const r2link::CommissionRequest& req, uint32_t now_ms);
     // Digest of the configuration a dome run depends on (servo trims, auto speed).
     uint32_t evidenceDigest() const;
     void complete();
@@ -71,6 +79,8 @@ private:
 
     ConfigStore& store_;
     CommissioningProfile& profile_;
+    const CommissioningProfile* saved_{nullptr};
+    ObservedFirmware observed_fw_[2]{};
 
     r2link::CommissionStatus status_{};
     RcSnapshot rc_{};
