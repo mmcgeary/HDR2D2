@@ -13,8 +13,9 @@ PRELUDE = r'''
 #include "ProfileMirror.h"
 #include "CommissionWizard.h"
 struct Sink : ICommissionSink {
-    std::vector<r2link::CommissionRequest> sent; uint16_t seq = 0;
+    std::vector<r2link::CommissionRequest> sent; uint16_t seq = 0; size_t limit = size_t(-1);
     bool sendCommission(const r2link::CommissionRequest& r, uint32_t, uint16_t& s) override {
+        if (sent.size() >= limit) return false;
         sent.push_back(r); s = ++seq; return true;
     }
 };
@@ -119,7 +120,89 @@ class DomeCommissioningTests(unittest.TestCase):
     assert(!z.startWheelTest(6, 0, false, 10) && t.sent.empty());          // must confirm raised
     assert(z.startWheelTest(6, 1, true, 10));
     assert(t.sent[0].test == 6 && t.sent[0].wheel == 1 && t.sent[0].value == 1);
+    assert(!z.applyBaseline(20) && t.sent.size() == 1);                    // refused while a test is running
+    z.tick(15, status(t.sent[0].run_id, 6, 2), true, 4);                   // wheel test completed
+    z.onCompletion(done(t.seq, r2link::Result::Accepted));
+    assert(z.state() == CommissionWizard::State::Done);
     assert(z.applyBaseline(20) && t.sent.back().operation == 7);
+''')
+
+    def test_wizard_surfaces_step_send_failure_and_status_watchdog(self):
+        self.check(r'''
+    Sink s; CommissionWizard w(s); w.tick(0, status(0, 0, 0), true, 9);
+    w.startDomeCalibration(10);
+    w.onCompletion(done(s.seq, r2link::Result::Accepted));
+    s.limit = s.sent.size();                                              // next Begin cannot be sent
+    w.tick(20, status(s.sent.back().run_id, 2, 2), true, 9);
+    assert(w.state() == CommissionWizard::State::Failed && w.lastResult() == uint8_t(r2link::Result::NotReady));
+    Sink a; CommissionWizard x(a); x.tick(0, status(0, 0, 0), true, 9);
+    x.startNeutral(10);
+    x.onCompletion(done(a.seq, r2link::Result::Accepted));
+    x.tick(1000, status(a.sent.back().run_id + 1, 1, 1), true, 9);        // someone else's run
+    x.tick(2009, status(0, 0, 0), false, 9);
+    assert(x.state() == CommissionWizard::State::Running);
+    x.tick(2010, status(0, 0, 0), false, 9);                              // 2000 ms since Begin
+    assert(x.state() == CommissionWizard::State::Failed && x.lastResult() == uint8_t(r2link::Result::NotReady));
+    Sink b; CommissionWizard y(b); y.tick(0, status(0, 0, 0), true, 9);
+    y.startNeutral(10);
+    y.tick(1500, status(b.sent.back().run_id, 1, 1), true, 9);            // our status resets the clock
+    y.tick(3499, status(0, 0, 0), false, 9);
+    assert(y.state() == CommissionWizard::State::Running);
+    y.tick(3500, status(0, 0, 0), false, 9);
+    assert(y.state() == CommissionWizard::State::Failed);
+''')
+
+    def test_wizard_refuses_overlapping_starts_and_drops_stale_replies(self):
+        self.check(r'''
+    Sink s; CommissionWizard w(s); w.tick(0, status(0, 0, 0), true, 9);
+    assert(w.startNeutral(10));
+    assert(!w.startDomeCalibration(11) && !w.startWheelTest(6, 0, true, 11) && !w.applyBaseline(11));
+    const uint8_t bits[] = {1};
+    assert(!w.acceptAndSave(bits, 1, 11) && s.sent.size() == 1);
+    const uint16_t stale = s.seq;                                         // Begin reply never arrived
+    assert(w.cancel(12) && w.state() == CommissionWizard::State::Idle);
+    assert(w.startNeutral(13));                                           // clears stale pending
+    w.onCompletion(done(stale, r2link::Result::Inhibited));
+    w.onCompletion(done(2, r2link::Result::Inhibited));                   // the Cancel's reply is stale too
+    assert(w.state() == CommissionWizard::State::Running);
+    Sink f; CommissionWizard x(f); x.tick(0, status(0, 0, 0), true, 9);
+    x.startDomeCalibration(10);
+    x.tick(20, status(f.sent.back().run_id, 2, 4, 7), true, 9);
+    assert(x.lastError() == 7);
+    assert(x.startNeutral(30) && x.lastError() == 0 && x.lastResult() == 0);
+''')
+
+    def test_wizard_nudge_cancels_a_running_neutral_and_cancel_reports_failure(self):
+        self.check(r'''
+    Sink s; CommissionWizard w(s); w.tick(0, status(0, 0, 0), true, 4);
+    assert(w.startNeutral(10));
+    const uint32_t run = s.sent[0].run_id;
+    assert(!w.nudgeNeutral(500, 1500, 20) && s.sent.size() == 1);        // out of range: nothing sent
+    assert(w.nudgeNeutral(-5, 1500, 20));
+    assert(s.sent.size() == 4 && s.sent[1].operation == 3 && s.sent[1].run_id == run);
+    assert(s.sent[2].operation == 4 && s.sent[2].value == 1495 && s.sent[3].operation == 1 && s.sent[3].test == 1);
+    assert(w.state() == CommissionWizard::State::Running && w.currentTest() == 1);
+    Sink t; CommissionWizard x(t); x.tick(0, status(0, 0, 0), true, 4);
+    assert(x.startWheelTest(7, 0, true, 10));
+    assert(!x.nudgeNeutral(5, 1500, 20) && t.sent.size() == 1);          // other tests cannot be nudged
+    t.limit = t.sent.size();
+    assert(!x.cancel(30) && x.state() == CommissionWizard::State::Running);
+    t.limit = size_t(-1);
+    assert(x.cancel(40) && x.state() == CommissionWizard::State::Idle && t.sent.back().operation == 3);
+''')
+
+    def test_wizard_accept_and_save_checks_capacity_and_midbatch_failure(self):
+        self.check(r'''
+    uint8_t bits[13]; for (uint8_t i = 0; i < 13; ++i) bits[i] = i + 1;
+    Sink s; CommissionWizard w(s); w.tick(0, status(0, 0, 0), true, 4);
+    assert(!w.acceptAndSave(bits, 13, 10) && s.sent.empty());            // 13 Accepts + Save > 13 slots
+    assert(w.state() == CommissionWizard::State::Idle);
+    assert(w.acceptAndSave(bits, 12, 10) && s.sent.size() == 13);
+    Sink t; CommissionWizard x(t); x.tick(0, status(0, 0, 0), true, 4);
+    t.limit = 2;
+    assert(!x.acceptAndSave(bits, 3, 10));
+    assert(x.state() == CommissionWizard::State::Failed && x.lastResult() == uint8_t(r2link::Result::NotReady));
+    assert(t.sent.size() == 2);
 ''')
 
 

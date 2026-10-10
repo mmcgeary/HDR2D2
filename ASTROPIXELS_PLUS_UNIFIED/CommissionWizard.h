@@ -17,7 +17,7 @@ public:
     bool nudgeNeutral(int16_t delta_us, int32_t current_us, uint32_t now_ms); // SetField 0 then Neutral
     bool acceptAndSave(const uint8_t* bits, uint8_t count, uint32_t now_ms);
     bool applyBaseline(uint32_t now_ms);
-    void cancel(uint32_t now_ms);
+    bool cancel(uint32_t now_ms);                                       // false if the Cancel could not be sent
     void tick(uint32_t now_ms, const r2link::CommissionStatus& status, bool status_fresh, uint16_t epoch);
     void onCompletion(const r2link::Completion& c);
     State state() const;
@@ -26,6 +26,9 @@ public:
     uint8_t lastResult() const;   // r2link::Result of a refused request
 
 private:
+    static constexpr uint8_t kPendingCap = 13;
+    static constexpr uint32_t kStatusTimeoutMs = 2000;   // no fresh status for our run -> fail
+    bool prepareStart();   // refuses while Running; clears stale replies and last error/result
     bool begin(uint8_t test, uint8_t wheel, int32_t value, uint32_t now_ms);
     bool send(r2link::CommissionRequest req, uint32_t now_ms);
     void fail(uint16_t error, uint8_t result);
@@ -35,7 +38,8 @@ private:
     uint8_t test_{0};
     uint32_t run_id_{0}, run_counter_{0};
     uint16_t epoch_{0};
-    uint16_t pending_[13]{}; uint8_t pending_count_{0};   // sequences awaiting replies
+    uint16_t pending_[kPendingCap]{}; uint8_t pending_count_{0};   // sequences awaiting replies
     uint16_t last_error_{0}; uint8_t last_result_{0};
     bool waiting_status_{false};
+    uint32_t status_seen_ms_{0};
 };
