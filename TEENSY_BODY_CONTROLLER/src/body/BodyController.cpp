@@ -17,7 +17,7 @@ BodyController::BodyController(ConfigStore& config_store,
       left_vesc_(left_vesc_port, 0),
       right_vesc_(right_vesc_port, 1),
       drive_(),
-      dome_(profile_),
+      dome_(active_),
       calibration_(config_store_, profile_),
       audio_(audio_port, kTrackCatalog, kTrackCatalogCount) {}
 
@@ -32,31 +32,80 @@ void BodyController::init(uint32_t now_ms) {
     if (config_store_.load(loaded) == ConfigResult::Ready) {
         profile_ = loaded;
     }
-    left_vesc_.setProfile(VescProfile::fromSaved(profile_, 0));
-    right_vesc_.setProfile(VescProfile::fromSaved(profile_, 1));
-    audio_.initSimulated(now_ms);
-    updateStatus(now_ms);
+    activateSavedProfile();
+    updateStatus(now_ms);  // the DFPlayer is reset and configured by audio_.tick()
 }
 
-void BodyController::applyMotionLocks(uint8_t reasons, uint32_t now_ms) {
-    (void)now_ms;
-    lock_reasons_ = reasons;
-    drive_.setMotionLocks(reasons);
-    dome_.setMotionLocks(reasons);
-    calibration_.setMotionLocked(reasons != 0);
-    if (reasons != 0) {
-        calibration_.cancel(now_ms);
+void BodyController::activateSavedProfile() {
+    active_ = profile_;
+    left_vesc_.setProfile(VescProfile::fromSaved(active_, 0));
+    right_vesc_.setProfile(VescProfile::fromSaved(active_, 1));
+}
+
+bool BodyController::releaseGateOpen(uint32_t now_ms) const {
+    const bool rc_fresh = rc_snapshot_.valid && (now_ms >= rc_snapshot_.sample_ms) &&
+                          (now_ms - rc_snapshot_.sample_ms <= 250);
+    const bool ch6_off = rc_snapshot_.channels[5] < 1250;
+    const bool centered_500ms = (centered_start_ms_ > 0) && (now_ms >= centered_start_ms_) &&
+                                (now_ms - centered_start_ms_ >= 500);
+    return rc_fresh && ch6_off && centered_500ms;
+}
+
+void BodyController::publishStatusNow(uint32_t now_ms) {
+    updateStatus(now_ms);
+    r2link::Frame frame{};
+    r2link::ErrorCounters err{};
+    if (r2link::encode(body_status_, frame, err) == r2link::Status::Ok) {
+        link_endpoint_.publishLatest(frame, now_ms);
     }
 }
 
+void BodyController::engageLocks(uint8_t add, uint32_t now_ms) {
+    lock_reasons_ |= add;
+    if (add & 1) {
+        drive_.stop(now_ms);
+        dome_.stop(now_ms);
+    }
+    drive_.setMotionLocks(lock_reasons_ & 4);
+    dome_.setMotionLocks(lock_reasons_ & 4);
+    calibration_.setMotionLocked(true);
+    calibration_.cancel(now_ms);
+    ++control_epoch_;
+    publishStatusNow(now_ms);
+}
+
+r2link::Result BodyController::releaseLocks(uint8_t clear, uint32_t now_ms) {
+    const uint8_t current = lock_reasons_ | drive_.motionLocks();
+    const uint8_t next = current & ~clear;
+    if (next == current) return r2link::Result::Accepted;
+    if (!releaseGateOpen(now_ms)) return r2link::Result::NotReady;
+
+    // Subsystem latches are released with their own epochs: this request's epoch
+    // was already validated against control_epoch_ by the caller.
+    r2link::Result r = drive_.setMotionLocks(next & 4);
+    if (r == r2link::Result::Accepted && !(next & 1) && drive_.stopLatched()) {
+        r = drive_.releaseStop(drive_.controlEpoch(), now_ms);
+    }
+    // The drive's latches are the motion ground truth; the dome follows them.
+    lock_reasons_ = drive_.motionLocks() & 5;
+    if (!(lock_reasons_ & 1)) dome_.releaseStop(dome_.controlEpoch(), now_ms);
+    dome_.setMotionLocks(lock_reasons_ & 4);
+    calibration_.setMotionLocked(lock_reasons_ != 0);
+    if (lock_reasons_ != current) {
+        ++control_epoch_;
+        publishStatusNow(now_ms);
+    }
+    return r == r2link::Result::Accepted ? r2link::Result::Accepted : r2link::Result::NotReady;
+}
+
 void BodyController::updateStatus(uint32_t now_ms) {
-    const Readiness ready = readiness(profile_);
-    const uint8_t profile_ready = (ready.drive && ready.manual_dome && ready.auto_dome) ? 1 : 0;
+    const Readiness ready = readiness(active_);
+    const uint8_t profile_ready = (ready.drive ? 1 : 0) | (ready.manual_dome ? 2 : 0) | (ready.auto_dome ? 4 : 0);
     const VescSample left = left_vesc_.sample(now_ms);
     const VescSample right = right_vesc_.sample(now_ms);
     const bool rc_stale = !rc_snapshot_.valid || (now_ms < rc_snapshot_.sample_ms) || (now_ms - rc_snapshot_.sample_ms > 250);
 
-    uint32_t faults = (!validateProfile(profile_) ? 2u : !ready.drive ? 1u : 0u) |
+    uint32_t faults = (!validateProfile(active_) ? 2u : !ready.drive ? 1u : 0u) |
                       (rc_stale ? (1u << 3) : 0u) |
                       (left.stale ? (1u << 4) : 0u) |
                       (right.stale ? (1u << 5) : 0u) |
@@ -74,8 +123,9 @@ void BodyController::updateStatus(uint32_t now_ms) {
     body_status_.dome_state = static_cast<uint8_t>(dome_.state());
     body_status_.dome_owner = static_cast<uint8_t>(dome_.owner());
     body_status_.dome_authority_generation = dome_.authorityGeneration();
+    // The wire contract requires a zero angle whenever it is not valid.
     body_status_.angle_valid = dome_.position().valid() ? 1 : 0;
-    body_status_.estimated_angle_ddeg = dome_.position().angleDdeg();
+    body_status_.estimated_angle_ddeg = dome_.position().valid() ? dome_.position().angleDdeg() : 0;
 }
 
 r2link::BodyStatus BodyController::status() const {
@@ -114,18 +164,8 @@ r2link::Result BodyController::handleControlRequest(const r2link::ControlRequest
 
     // 0: STOP_ALL (Always valid, even with old epoch)
     if (req.operation == 0) {
-        ++control_epoch_;
-        applyMotionLocks(lock_reasons_ | 1, now_ms);
-        drive_.stop(now_ms);
-        dome_.stop(now_ms);
         audio_.peerLost(now_ms);
-        updateStatus(now_ms);
-
-        r2link::Frame frame{};
-        r2link::ErrorCounters err{};
-        if (r2link::encode(body_status_, frame, err) == r2link::Status::Ok) {
-            link_endpoint_.publishLatest(frame, now_ms);
-        }
+        engageLocks(1, now_ms);
         return r2link::Result::Accepted;
     }
 
@@ -136,51 +176,19 @@ r2link::Result BodyController::handleControlRequest(const r2link::ControlRequest
 
     // 1: RELEASE_STOP
     if (req.operation == 1) {
-        if (lock_reasons_ & 1) {
-            applyMotionLocks(lock_reasons_ & ~1, now_ms);
-            drive_.releaseStop(control_epoch_, now_ms);
-            dome_.releaseStop(control_epoch_, now_ms);
-            ++control_epoch_;
-            updateStatus(now_ms);
-
-            r2link::Frame frame{};
-            r2link::ErrorCounters err{};
-            if (r2link::encode(body_status_, frame, err) == r2link::Status::Ok) {
-                link_endpoint_.publishLatest(frame, now_ms);
-            }
-        }
-        return r2link::Result::Accepted;
+        return releaseLocks(1, now_ms);
     }
 
     // 2: LOCK
     if (req.operation == 2) {
-        if (req.reason == r2link::kReasonReserved) {
-            return r2link::Result::InvalidArgument;
-        }
         if (req.reason == r2link::kReasonMaintenance) {
             if (req.token == 0) return r2link::Result::InvalidArgument;
             maintenance_token_ = req.token;
-            applyMotionLocks(lock_reasons_ | (1 << 2), now_ms);
-            ++control_epoch_;
-            updateStatus(now_ms);
-
-            r2link::Frame frame{};
-            r2link::ErrorCounters err{};
-            if (r2link::encode(body_status_, frame, err) == r2link::Status::Ok) {
-                link_endpoint_.publishLatest(frame, now_ms);
-            }
+            engageLocks(4, now_ms);
             return r2link::Result::Accepted;
         }
         if (req.reason == r2link::kReasonOperator) {
-            applyMotionLocks(lock_reasons_ | 1, now_ms);
-            ++control_epoch_;
-            updateStatus(now_ms);
-
-            r2link::Frame frame{};
-            r2link::ErrorCounters err{};
-            if (r2link::encode(body_status_, frame, err) == r2link::Status::Ok) {
-                link_endpoint_.publishLatest(frame, now_ms);
-            }
+            engageLocks(1, now_ms);
             return r2link::Result::Accepted;
         }
     }
@@ -191,29 +199,12 @@ r2link::Result BodyController::handleControlRequest(const r2link::ControlRequest
             if (req.token != maintenance_token_ || maintenance_token_ == 0) {
                 return r2link::Result::Inhibited;
             }
-            maintenance_token_ = 0;
-            applyMotionLocks(lock_reasons_ & ~(1 << 2), now_ms);
-            ++control_epoch_;
-            updateStatus(now_ms);
-
-            r2link::Frame frame{};
-            r2link::ErrorCounters err{};
-            if (r2link::encode(body_status_, frame, err) == r2link::Status::Ok) {
-                link_endpoint_.publishLatest(frame, now_ms);
-            }
-            return r2link::Result::Accepted;
+            const r2link::Result r = releaseLocks(4, now_ms);
+            if (r == r2link::Result::Accepted) maintenance_token_ = 0;
+            return r;
         }
         if (req.reason == r2link::kReasonOperator) {
-            applyMotionLocks(lock_reasons_ & ~1, now_ms);
-            ++control_epoch_;
-            updateStatus(now_ms);
-
-            r2link::Frame frame{};
-            r2link::ErrorCounters err{};
-            if (r2link::encode(body_status_, frame, err) == r2link::Status::Ok) {
-                link_endpoint_.publishLatest(frame, now_ms);
-            }
-            return r2link::Result::Accepted;
+            return releaseLocks(1, now_ms);
         }
     }
 
@@ -222,31 +213,15 @@ r2link::Result BodyController::handleControlRequest(const r2link::ControlRequest
         if (req.reason != r2link::kReasonOperator || req.token != 0) {
             return r2link::Result::InvalidArgument;
         }
-
-        const bool rc_fresh = rc_snapshot_.valid && (now_ms >= rc_snapshot_.sample_ms) &&
-                              (now_ms - rc_snapshot_.sample_ms <= 250);
-        const bool ch6_off = rc_snapshot_.channels[5] < 1250;
-        const bool centered_500ms = (centered_start_ms_ > 0) && (now_ms >= centered_start_ms_) &&
-                                    (now_ms - centered_start_ms_ >= 500);
-
-        if (!rc_fresh || !ch6_off || !centered_500ms) {
+        if (!releaseGateOpen(now_ms)) {
             return r2link::Result::Inhibited;
         }
-
-        applyMotionLocks(0, now_ms);
-        maintenance_token_ = 0;
-        ++control_epoch_;
-        drive_.releaseStop(control_epoch_, now_ms);
-        dome_.releaseStop(control_epoch_, now_ms);
-        dome_.cancel(now_ms);
-        updateStatus(now_ms);
-
-        r2link::Frame frame{};
-        r2link::ErrorCounters err{};
-        if (r2link::encode(body_status_, frame, err) == r2link::Status::Ok) {
-            link_endpoint_.publishLatest(frame, now_ms);
+        const r2link::Result r = releaseLocks(5, now_ms);
+        if (r == r2link::Result::Accepted) {
+            maintenance_token_ = 0;
+            dome_.cancel(now_ms);
         }
-        return r2link::Result::Accepted;
+        return r;
     }
 
     return r2link::Result::InvalidArgument;
@@ -341,13 +316,18 @@ r2link::Result BodyController::handleCommissionRequest(const r2link::Frame& fram
         return r2link::Result::WrongEpoch;
     }
     const r2link::Result res = calibration_.handleRequest(req, now_ms);
+    if (res == r2link::Result::Accepted && req.operation == static_cast<uint8_t>(CommissionOp::Save)) {
+        activateSavedProfile();
+    }
     if (res == r2link::Result::Accepted) {
         r2link::Frame status_frame{};
         if (r2link::encode(calibration_.status(), status_frame, err) == r2link::Status::Ok) {
             link_endpoint_.publishLatest(status_frame, now_ms);
         }
         if (req.operation == static_cast<uint8_t>(CommissionOp::Read)) {
-            const r2link::Diagnostics diag = calibration_.diagnostics(req.field, req.wheel, req.value, now_ms);
+            // Read: field selects the subtype, value carries the field id (protocol section 9).
+            const r2link::Diagnostics diag = calibration_.diagnostics(
+                req.field, static_cast<uint8_t>(req.value), req.wheel, now_ms);
             r2link::Frame diag_frame{};
             if (r2link::encode(diag, diag_frame, err) == r2link::Status::Ok) {
                 link_endpoint_.publishLatest(diag_frame, now_ms);
@@ -494,7 +474,7 @@ void BodyController::tick(uint32_t now_ms, uint32_t now_us) {
     // 3. Actuator updates
     calibration_.tick(now_ms);
     if (!calibration_.active()) {
-        drive_.update(rc_snapshot_, left_vesc_.sample(now_ms), right_vesc_.sample(now_ms), profile_, now_ms);
+        drive_.update(rc_snapshot_, left_vesc_.sample(now_ms), right_vesc_.sample(now_ms), active_, now_ms);
         applyWheelCommands(drive_.commands(), left_vesc_, right_vesc_);
     } else {
         WheelCommands neut{};
@@ -583,10 +563,40 @@ bool BodyController::processCli(const char* line, char* out, size_t out_max, uin
     }
 
     if (std::strcmp(line, "profile show") == 0) {
-        const Readiness ready = readiness(profile_);
-        snprintf(out, out_max, "PROFILE ready_drive=%u ready_manual=%u ready_auto=%u neutral=%u auto_speed=%u\n",
+        const Readiness ready = readiness(active_);
+        const Readiness staged = readiness(profile_);
+        snprintf(out, out_max, "PROFILE saved: drive=%u manual=%u auto=%u acceptance=0x%03lX | "
+                 "staged: drive=%u manual=%u auto=%u acceptance=0x%03lX neutral=%u auto_speed=%u\n",
                  unsigned(ready.drive), unsigned(ready.manual_dome), unsigned(ready.auto_dome),
-                 profile_.servo_neutral, profile_.auto_speed_percent);
+                 (unsigned long)active_.acceptance,
+                 unsigned(staged.drive), unsigned(staged.manual_dome), unsigned(staged.auto_dome),
+                 (unsigned long)profile_.acceptance, profile_.servo_neutral, profile_.auto_speed_percent);
+        return true;
+    }
+
+    if (std::strncmp(line, "profile accept ", 15) == 0) {
+        const char* name = line + 15;
+        int bit = -1;
+        for (uint8_t b = 0; b < kAcceptBitCount; ++b) {
+            if (std::strcmp(name, acceptanceBitName(b)) == 0) { bit = b; break; }
+        }
+        if (bit < 0) {
+            snprintf(out, out_max, "ERROR unknown bit %s\n", name);
+            return true;
+        }
+        // Same evidence rules as the wireless Accept: dome bits need their completed
+        // run, VESC bits record that the operator observed the check.
+        r2link::CommissionRequest req{};
+        req.operation = static_cast<uint8_t>(CommissionOp::Accept);
+        req.value = bit;
+        req.control_epoch = control_epoch_;
+        const r2link::Result res = calibration_.handleRequest(req, now_ms);
+        if (res == r2link::Result::Accepted) {
+            snprintf(out, out_max, "OK accepted %s (staged; profile save to apply)\n", name);
+        } else {
+            snprintf(out, out_max, "ERROR accept refused code=%u (needs CH6 OFF, CH9 OFF, sticks centred, prerequisites)\n",
+                     static_cast<unsigned>(res));
+        }
         return true;
     }
 
@@ -636,6 +646,7 @@ bool BodyController::processCli(const char* line, char* out, size_t out_max, uin
         const bool neutral = (drive_.intent() == r2link::DriveIntent::Stationary);
         const SaveResult res = config_store_.trySave(profile_, ch6_off, neutral);
         if (res == SaveResult::Ok) {
+            activateSavedProfile();
             snprintf(out, out_max, "OK saved\n");
         } else {
             snprintf(out, out_max, "ERROR save failed code=%u\n", static_cast<unsigned>(res));
@@ -644,7 +655,7 @@ bool BodyController::processCli(const char* line, char* out, size_t out_max, uin
     }
 
     if (std::strcmp(line, "profile enable") == 0) {
-        const Readiness ready = readiness(profile_);
+        const Readiness ready = readiness(active_);
         snprintf(out, out_max, "ENABLE drive=%u manual_dome=%u auto_dome=%u\n",
                  unsigned(ready.drive), unsigned(ready.manual_dome), unsigned(ready.auto_dome));
         return true;

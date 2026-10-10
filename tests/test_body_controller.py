@@ -71,7 +71,243 @@ struct DummyStorage : public body::RawStorage {
 '''
 
 
+LOCK_RIG = r'''
+// Ticks the real scheduler with a fresh RC frame every millisecond, like main.cpp.
+struct LockRig {
+    DummyStorage storage;
+    body::ConfigStore config_store{storage};
+    FakePort link_port, left_vesc_port, right_vesc_port, audio_port;
+    body::BodyController controller{config_store, link_port, left_vesc_port, right_vesc_port, audio_port};
+    uint32_t now = 1000;
+    LockRig() {
+        controller.init(now);
+        // Manual dome commissioned so a released dome can prove it moves again.
+        body::CommissioningProfile& p = controller.profile();
+        assert(body::setField(p, body::kFieldServoNeutral, 0, 1500) == body::FieldResult::Ok);
+        assert(body::setField(p, body::kFieldServoMin, 0, 1000) == body::FieldResult::Ok);
+        assert(body::setField(p, body::kFieldServoMax, 0, 2000) == body::FieldResult::Ok);
+        p.acceptance |= 1u << body::kAcceptServoNeutral;
+        assert(body::readiness(p).manual_dome);
+        save();
+    }
+    void save() {
+        char buf[256];
+        assert(controller.processCli("profile save", buf, sizeof buf, now));
+        assert(std::strstr(buf, "OK saved") != nullptr);
+    }
+    void run(uint32_t ms, uint16_t ch4 = 1500, uint16_t ch6 = 1000) {
+        for (uint32_t i = 0; i < ms; ++i) {
+            ++now;
+            body::RcSnapshot rc{};
+            for (auto& c : rc.channels) c = 1500;
+            rc.channels[3] = ch4; rc.channels[5] = ch6; rc.channels[8] = 1000;
+            rc.valid = true; rc.sample_ms = now; rc.sample_counter = now; rc.flags = 1;
+            controller.updateRc(rc, now);
+            controller.tick(now, now * 1000);
+        }
+    }
+    r2link::Result control(uint8_t op, uint8_t reason, uint16_t token = 0) {
+        r2link::ControlRequest q{};
+        q.operation = op; q.reason = reason; q.token = token;
+        q.control_epoch = controller.status().control_epoch;
+        r2link::Frame f{}; r2link::ErrorCounters e{};
+        assert(r2link::encode(q, f, e) == r2link::Status::Ok);
+        return controller.handle(f, now);
+    }
+    bool driveLocked() const { return controller.drive().driveState() == r2link::DriveState::Locked; }
+};
+
+// Drive fields for both wheels with the VESC acceptance bits injected (test-only,
+// not a commissioning observation). FW 6.2, brake 1500mA.
+static void readyDrive(body::CommissioningProfile& p) {
+    assert(body::setField(p, body::kFieldSlew, 0, 500) == body::FieldResult::Ok);
+    for (uint8_t w = 0; w < 2; ++w) {
+        const int32_t v[] = {1, 6, 2, 1, 1000, 1000, 0, 1500, 1050, 1500, 150, 1500, 100, 50};
+        for (uint8_t id = 5; id <= 18; ++id) assert(body::setField(p, id, w, v[id - 5]) == body::FieldResult::Ok);
+        p.acceptance |= (1u << (body::kAcceptVescConfig + w)) | (1u << (body::kAcceptTimeoutBrake + w)) |
+                        (1u << (body::kAcceptDirection + w)) | (1u << (body::kAcceptReversal + w));
+    }
+    assert(body::readiness(p).drive);
+}
+
+// Independent VESC framing (XMODEM CRC), not the production codec.
+static std::vector<uint8_t> vescFrame(const std::vector<uint8_t>& payload) {
+    uint16_t c = 0;
+    for (uint8_t x : payload) {
+        c ^= uint16_t(x) << 8;
+        for (int i = 0; i < 8; ++i) c = (c & 0x8000) ? uint16_t((c << 1) ^ 0x1021) : uint16_t(c << 1);
+    }
+    std::vector<uint8_t> f{2, uint8_t(payload.size())};
+    f.insert(f.end(), payload.begin(), payload.end());
+    f.push_back(uint8_t(c >> 8)); f.push_back(uint8_t(c)); f.push_back(3);
+    return f;
+}
+'''
+
+
 class BodyControllerTests(unittest.TestCase):
+    def run_lock_rig(self, body):
+        program = PRELUDE + LOCK_RIG + "int main() {\n" + body + "\nreturn 0;\n}\n"
+        result = run_cpp(program, extra_sources=SOURCES, include_dirs=[ROOT / "tests/radio_fakes", BODY, SHARED, INC])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_release_stop_clears_drive_and_dome_latches(self):
+        self.run_lock_rig(r'''
+LockRig g; g.run(1000);
+assert(g.control(0, r2link::kReasonOperator) == r2link::Result::Accepted);
+g.run(600);
+assert(g.controller.drive().stopLatched() && g.driveLocked());
+assert(g.control(1, r2link::kReasonOperator) == r2link::Result::Accepted);
+g.run(20);
+assert(!g.controller.drive().stopLatched());
+assert(!g.driveLocked());
+assert(g.controller.status().lock_reasons == 0);
+g.run(50, 1900);  // the released dome follows the manual stick again
+assert(g.controller.dome().state() == r2link::DomeState::Manual);
+''')
+
+    def test_recover_after_repeated_stop_clears_drive_and_dome_latches(self):
+        self.run_lock_rig(r'''
+LockRig g; g.run(1000);
+assert(g.control(0, r2link::kReasonOperator) == r2link::Result::Accepted);
+g.run(10);
+assert(g.control(0, r2link::kReasonOperator) == r2link::Result::Accepted);  // STOP pressed twice
+g.run(600);
+assert(g.control(4, r2link::kReasonOperator) == r2link::Result::Accepted);
+g.run(20);
+assert(!g.controller.drive().stopLatched());
+assert(!g.driveLocked());
+assert(g.controller.status().lock_reasons == 0);
+g.run(50, 1900);
+assert(g.controller.dome().state() == r2link::DomeState::Manual);
+''')
+
+    def test_unlock_refused_without_release_gate_keeps_state_consistent(self):
+        self.run_lock_rig(r'''
+LockRig g; g.run(100, 1900);  // dome stick held off-centre: release gate closed
+assert(g.control(2, r2link::kReasonOperator) == r2link::Result::Accepted);
+g.run(50, 1900);
+const uint16_t epoch = g.controller.status().control_epoch;
+assert(g.control(3, r2link::kReasonOperator) == r2link::Result::NotReady);
+g.run(600);  // centred long enough; the earlier refusal must not have unlocked anything
+assert(g.controller.status().lock_reasons == 1);
+assert(g.driveLocked());
+assert(g.controller.status().control_epoch == epoch);
+assert(g.control(3, r2link::kReasonOperator) == r2link::Result::Accepted);
+g.run(20);
+assert(g.controller.status().lock_reasons == 0);
+assert(!g.driveLocked());
+''')
+
+    def test_maintenance_unlock_refused_until_release_gate(self):
+        self.run_lock_rig(r'''
+LockRig g; g.run(1000);
+assert(g.control(2, r2link::kReasonMaintenance, 0x1234) == r2link::Result::Accepted);
+g.run(50, 1500, 2000);  // CH6 ON closes the gate
+assert(g.control(3, r2link::kReasonMaintenance, 0x1234) == r2link::Result::NotReady);
+assert(g.controller.status().lock_reasons == 4);
+g.run(600);
+assert(g.control(3, r2link::kReasonMaintenance, 0x1234) == r2link::Result::Accepted);
+g.run(20);
+assert(g.controller.status().lock_reasons == 0);
+assert(!g.driveLocked());
+''')
+
+    def test_saved_profile_reaches_actuators_without_reboot_and_unsaved_edits_do_not(self):
+        self.run_lock_rig(r'''
+LockRig g; g.run(10);
+readyDrive(g.controller.profile());
+g.run(30);
+assert(g.controller.drive().commands().left.brake_mA == 0);   // staged only: actuators untouched
+g.save();
+g.run(30);
+assert(g.controller.drive().commands().left.brake_mA == 1500);
+// The VESC link now runs the saved profile: a matching FW reply is accepted, no reboot.
+const std::vector<uint8_t> fw = vescFrame({0, 6, 2});
+g.left_vesc_port.rx_bytes.insert(g.left_vesc_port.rx_bytes.end(), fw.begin(), fw.end());
+g.run(5);
+assert(g.controller.leftVesc().sample(g.now).profile_match);
+// A later unsaved edit does not change what the actuators use.
+assert(body::setField(g.controller.profile(), body::kFieldBrakeMa, 0, 2500) == body::FieldResult::Ok);
+g.run(30);
+assert(g.controller.drive().commands().left.brake_mA == 1500);
+''')
+
+    def test_wireless_save_activates_profile(self):
+        self.run_lock_rig(r'''
+LockRig g; g.run(10);
+readyDrive(g.controller.profile());
+g.run(30);
+assert(g.controller.drive().commands().left.brake_mA == 0);
+r2link::CommissionRequest save{};
+save.operation = 5; save.control_epoch = g.controller.status().control_epoch;
+r2link::Frame f{}; r2link::ErrorCounters e{};
+assert(r2link::encode(save, f, e) == r2link::Status::Ok);
+assert(g.controller.handle(f, g.now) == r2link::Result::Accepted);
+g.run(30);
+assert(g.controller.drive().commands().left.brake_mA == 1500);
+const std::vector<uint8_t> fw = vescFrame({0, 6, 2});
+g.right_vesc_port.rx_bytes.insert(g.right_vesc_port.rx_bytes.end(), fw.begin(), fw.end());
+g.run(5);
+assert(g.controller.rightVesc().sample(g.now).profile_match);
+''')
+
+    def test_cli_accepts_vesc_bits_behind_the_stationary_gate(self):
+        self.run_lock_rig(r'''
+LockRig g; g.run(10);
+body::CommissioningProfile& p = g.controller.profile();
+readyDrive(p);
+p.acceptance &= ~(1u << body::kAcceptVescConfig);   // left VESC config not yet signed off
+char buf[256];
+g.run(10, 1500, 2000);  // CH6 ON
+assert(g.controller.processCli("profile accept vesc_config_left", buf, sizeof buf, g.now));
+assert(std::strstr(buf, "ERROR") != nullptr);
+assert(!(p.acceptance & (1u << body::kAcceptVescConfig)));
+g.run(10);
+assert(g.controller.processCli("profile accept vesc_config_left", buf, sizeof buf, g.now));
+assert(std::strstr(buf, "OK accepted vesc_config_left") != nullptr);
+assert(p.acceptance & (1u << body::kAcceptVescConfig));
+assert(g.controller.processCli("profile accept no_such_bit", buf, sizeof buf, g.now));
+assert(std::strstr(buf, "ERROR unknown") != nullptr);
+''')
+
+    def test_boot_initialises_the_real_dfplayer(self):
+        self.run_lock_rig(r'''
+LockRig g; g.run(200);
+auto sent = [&](uint8_t cmd, int param_l) {
+    const std::vector<uint8_t>& tx = g.audio_port.tx_bytes;
+    for (size_t i = 0; i + 9 < tx.size(); ++i)
+        if (tx[i] == 0x7E && tx[i + 3] == cmd && (param_l < 0 || tx[i + 6] == param_l)) return true;
+    return false;
+};
+assert(sent(0x0C, -1));                                   // reset at boot
+assert(g.controller.audio().status(g.now).state == uint8_t(r2link::AudioState::Offline));
+uint8_t online[10];
+body::DfPlayer::serializePacket(0x3F, 0, 0, 2, online);  // player reports SD card online
+g.audio_port.rx_bytes.insert(g.audio_port.rx_bytes.end(), online, online + 10);
+g.run(400);
+assert(g.controller.audio().status(g.now).state == uint8_t(r2link::AudioState::Idle));
+assert(sent(0x06, 10));                                   // configured volume, not the player default
+''')
+
+    def test_body_status_stays_encodable_after_dome_angle_is_lost(self):
+        self.run_lock_rig(r'''
+LockRig g; g.run(100);
+r2link::HallState rear{0x03, 0x02, 1, 0};
+r2link::Frame hall{}; r2link::ErrorCounters e{};
+assert(r2link::encode(rear, hall, e) == r2link::Status::Ok);
+assert(g.controller.handle(hall, g.now) == r2link::Result::Accepted);
+g.run(5);
+assert(g.controller.status().angle_valid == 1);
+assert(g.controller.status().estimated_angle_ddeg == -1800);
+g.run(50, 1900);  // manual stick invalidates dead reckoning
+r2link::BodyStatus s = g.controller.status();
+assert(s.angle_valid == 0);
+assert(s.estimated_angle_ddeg == 0);
+r2link::Frame out{};
+assert(r2link::encode(s, out, e) == r2link::Status::Ok);
+''')
+
     def test_stop_maintenance_lock_lifecycle_and_stale_epoch(self):
         program = PRELUDE + r'''
 int main() {
@@ -155,7 +391,17 @@ int main() {
     assert(r2link::encode(wrong_unlock, wrongUnlockFrame, err) == r2link::Status::Ok);
     assert(controller.handle(wrongUnlockFrame, now + 110) == r2link::Result::Inhibited);
 
-    // 7. Right token unlock succeeds and clears maintenance lock
+    // 7. Right token unlock succeeds once the local release gate has been observed
+    //    (fresh RC, CH6 OFF, sticks centred 500ms) by the running scheduler.
+    uint32_t t = now + 110;
+    for (; t <= now + 720; ++t) {
+        body::RcSnapshot rc{};
+        rc.valid = true; rc.sample_ms = t;
+        rc.channels[0] = rc.channels[1] = rc.channels[3] = 1500;
+        rc.channels[5] = 1000; rc.channels[8] = 1000;
+        controller.updateRc(rc, t);
+        controller.tick(t, t * 1000);
+    }
     r2link::ControlRequest right_unlock{};
     right_unlock.operation = 3; // UNLOCK
     right_unlock.reason = r2link::kReasonMaintenance;
@@ -163,8 +409,9 @@ int main() {
     right_unlock.control_epoch = epoch_before_unlock;
     r2link::Frame rightUnlockFrame{};
     assert(r2link::encode(right_unlock, rightUnlockFrame, err) == r2link::Status::Ok);
-    assert(controller.handle(rightUnlockFrame, now + 120) == r2link::Result::Accepted);
+    assert(controller.handle(rightUnlockFrame, t) == r2link::Result::Accepted);
     assert(controller.status().control_epoch == uint16_t(epoch_before_unlock + 1));
+    assert(controller.status().lock_reasons == 1);  // the earlier STOP is still latched
 
     return 0;
 }
@@ -244,9 +491,12 @@ int main() {
     controller.updateRc(rc, 400); // centered starts at 400
     assert(controller.handle(recFrame, 500) == r2link::Result::Inhibited); // only 100ms centered
 
-    // 6. RECOVER_LOCKS with centered >= 500ms accepted!
-    rc.sample_ms = 900;
-    controller.updateRc(rc, 900); // 500ms centered elapsed (400 to 900)
+    // 6. RECOVER_LOCKS with centered >= 500ms accepted once the scheduler has run it.
+    for (uint32_t t = 400; t <= 900; ++t) {
+        rc.sample_ms = t;
+        controller.updateRc(rc, t); // 500ms centered elapsed (400 to 900)
+        controller.tick(t, t * 1000);
+    }
     const uint16_t epoch_before_rec = controller.status().control_epoch;
     rec.control_epoch = epoch_before_rec;
     assert(r2link::encode(rec, recFrame, err) == r2link::Status::Ok);

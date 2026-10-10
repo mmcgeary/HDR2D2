@@ -192,7 +192,7 @@ public:
                     r2link::AudioPriority prio = (bank == 1 || bank == 2)
                         ? r2link::AudioPriority::Ambient
                         : r2link::AudioPriority::Foreground;
-                    fRemoteAudio->play(filenum, prio);
+                    fRemoteAudio->play(filenum, prio, millis());
                 }
                 else
                 {
@@ -308,7 +308,7 @@ public:
                 break;
             case kDFMini:
                 if (fRemoteAudio)
-                    fRemoteAudio->stop();
+                    fRemoteAudio->stop(millis());
                 break;
             case kMP3Trigger:
                 playSound(0, MP3_EMPTY_SOUND);
@@ -396,7 +396,7 @@ public:
                 break;
             case kDFMini:
                 if (fRemoteAudio)
-                    fRemoteAudio->setVolume(ceil(volume * DF_VOLUME_MAX));
+                    fRemoteAudio->setVolume(ceil(volume * DF_VOLUME_MAX), millis());
                 break;
             case kMP3Trigger:
                 sendMP3(MP3_VOLUME_CMD);
@@ -420,16 +420,14 @@ public:
         }
     }
 
+    // The body link is not up yet when this runs, so the startup sound is left
+    // to playStartSound() once the link connects.
     bool beginRemote(RemoteAudio& remote, int startupSound = -1)
     {
         fRemoteAudio = &remote;
         fModule = kDFMini;
         fStartupSound = startupSound;
         initBankIndexes();
-        if (fStartupSound > 0)
-        {
-            playSound(0, fStartupSound);
-        }
         return true;
     }
 

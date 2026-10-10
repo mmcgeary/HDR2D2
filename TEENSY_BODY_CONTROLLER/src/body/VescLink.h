@@ -94,6 +94,9 @@ private:
     void discard(size_t);
     void handle(const uint8_t*, size_t, uint32_t);
     static const size_t kTxBudget = 32;
+    // An identical brake already written is renewed at this cadence, not on every
+    // loop pass, so stationary braking cannot saturate the UART and starve polls.
+    static const uint32_t kBrakeRenewMs = 20;
     void invalidateCommand(bool brake);
     void resetSample();
     bool match() const;
@@ -122,6 +125,8 @@ private:
     uint8_t demand_;
     int16_t duty_;
     uint32_t brake_, demand_ms_;
+    uint8_t sent_command_;          // last command fully written (0 none, 5 duty, 7 brake)
+    uint32_t tx_brake_, sent_brake_, sent_ms_;
     bool capture_armed_, capture_ready_;
     uint8_t capture_command_;
     VescCapture capture_;

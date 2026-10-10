@@ -122,7 +122,8 @@ VescLink::VescLink(r2link::BytePort& port, uint8_t wheel) : port_(port), wheel_(
     major_(0), minor_(0), rx_{}, rx_ms_{}, rx_length_(0), recovering_(false), tx_{}, tx_length_(0),
     tx_offset_(0), tx_command_(0), tx_aborted_(false), outstanding_(255),
     queried_(false), query_waiting_(false), last_query_(0), query_ms_(0), last_fw_(0), now_(0),
-    demand_(0), duty_(0), brake_(0), demand_ms_(0), capture_armed_(false),
+    demand_(0), duty_(0), brake_(0), demand_ms_(0), sent_command_(0), tx_brake_(0),
+    sent_brake_(0), sent_ms_(0), capture_armed_(false),
     capture_ready_(false), capture_command_(255), capture_{} {}
 
 void VescLink::resetSample() { cached_ = VescSample{}; have_sample_ = false; demand_ = 0; }
@@ -150,7 +151,7 @@ void VescLink::invalidateCommand(bool brake) {
 }
 void VescLink::setProfile(const VescProfile& profile) {
     invalidateCommand(true);
-    profile_ = profile; resetSample(); have_firmware_ = false;
+    profile_ = profile; resetSample(); have_firmware_ = false; sent_command_ = 0;
     major_ = minor_ = 0; outstanding_ = 255; queried_ = false; rx_length_ = 0; recovering_ = false;
     // A partially emitted query must finish before the new FW request.
     if (tx_length_ && !tx_offset_) tx_length_ = 0;
@@ -168,12 +169,14 @@ void VescLink::setDuty(int16_t duty) {
 }
 void VescLink::setBrake(uint32_t brake) {
     if (tx_length_ && tx_command_ == 7 && !tx_aborted_ && brake_ == brake) return;
+    if (demand_ != 7 && sent_command_ == 7 && sent_brake_ == brake &&
+        uint32_t(now_ - sent_ms_) < kBrakeRenewMs) return;
     invalidateCommand(true);
     brake_ = brake; demand_ = 7; demand_ms_ = now_;
 }
 void VescLink::disableControl() {
     invalidateCommand(false);
-    demand_ = 0;
+    demand_ = 0; sent_command_ = 0;
 }
 VescSample VescLink::sample(uint32_t now) const {
     VescSample s = cached_;
@@ -289,7 +292,7 @@ bool VescLink::stage(uint32_t now, size_t room) {
         tx_length_ = uint8_t(brake ? (brakePermitted() ? VescCodec::encodeBrake(brake_, tx_, sizeof(tx_)) : 0) :
             (dutyPermitted(now) ? VescCodec::encodeDuty(duty_, tx_, sizeof(tx_)) : 0));
         if (!tx_length_) ++counters_.inhibited_commands;
-        tx_command_ = demand_; tx_offset_ = 0; tx_aborted_ = false; demand_ = 0;
+        tx_command_ = demand_; tx_offset_ = 0; tx_aborted_ = false; demand_ = 0; tx_brake_ = brake_;
         if (tx_length_) return true;
     }
     if (!due || room < 6) return false;
@@ -324,6 +327,9 @@ void VescLink::pumpTx(uint32_t now) {
         if (written < remaining) { ++counters_.partial_writes; break; }
         tx_length_ = tx_offset_ = 0;
         if (tx_command_ == 0 || tx_command_ == 4) query_ms_ = now;
+        else if (!tx_aborted_) {
+            sent_command_ = tx_command_; sent_brake_ = tx_brake_; sent_ms_ = now;
+        }
     }
     // A due query that control kept off the wire goes ahead of duty next tick.
     query_waiting_ = queryDue(now);

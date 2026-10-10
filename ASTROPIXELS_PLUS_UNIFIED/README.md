@@ -1,6 +1,6 @@
 # AstroPixels Plus Unified: Dome Firmware and Target Wiring
 
-> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Both the Teensy 4.1 body controller and AstroPixels Plus ESP32 firmware are fully implemented; flash both boards before combined testing.
+> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Flash both the Teensy 4.1 body controller and the AstroPixels Plus ESP32 with the current firmware before combined testing; nothing counts as bench-verified until the commissioning record is filled in.
 
 This firmware runs on the ESP32 in the dome for lighting (ReelTwo), Wi-Fi, holo servos, Hall reference sensors, sound selection, and web-based diagnostics/commissioning. All radio decoding, motor drive, continuous dome-servo pulsing, and DFPlayer UART ownership are handled by the Teensy body controller.
 
@@ -43,15 +43,15 @@ PCA9685 VCC=3.3V, V+=D-SERVO 5A fused 5V with 16AWG feed/return; AstroPixels I2C
 | CH2 / right vertical | Foot throttle |
 | CH3 / left vertical | Unused |
 | CH4 / left horizontal | Manual dome rotation |
-| CH5 / SwB | Normalized duty rates35/70/100%;95% absolute cap |
+| CH5 / SwC (3-pos) | Normalized duty rates35/70/100%;95% absolute cap |
 | CH6 / SwA | Drive enable; OFF -> ON -> centered 500ms after boot/fault |
-| CH7 / VrA + CH8 / SwC | Macro selection / trigger |
+| CH7 / VrA + CH8 / SwB | Macro selection / trigger |
 | CH9 / SwD | Auto Dome enable |
 | CH10 | Unused |
 
 Teensy validates RC, both VESC feedback links and actuator locks. Stale/faulted feedback on either wheel inhibits both; neutral uses brake current, not zero duty. Manual dome can work with CH9 OFF; automatic home requires fresh RC, CH9 ON and neutral dome stick.
 
-Wi-Fi STOP displays verified body confirmation or "Body stop unconfirmed." Maintenance locks remain latched across dome restart; Faint macro does not engage maintenance lock. These acknowledgements, the `/diagnostics` telemetry page, explicit lock recovery, `/commissioning` Web UI, and OTA preparation are fully implemented and integrated.
+Wi-Fi STOP latches a body stop and displays verified body confirmation or "Body stop unconfirmed"; **Release STOP** clears it once CH6 is OFF and the sticks are centred. Routine actions (Prepare update, commissioning tests, RC loss) never latch a body stop. Maintenance locks remain latched across dome restart; Faint macro does not engage maintenance lock. ArduinoOTA and web uploads are aborted unless the body maintenance lock is held. The `/commissioning` page stages profile fields, reads them back and accepts every sign-off bit (0-11).
 
 ## 3. Sound library and choreography
 
@@ -93,7 +93,7 @@ pio device monitor -d ASTROPIXELS_PLUS_UNIFIED -e astropixelsplus --baud 115200
 
 Replace PORT with the discovered device. Use EN/Reset if needed, confirm Wi-Fi boots, then unplug USB before seating the ESP32 with droid power still off. Never connect ordinary computer USB to the mounted, externally powered ESP32.
 
-The Teensy body controller firmware (`TEENSY_BODY_CONTROLLER/`) is fully implemented. Its build/flash sequence and one-time USB-power isolation are documented in [Commissioning](../BODY_CONTROLLER_COMMISSIONING.md).
+The Teensy body controller firmware lives in `TEENSY_BODY_CONTROLLER/`. Its build/flash sequence and one-time USB-power isolation are documented in [Commissioning](../BODY_CONTROLLER_COMMISSIONING.md).
 
 ## 6. Installed OTA procedure
 

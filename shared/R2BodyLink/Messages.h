@@ -75,6 +75,9 @@ enum class DriveIntent : uint8_t { Stationary, Forward, Reverse, Pivot };
 enum class DomeState : uint8_t { Inhibited = 0, Manual = 1, RemoteVelocity = 2, SeekingReference = 3, HoldingReference = 4 };
 enum class DomeOwner : uint8_t { None = 0, Manual = 1, Drive = 2, Event = 3, Idle = 4, Startup = 5 };
 enum class DomeOperation : uint8_t { Cancel = 0, Velocity = 1, SeekReference = 2 };
+// DomeRequest.owner wire values. DomeOwner (above) is the body's reported arbiter
+// state and is NOT a valid request owner.
+const uint8_t kDomeRequestOwnerIdle = 0, kDomeRequestOwnerEvent = 1;
 enum class DomeReference : uint8_t { Front = 0, Rear = 1 };
 enum class EventKind : uint8_t {
     Completed = 0, Cancelled = 1, Timeout = 2, HardwareError = 3,
@@ -234,7 +237,7 @@ inline Status validate(const BodyStatus& m) {
     R2_CHECK(enumLE(m.drive_state, 5));
     R2_CHECK(enumLE(m.dome_state, 4));
     R2_CHECK(maskOnly(m.lock_reasons, 0x05));
-    R2_CHECK(ok01(m.profile_ready));
+    R2_CHECK(maskOnly(m.profile_ready, 0x07));   // bit0 drive, bit1 manual dome, bit2 auto dome
     R2_CHECK(enumLE(m.drive_intent, 3));
     R2_CHECK(enumLE(m.dome_owner, 5));
     R2_CHECK(ok01(m.angle_valid));

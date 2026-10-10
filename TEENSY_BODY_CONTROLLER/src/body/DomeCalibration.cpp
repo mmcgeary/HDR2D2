@@ -39,6 +39,48 @@ bool DomeCalibration::isSticksNeutral() const {
     return true;
 }
 
+bool DomeCalibration::stationaryGate() const {
+    return rc_.valid && rc_.channels[5] < 1250 && rc_.channels[8] < 1250 && isSticksNeutral();
+}
+
+uint32_t DomeCalibration::evidenceDigest() const {
+    const uint32_t v[] = {profile_.servo_neutral, profile_.servo_min, profile_.servo_max,
+                          profile_.auto_speed_percent, profile_.set_mask & 0x0Fu};
+    uint32_t h = 2166136261u;
+    for (uint32_t x : v) {
+        for (int k = 0; k < 4; ++k) h = (h ^ ((x >> (8 * k)) & 0xFFu)) * 16777619u;
+    }
+    return h;
+}
+
+void DomeCalibration::complete() {
+    status_.state = static_cast<uint8_t>(CommissionState::Completed);
+    if (status_.test < 7) {
+        done_run_[status_.test] = status_.run_id;
+        done_digest_[status_.test] = evidenceDigest();
+    }
+}
+
+bool DomeCalibration::evidenceFor(uint8_t bit, uint32_t& run_id, bool& cw, bool& ccw) const {
+    const uint32_t digest = evidenceDigest();
+    auto done = [&](CommissionTest t) {
+        const uint8_t i = static_cast<uint8_t>(t);
+        return done_run_[i] != 0 && done_digest_[i] == digest;
+    };
+    CommissionTest required = CommissionTest::None;
+    if (bit == kAcceptServoNeutral) required = CommissionTest::Neutral;
+    else if (bit == kAcceptFrontRef) required = CommissionTest::FrontRef;
+    else if (bit == kAcceptRearRef) required = CommissionTest::RearRef;
+    if (required != CommissionTest::None) {
+        run_id = done(required) ? done_run_[static_cast<uint8_t>(required)] : 0;
+        return run_id != 0;
+    }
+    cw = done(CommissionTest::TimingCw);
+    ccw = done(CommissionTest::TimingCcw);
+    run_id = ccw ? done_run_[static_cast<uint8_t>(CommissionTest::TimingCcw)] : 0;
+    return cw && ccw;
+}
+
 uint16_t DomeCalibration::speedToPulse(int16_t speed_percent, uint16_t neutral_us) const {
     const uint16_t min_us = (profile_.servo_min >= 1000 && profile_.servo_min < neutral_us)
         ? profile_.servo_min : 1000;
@@ -103,8 +145,7 @@ r2link::Result DomeCalibration::handleRequest(const r2link::CommissionRequest& r
         status_.revolution_ms[0] = 0;
         status_.revolution_ms[1] = 0;
         status_.revolution_ms[2] = 0;
-        status_.proposed_cw_ddeg_s = 0;
-        status_.proposed_ccw_ddeg_s = 0;
+        done_run_[req.test] = 0;
         keepalive_deadline_ms_ = now_ms + 300;
         test_start_ms_ = now_ms;
         ref_timeout_deadline_ms_ = now_ms + 10000;
@@ -144,6 +185,7 @@ r2link::Result DomeCalibration::handleRequest(const r2link::CommissionRequest& r
         if (status_.state == static_cast<uint8_t>(CommissionState::Running)) {
             return r2link::Result::Busy;
         }
+        if (!stationaryGate()) return r2link::Result::Inhibited;
         FieldResult fr = setField(profile_, req.field, req.wheel, req.value);
         if (fr == FieldResult::Ok) {
             status_.config_generation = store_.generation();
@@ -156,7 +198,7 @@ r2link::Result DomeCalibration::handleRequest(const r2link::CommissionRequest& r
         if (status_.state == static_cast<uint8_t>(CommissionState::Running)) {
             return r2link::Result::Busy;
         }
-        if (!rc_.valid || rc_.channels[5] >= 1250 || rc_.channels[8] >= 1250 || !isSticksNeutral()) {
+        if (!stationaryGate()) {
             return r2link::Result::Inhibited;
         }
         SaveResult sr = store_.trySave(profile_, true, true);
@@ -173,7 +215,7 @@ r2link::Result DomeCalibration::handleRequest(const r2link::CommissionRequest& r
         if (status_.state == static_cast<uint8_t>(CommissionState::Running)) {
             return r2link::Result::Busy;
         }
-        if (!rc_.valid || rc_.channels[5] >= 1250 || rc_.channels[8] >= 1250 || !isSticksNeutral()) {
+        if (!stationaryGate()) {
             return r2link::Result::Inhibited;
         }
         AcceptanceEvidence ev;
@@ -184,13 +226,15 @@ r2link::Result DomeCalibration::handleRequest(const r2link::CommissionRequest& r
         ev.operator_confirmed = true;
         const uint8_t bit = (req.value >= 0 && req.value <= 31) ? static_cast<uint8_t>(req.value) : req.field;
         if (bit <= 3) {
-            ev.test_completed = (status_.state == static_cast<uint8_t>(CommissionState::Completed));
-            ev.commanded_run_id = status_.run_id;
-            ev.observed_run_id = status_.run_id;
-            if (bit == kAcceptAutoTiming) {
-                ev.cw_completed = true;
-                ev.ccw_completed = true;
-            }
+            // Evidence is the latest completed run of the matching test(s), gathered
+            // against the servo/auto configuration that is staged right now.
+            uint32_t run = 0;
+            bool cw = false, ccw = false;
+            ev.test_completed = evidenceFor(bit, run, cw, ccw);
+            ev.commanded_run_id = run;
+            ev.observed_run_id = run;
+            ev.cw_completed = cw;
+            ev.ccw_completed = ccw;
         }
         if (bit >= 4 && bit <= 11) {
             ev.vesc_operator_observed = true;
@@ -259,16 +303,18 @@ void DomeCalibration::tick(uint32_t now_ms) {
 
     if (hall_.active_mask & 2) saw_rear_ = true;
 
-    if (test == CommissionTest::FrontRef) {
+    if (test == CommissionTest::Neutral) {
+        if (now_ms - test_start_ms_ >= kNeutralObserveMs) complete();
+    } else if (test == CommissionTest::FrontRef) {
         if (front_edge) {
-            status_.state = static_cast<uint8_t>(CommissionState::Completed);
+            complete();
         } else if (now_ms >= ref_timeout_deadline_ms_) {
             status_.state = static_cast<uint8_t>(CommissionState::TimedOut);
             status_.error = 4;
         }
     } else if (test == CommissionTest::RearRef) {
         if (rear_edge) {
-            status_.state = static_cast<uint8_t>(CommissionState::Completed);
+            complete();
         } else if (now_ms >= ref_timeout_deadline_ms_) {
             status_.state = static_cast<uint8_t>(CommissionState::TimedOut);
             status_.error = 4;
@@ -299,16 +345,23 @@ void DomeCalibration::tick(uint32_t now_ms) {
                 timing_phase_++;
 
                 if (timing_phase_ > 3) {
-                    status_.state = static_cast<uint8_t>(CommissionState::Completed);
                     uint32_t a = status_.revolution_ms[0];
                     uint32_t b = status_.revolution_ms[1];
                     uint32_t c = status_.revolution_ms[2];
                     uint32_t med = (a < b)
                         ? ((b < c) ? b : ((a < c) ? c : a))
                         : ((a < c) ? a : ((b < c) ? c : b));
-                    uint16_t rate = (med > 0) ? static_cast<uint16_t>(3600000UL / med) : 0;
-                    if (test == CommissionTest::TimingCw) status_.proposed_cw_ddeg_s = rate;
-                    if (test == CommissionTest::TimingCcw) status_.proposed_ccw_ddeg_s = rate;
+                    const uint32_t rate = (med > 0) ? 3600000UL / med : 0;
+                    // Stage the measured rate; acceptance and Save remain explicit.
+                    const uint8_t field = (test == CommissionTest::TimingCw) ? kFieldCwRate : kFieldCcwRate;
+                    if (setField(profile_, field, 0, static_cast<int32_t>(rate)) != FieldResult::Ok) {
+                        status_.state = static_cast<uint8_t>(CommissionState::Failed);
+                        status_.error = 6; // measured rate outside the profile range
+                        return;
+                    }
+                    if (test == CommissionTest::TimingCw) status_.proposed_cw_ddeg_s = static_cast<uint16_t>(rate);
+                    if (test == CommissionTest::TimingCcw) status_.proposed_ccw_ddeg_s = static_cast<uint16_t>(rate);
+                    complete();
                 }
             } else if (now_ms >= ref_timeout_deadline_ms_) {
                 status_.state = static_cast<uint8_t>(CommissionState::TimedOut);

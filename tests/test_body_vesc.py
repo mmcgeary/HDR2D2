@@ -109,6 +109,47 @@ struct Duplex : r2link::BytePort {
         }
     }
 };
+// Byte-accurate variant: time in microseconds, one byte leaves the TX FIFO every
+// 86.8us (115200 8N1), as a real UART frees space between fast loop passes.
+struct ByteDuplex : r2link::BytePort {
+    size_t fifo=39; double credit_us=0; uint64_t now_us=0; uint32_t latency_ms=3;
+    Bytes pending, wirebuf; std::deque<uint8_t> rx;
+    struct Event { uint32_t t; Bytes payload; };
+    std::vector<Event> got; std::deque<std::pair<uint64_t,Bytes>> replies;
+    int read() override { if(rx.empty()) return -1; int b=rx.front();rx.pop_front();return b; }
+    size_t writable() const override { return pending.size()<fifo?fifo-pending.size():0; }
+    size_t write(const uint8_t* b,size_t n) override {
+        assert(n<=writable()); pending.insert(pending.end(),b,b+n); return n;
+    }
+    void advanceUs(uint64_t t_us) {
+        credit_us += double(t_us-now_us); now_us=t_us;
+        while(credit_us>=86.8 && !pending.empty()) {
+            credit_us-=86.8;
+            wirebuf.push_back(pending.front()); pending.erase(pending.begin());
+            if(wirebuf[0]!=2) { wirebuf.erase(wirebuf.begin()); continue; }
+            if(wirebuf.size()<2 || wirebuf.size()<size_t(wirebuf[1])+5) continue;
+            auto f=frames(wirebuf);
+            if(!f.empty()) {
+                got.push_back({uint32_t(t_us/1000),f[0]});
+                if(f[0][0]==0) replies.push_back({t_us+latency_ms*1000,wire({0,42,19})});
+                if(f[0][0]==4) replies.push_back({t_us+latency_ms*1000,wire(values())});
+            }
+            wirebuf.clear();
+        }
+        if(pending.empty() && credit_us>86.8) credit_us=86.8;
+        while(!replies.empty() && replies.front().first<=t_us) {
+            auto& r=replies.front().second; rx.insert(rx.end(),r.begin(),r.end()); replies.pop_front();
+        }
+    }
+};
+static std::vector<uint32_t> byteTimes(const ByteDuplex& d,bool queries,uint8_t cmd=0xff) {
+    std::vector<uint32_t> v;
+    for(auto& e:d.got) {
+        const bool q=e.payload[0]==0 || e.payload[0]==4;
+        if(queries ? q : (!q && (cmd==0xff || e.payload[0]==cmd))) v.push_back(e.t);
+    }
+    return v;
+}
 static void step(Duplex& d,VescLink& l,uint32_t t) { d.advance(t); l.tick(t); }
 static void duplexReady(Duplex& d,VescLink& l) {
     l.setProfile(VescProfile::fromSaved(saved(),0));
@@ -338,10 +379,11 @@ class VescTests(unittest.TestCase):
     Port p;VescLink l(p,0);ready(p,l);
     l.setBrake(1500);l.setDuty(350);l.tick(102);
     auto brake=wire({7,0,0,5,0xdc});assert(p.tx==brake);
-    p.tx.clear();p.per_call=1;l.setBrake(1500);l.tick(103);
-    for(int t=104;t<113;++t) { l.setDuty(350);l.tick(t); }
+    // Past the identical-brake renewal window, so this brake is really staged.
+    l.tick(122);p.tx.clear();p.per_call=1;l.setBrake(1500);l.tick(123);
+    for(int t=124;t<133;++t) { l.setDuty(350);l.tick(t); }
     assert(p.tx==brake);
-    p.tx.clear();p.per_call=100;l.setDuty(350);l.tick(113);
+    p.tx.clear();p.per_call=100;l.setDuty(350);l.tick(133);
     assert(p.tx==wire({5,0,0,0x88,0xb8})); // new request after brake completion
 ''')
 
@@ -409,6 +451,29 @@ class VescTests(unittest.TestCase):
     assert(l.counters().query_timeouts==0 && l.counters().aborted_commands==0);
 ''' % (loop, renew))
 
+    def test_live_duplex_stationary_brake_renewal_never_starves_polls(self):
+        # BodyController order (tick, then applyWheelCommands) at a sub-ms loop
+        # rate, Teensy Serial1 availableForWrite() of 39 bytes.
+        for loop_us in (10, 50, 200):
+            with self.subTest(loop_us=loop_us):
+                self.check(r'''
+    const uint64_t loop_us=%d;
+    ByteDuplex d;VescLink l(d,0);
+    l.setProfile(VescProfile::fromSaved(saved(),0));
+    for(uint64_t us=0;us<=300000;us+=loop_us) { d.advanceUs(us); l.tick(uint32_t(us/1000)); }
+    assert(l.sample(300).valid); d.got.clear();
+    for(uint64_t us=300000+loop_us;us<=2400000;us+=loop_us) {
+        const uint32_t t=uint32_t(us/1000);
+        d.advanceUs(us);
+        l.tick(t); l.setBrake(1500);
+        assert(l.sample(t).valid);
+    }
+    auto q=byteTimes(d,true),brakes=byteTimes(d,false,7);
+    assert(q.size()>=19 && maxGap(q)<=110);
+    // Renewals still beat the 150ms VESC timeout by a wide margin.
+    assert(!brakes.empty() && maxGap(brakes)<=25 && brakes.back()+25>=2400);
+''' % loop_us)
+
     def test_live_duplex_small_fifo_brake_urgent_and_due_query_both_progress(self):
         self.check(r'''
     Duplex d;d.fifo=12;VescLink l(d,0);duplexReady(d,l);
@@ -448,7 +513,7 @@ class VescTests(unittest.TestCase):
     l.tick(700);assert(!l.sample(700).valid && l.sample(700).stale);p.tx.clear();
     l.setDuty(300);l.tick(701);assert(count(p.tx,5)==0);
     l.setBrake(1500);l.tick(702);assert(count(p.tx,7)==1);
-    p.tx.clear();l.setDuty(0);l.tick(703);assert(count(p.tx,7)==1 && count(p.tx,5)==0);
+    l.tick(722);p.tx.clear();l.setDuty(0);l.tick(723);assert(count(p.tx,7)==1 && count(p.tx,5)==0);
     // Stale with NO RX ever after FW: brake still available.
     Port q;VescLink m(q,0);m.setProfile(VescProfile::fromSaved(saved(),0));m.tick(0);
     feed(q,m,wire({0,42,19}),1);q.tx.clear();m.setBrake(1500);m.tick(2);

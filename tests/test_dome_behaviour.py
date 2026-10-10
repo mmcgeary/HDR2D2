@@ -89,7 +89,7 @@ int main() {
     assert(sink.count() == 1);
     assert(sink.last().operation == uint8_t(r2link::DomeOperation::SeekReference));
     assert(sink.last().reference == uint8_t(r2link::DomeReference::Front));
-    assert(sink.last().owner == uint8_t(r2link::DomeOwner::Idle));
+    assert(sink.last().owner == r2link::kDomeRequestOwnerIdle);
     assert(sink.last().dome_authority_generation == 1);
     assert(sink.last().control_epoch == 1);
     return 0;

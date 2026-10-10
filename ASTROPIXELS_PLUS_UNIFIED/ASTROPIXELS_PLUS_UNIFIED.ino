@@ -245,7 +245,8 @@ enum class MaintenanceState : uint8_t {
     Requested,
     Locked,
     Updating,
-    Failed
+    Failed,
+    Releasing
 };
 
 struct MaintenanceInfo {
@@ -263,6 +264,8 @@ extern R2Macro& active_macro;
 
 void startR2Macro(R2Macro macro);
 void stopDomeMotion();
+void emergencyStop();
+void releaseBodyStop();
 void cancelR2Macro();
 void finishR2Macro();
 void disableHoloServos();
@@ -278,6 +281,9 @@ void startCommissionTest(uint8_t test, int32_t val = 0);
 void cancelCommissionTest();
 void saveCommissionProfile();
 void acceptCommissionBit(uint8_t bit);
+void setCommissionField(uint8_t field, uint8_t wheel, int32_t value);
+void onOtaStart();
+void readCommissionField(uint8_t field, uint8_t wheel);
 
 ServoDispatchPCA9685<SizeOfArray(servoSettings)> servoDispatch(servoSettings);
 ServoSequencer servoSequencer(servoDispatch);
@@ -339,13 +345,11 @@ void unmountFileSystems() {
 
 void reboot() {
     DEBUG_PRINTLN("[SYSTEM] Restarting...");
-    stopDomeMotion();
     prepareMaintenance(true, false);
 }
 
 void clearPrefsAndReboot() {
     DEBUG_PRINTLN("[SYSTEM] Clearing preferences and restarting...");
-    stopDomeMotion();
     prepareMaintenance(true, true);
 }
 
@@ -417,9 +421,9 @@ unsigned long last_rc_packet_ms = 0;
 #define RC_CH_DRIVE_STEER      0
 #define RC_CH_DRIVE_THROTTLE   1
 #define RC_CH_DOME_STEER       3  // Left Stick X (CH4): Manual Dome Rotation
-#define RC_CH_SPEED_MODE       4  // Switch SwB   (CH5): Transmitter Dual Rates
+#define RC_CH_SPEED_MODE       4  // Switch SwC   (CH5, 3-pos): Duty rate 35/70/100%
 #define RC_CH_MOOD_SELECT      6  // Knob VrA     (CH7): Persistent Mood & Macro Selector (1-13)
-#define RC_CH_MACRO_TRIGGER    7  // Switch SwC   (CH8): Macro Fire Trigger (Flip DOWN)
+#define RC_CH_MACRO_TRIGGER    7  // Switch SwB   (CH8): Macro Fire Trigger (Flip DOWN)
 #define RC_CH_AUTO_DOME        8  // Switch SwD   (CH9): Auto Dome Enable
 
 // Dome Homing & Macro Tracking
@@ -464,26 +468,50 @@ bool driveNeutral() {
            rc_channels[RC_CH_DRIVE_THROTTLE] <= 1540;
 }
 
+// Every event-owned dome request carries the body's current control epoch and
+// dome authority generation, and the DomeRequest wire owner (not DomeOwner).
+RequestHandle sendDomeRequest(r2link::DomeOperation operation, r2link::DomeReference reference) {
+    const auto status = g_body_client.bodyStatus(millis());
+    r2link::DomeRequest req{};
+    req.operation = static_cast<uint8_t>(operation);
+    req.reference = (operation == r2link::DomeOperation::SeekReference) ? static_cast<uint8_t>(reference) : 0;
+    req.owner = r2link::kDomeRequestOwnerEvent;
+    req.control_epoch = status.value.control_epoch;
+    req.dome_authority_generation = status.value.dome_authority_generation;
+    return g_body_client.requestDome(req, millis());
+}
+
+// Dome-local stop: ends macros, homing and holo motion and cancels the dome's own
+// remote dome actions. It never latches a body STOP; the body owns RC failsafe.
 void stopDomeMotion() {
     homing_state = HOMING_INACTIVE;
     pending_macro_after_home = R2_NONE;
     dome_motion_inhibited = true;
     cancelR2Macro();
     disableHoloServos();
+    sendDomeRequest(r2link::DomeOperation::Cancel, r2link::DomeReference::Front);
+}
 
-    r2link::DomeRequest dreq{};
-    dreq.operation = static_cast<uint8_t>(r2link::DomeOperation::Cancel);
-    dreq.owner = static_cast<uint8_t>(r2link::DomeOwner::Event);
-    auto status = g_body_client.bodyStatus(millis());
-    dreq.dome_authority_generation = status.value.dome_authority_generation;
-    g_body_client.requestDome(dreq, millis());
-
+// Operator emergency stop: also latches STOP on the body until it is released.
+void emergencyStop() {
+    stopDomeMotion();
+    const auto status = g_body_client.bodyStatus(millis());
     r2link::ControlRequest creq{};
     creq.operation = 0; // STOP_ALL
     creq.reason = r2link::kReasonOperator;
     creq.token = 0;
     creq.control_epoch = status.value.control_epoch;
     g_body_client.requestControl(creq, millis());
+}
+
+void releaseBodyStop() {
+    const auto status = g_body_client.bodyStatus(millis());
+    r2link::ControlRequest req{};
+    req.operation = 1; // RELEASE_STOP (body requires CH6 OFF, sticks centred 500ms)
+    req.reason = r2link::kReasonOperator;
+    req.token = 0;
+    req.control_epoch = status.value.control_epoch;
+    g_body_client.requestControl(req, millis());
 }
 
 void startDomeHoming(R2Macro macro) {
@@ -494,15 +522,12 @@ void startDomeHoming(R2Macro macro) {
     cancelR2Macro();
     pending_macro_after_home = macro;
     homing_state = HOMING_SEEKING;
-    r2link::DomeRequest req{};
-    req.operation = static_cast<uint8_t>(r2link::DomeOperation::SeekReference);
-    req.reference = static_cast<uint8_t>(r2link::DomeReference::Front);
-    req.owner = static_cast<uint8_t>(r2link::DomeOwner::Event);
-    req.speed_percent = 0;
-    req.lease_ms = 0;
-    auto status = g_body_client.bodyStatus(millis());
-    req.dome_authority_generation = status.value.dome_authority_generation;
-    g_body_client.requestDome(req, millis());
+    if (!sendDomeRequest(r2link::DomeOperation::SeekReference, r2link::DomeReference::Front).queued) {
+        homing_state = HOMING_INACTIVE;
+        pending_macro_after_home = R2_NONE;
+        Serial.println(F("[HOMING] Rejected: body link not ready."));
+        return;
+    }
     Serial.println(F("[HOMING] Active 0° Dome Homing Routine Initiated via Body..."));
 }
 
@@ -682,12 +707,7 @@ void cancelR2Macro() {
     if (macro.phase != MacroPhase::Idle) {
         if (macro.phase == MacroPhase::WaitingHome) {
             homing_state = HOMING_INACTIVE;
-            r2link::DomeRequest req{};
-            req.operation = static_cast<uint8_t>(r2link::DomeOperation::Cancel);
-            req.owner = static_cast<uint8_t>(r2link::DomeOwner::Event);
-            auto status = g_body_client.bodyStatus(millis());
-            req.dome_authority_generation = status.value.dome_authority_generation;
-            g_body_client.requestDome(req, millis());
+            sendDomeRequest(r2link::DomeOperation::Cancel, r2link::DomeReference::Front);
         }
         if (macro.phase == MacroPhase::WaitingAudio || macro.phase == MacroPhase::Running) {
             sMarcSound.stop();
@@ -731,19 +751,16 @@ void startR2Macro(R2Macro macro) {
 
     if (macro == R2_LEIA) {
         if (auto_dome_on && sticks_neutral) {
-            ::macro.phase = MacroPhase::WaitingHome;
-            homing_state = HOMING_SEEKING;
-            r2link::DomeRequest req{};
-            req.operation = static_cast<uint8_t>(r2link::DomeOperation::SeekReference);
-            req.reference = static_cast<uint8_t>(r2link::DomeReference::Front);
-            req.owner = static_cast<uint8_t>(r2link::DomeOwner::Event);
-            req.dome_authority_generation = bstatus.value.dome_authority_generation;
-            req.speed_percent = 0;
-            req.lease_ms = 0;
-            RequestHandle h = g_body_client.requestDome(req, millis());
-            ::macro.home_sequence = h.sequence;
-            Serial.println(F("[MACRO] Princess Leia: Seeking 0° front reference..."));
-            return;
+            RequestHandle h = sendDomeRequest(r2link::DomeOperation::SeekReference, r2link::DomeReference::Front);
+            if (h.queued) {
+                ::macro.phase = MacroPhase::WaitingHome;
+                homing_state = HOMING_SEEKING;
+                ::macro.home_sequence = h.sequence;
+                Serial.println(F("[MACRO] Princess Leia: Seeking 0° front reference..."));
+                return;
+            }
+            Serial.println(F("[MACRO] Princess Leia: Alignment unavailable; playing in place."));
+            ::macro.dome_cancelled = true;
         } else if (auto_dome_on && !sticks_neutral) {
             Serial.println(F("[MACRO] Princess Leia: Alignment rejected (manual/drive active)."));
             ::macro.dome_cancelled = true;
@@ -874,19 +891,31 @@ bool maintenanceReady() {
     return g_maintenance.state == MaintenanceState::Locked;
 }
 
+static void restartNow(bool clear_prefs) {
+    if (clear_prefs) {
+        preferences.clear();
+    }
+    preferences.end();
+    unmountFileSystems();
+    ESP.restart();
+}
+
 void prepareMaintenance(bool for_reboot, bool clear_prefs) {
     if (g_maintenance.state == MaintenanceState::Locked) {
-        if (for_reboot) {
-            if (clear_prefs) {
-                preferences.clear();
-            }
-            preferences.end();
-            unmountFileSystems();
-            ESP.restart();
-        }
+        if (for_reboot) restartNow(clear_prefs);
         return;
     }
     stopDomeMotion();
+    if (!g_body_client.linkUp(millis())) {
+        // No body to lock. A restart cannot affect motion; an update still needs the lock.
+        if (for_reboot) {
+            restartNow(clear_prefs);
+            return;
+        }
+        g_maintenance.state = MaintenanceState::Failed;
+        Serial.println(F("[MAINTENANCE] Body link down; cannot take the maintenance lock."));
+        return;
+    }
     auto status = g_body_client.bodyStatus(millis());
     r2link::ControlRequest req{};
     req.operation = 2; // LOCK
@@ -903,20 +932,26 @@ void prepareMaintenance(bool for_reboot, bool clear_prefs) {
 }
 
 void releaseMaintenance() {
+    g_maintenance.pending_reboot = false;
+    g_maintenance.clear_prefs_on_reboot = false;
     if (g_maintenance.state == MaintenanceState::Locked) {
+        // The body may refuse (CH6 ON or sticks off-centre): stay Locked until it confirms.
         auto status = g_body_client.bodyStatus(millis());
         r2link::ControlRequest req{};
         req.operation = 3; // UNLOCK
         req.reason = r2link::kReasonMaintenance;
         req.token = g_maintenance.token;
         req.control_epoch = status.value.control_epoch;
-        g_body_client.requestControl(req, millis());
+        RequestHandle h = g_body_client.requestControl(req, millis());
+        if (h.queued) {
+            g_maintenance.state = MaintenanceState::Releasing;
+            g_maintenance.sequence = h.sequence;
+        }
+        return;
     }
     g_maintenance.state = MaintenanceState::Idle;
     g_maintenance.token = 0;
     g_maintenance.sequence = 0;
-    g_maintenance.pending_reboot = false;
-    g_maintenance.clear_prefs_on_reboot = false;
 }
 
 void recoverBodyLocks() {
@@ -930,18 +965,24 @@ void recoverBodyLocks() {
 }
 
 void processMaintenanceCompletion(const r2link::Completion& comp) {
-    if (comp.type == r2link::MessageType::ControlRequest &&
-        comp.sequence == g_maintenance.sequence) {
-        if (comp.result == static_cast<uint8_t>(r2link::Result::Accepted)) {
+    if (comp.type != r2link::MessageType::ControlRequest || comp.sequence != g_maintenance.sequence) return;
+    const bool accepted = comp.outcome == r2link::Outcome::Replied &&
+                          comp.result == static_cast<uint8_t>(r2link::Result::Accepted);
+    if (g_maintenance.state == MaintenanceState::Releasing) {
+        if (accepted) {
+            g_maintenance.state = MaintenanceState::Idle;
+            g_maintenance.token = 0;
+            g_maintenance.sequence = 0;
+        } else {
             g_maintenance.state = MaintenanceState::Locked;
-            if (g_maintenance.pending_reboot) {
-                if (g_maintenance.clear_prefs_on_reboot) {
-                    preferences.clear();
-                }
-                preferences.end();
-                unmountFileSystems();
-                ESP.restart();
-            }
+            Serial.println(F("[MAINTENANCE] Unlock refused: set CH6 OFF and centre sticks, then retry."));
+        }
+        return;
+    }
+    if (g_maintenance.state == MaintenanceState::Requested) {
+        if (accepted) {
+            g_maintenance.state = MaintenanceState::Locked;
+            if (g_maintenance.pending_reboot) restartNow(g_maintenance.clear_prefs_on_reboot);
         } else {
             g_maintenance.state = MaintenanceState::Failed;
             Serial.println(F("[MAINTENANCE] Lock rejected by body controller."));
@@ -954,14 +995,7 @@ void processMaintenance(uint32_t now) {
         auto bstatus = g_body_client.bodyStatus(now);
         if (bstatus.fresh && (bstatus.value.lock_reasons & (1 << 2))) {
             g_maintenance.state = MaintenanceState::Locked;
-            if (g_maintenance.pending_reboot) {
-                if (g_maintenance.clear_prefs_on_reboot) {
-                    preferences.clear();
-                }
-                preferences.end();
-                unmountFileSystems();
-                ESP.restart();
-            }
+            if (g_maintenance.pending_reboot) restartNow(g_maintenance.clear_prefs_on_reboot);
             return;
         }
         if (now >= g_maintenance.deadline_ms) {
@@ -1036,6 +1070,95 @@ void acceptCommissionBit(uint8_t bit) {
     g_body_client.requestCommission(req, millis());
 }
 
+// Stage one profile field on the body (CH6 OFF, CH9 OFF, sticks centred). Field ids
+// follow ConfigStore.h; Save is still required before actuators use the value.
+void setCommissionField(uint8_t field, uint8_t wheel, int32_t value) {
+    auto status = g_body_client.bodyStatus(millis());
+    r2link::CommissionRequest req{};
+    req.operation = 4; // SetField
+    req.field = field;
+    req.wheel = wheel;
+    req.value = value;
+    req.control_epoch = status.value.control_epoch;
+    g_body_client.requestCommission(req, millis());
+}
+
+// Ask the body to publish one staged field as a Diagnostics frame.
+void readCommissionField(uint8_t field, uint8_t wheel) {
+    auto status = g_body_client.bodyStatus(millis());
+    r2link::CommissionRequest req{};
+    req.operation = 0; // Read
+    req.field = 1;     // subtype 1: profile field
+    req.wheel = wheel;
+    req.value = field;
+    req.control_epoch = status.value.control_epoch;
+    g_body_client.requestCommission(req, millis());
+}
+
+// ArduinoOTA calls this after Update.begin(). Returning does not cancel an update,
+// so a transfer without the body maintenance lock is aborted explicitly: the
+// transfer loop then ends at once and Update.end() fails without activating it.
+void onOtaStart() {
+    if (!maintenanceReady()) {
+        Serial.println(F("[OTA] Rejected: Body maintenance lock not held. Prepare update first."));
+        Update.abort();
+        return;
+    }
+    otaInProgress = true;
+    stopDomeMotion();
+    disableHoloServos();
+    DEBUG_PRINTLN("[OTA] Update Started...");
+}
+
+// Body events: idle scheduler, macro sequencer and dome homing (a completed home
+// starts any macro deferred behind it; a failed one drops it).
+void dispatchBodyEvents() {
+    r2link::Event ev;
+    while (g_body_client.takeEvent(ev)) {
+        g_dome_behaviour.onEvent(ev);
+        processMacroEvent(ev);
+        if (ev.request_type != static_cast<uint8_t>(r2link::MessageType::DomeRequest)) continue;
+        if (ev.kind == static_cast<uint8_t>(r2link::EventKind::Completed)) {
+            homing_state = HOMING_INACTIVE;
+            centerHoloServos();
+            if (pending_macro_after_home != R2_NONE) {
+                R2Macro macro = pending_macro_after_home;
+                pending_macro_after_home = R2_NONE;
+                startR2Macro(macro);
+            }
+        } else if (ev.kind == static_cast<uint8_t>(r2link::EventKind::HardwareError) ||
+                   ev.kind == static_cast<uint8_t>(r2link::EventKind::Timeout) ||
+                   ev.kind == static_cast<uint8_t>(r2link::EventKind::Cancelled)) {
+            homing_state = HOMING_INACTIVE;
+            pending_macro_after_home = R2_NONE;
+        }
+    }
+}
+
+// Terminal outcomes of the dome's own requests: macros, maintenance and the idle
+// dome scheduler each consume the ones they own. A lost reply counts as NotReady.
+void dispatchBodyCompletions() {
+    r2link::Completion comp;
+    while (g_body_client.takeCompletion(comp)) {
+        processMacroCompletion(comp);
+        processMaintenanceCompletion(comp);
+        if (comp.type == r2link::MessageType::DomeRequest) {
+            g_dome_behaviour.onReply(comp.sequence, comp.outcome == r2link::Outcome::Replied
+                ? static_cast<r2link::Result>(comp.result) : r2link::Result::NotReady);
+        }
+    }
+}
+
+// Audio lives on the body, so the startup chime can only be requested once the
+// link is up; requesting it from setup() would always be dropped.
+void processStartupSound(uint32_t now) {
+    static bool played = false;
+    if (!played && g_body_client.linkUp(now)) {
+        played = true;
+        sMarcSound.playStartSound();
+    }
+}
+
 void processCommissioningKeepalive(uint32_t now) {
     auto cstatus = g_body_client.commissionStatus(now);
     if (cstatus.fresh && cstatus.value.state == 1) { // Running
@@ -1073,13 +1196,20 @@ void processRandomHolos() {
     next_holo_twitch_ms = now + random(1500, 4501);
 }
 
+// VrA knob: 13 equal ~77us bins over 1000-2000us (map() would give position 13
+// only at exactly 2000us).
+uint8_t dialPosition(uint16_t us) {
+    const uint32_t v = us < 1000 ? 0 : us > 2000 ? 1000 : uint32_t(us - 1000);
+    return static_cast<uint8_t>(1 + v * 13 / 1001);
+}
+
 void processTransmitterInputs() {
     if (!rc_connected) return;
 
     // Rotary Knob VrA (CH7: 1000us - 2000us mapped to 13 discrete positions)
-    uint8_t dial_pos = map(constrain(rc_channels[RC_CH_MOOD_SELECT], 1000, 2000), 1000, 2000, 1, 13);
+    uint8_t dial_pos = dialPosition(rc_channels[RC_CH_MOOD_SELECT]);
 
-    // 3. Macro Fire Trigger (Switch SwC / CH8: Flip DOWN > 1750us)
+    // 3. Macro Fire Trigger (Switch SwB / CH8: Flip DOWN > 1750us)
     static bool macro_trigger_latched = false;
     bool macro_swc_down = (rc_channels[RC_CH_MACRO_TRIGGER] > 1750);
 
@@ -1278,17 +1408,7 @@ void setup() {
 #endif
 
 #ifdef USE_OTA
-        ArduinoOTA.onStart([]() {
-            if (!maintenanceReady()) {
-                Serial.println(F("[OTA] Rejected: Body maintenance lock not held. Prepare update first."));
-                return;
-            }
-            otaInProgress = true;
-            stopDomeMotion();
-            cancelR2Macro();
-            disableHoloServos();
-            DEBUG_PRINTLN("[OTA] Update Started...");
-        }).onEnd([]() { DEBUG_PRINTLN("[OTA] Update Finished!"); })
+        ArduinoOTA.onStart(onOtaStart).onEnd([]() { DEBUG_PRINTLN("[OTA] Update Finished!"); })
           .onError([](ota_error_t error) {
               otaInProgress = false;
               Serial.printf("[OTA] Error[%u]\n", error);
@@ -1298,8 +1418,7 @@ void setup() {
     }
 #endif
 
-    // 10. Play Startup Sound & Enable Random Chatter
-    sMarcSound.playStartSound();
+    // 10. Random chatter (the startup sound plays once the body link is up)
     sMarcSound.setRandomMin(preferences.getInt(PREFERENCE_MARCSOUND_RANDOM_MIN, MARC_SOUND_RANDOM_MIN));
     sMarcSound.setRandomMax(preferences.getInt(PREFERENCE_MARCSOUND_RANDOM_MAX, MARC_SOUND_RANDOM_MAX));
     if (preferences.getBool(PREFERENCE_MARCSOUND_RANDOM, MARC_SOUND_RANDOM)) {
@@ -1319,41 +1438,18 @@ void loop() {
     // 1. Tick body client and process incoming frames from Teensy
     g_body_client.tick(now);
 
-    // 2. Drain completions and forward to macro and maintenance
-    r2link::Completion comp;
-    while (g_body_client.takeCompletion(comp)) {
-        processMacroCompletion(comp);
-        processMaintenanceCompletion(comp);
-    }
+    // 2. Drain completions and forward to macros, maintenance and the idle scheduler
+    dispatchBodyCompletions();
 
     // 3. Drain events and forward to DomeBehaviour and macro sequencer
-    r2link::Event ev;
-    while (g_body_client.takeEvent(ev)) {
-        g_dome_behaviour.onEvent(ev);
-        processMacroEvent(ev);
-        if (ev.kind == static_cast<uint8_t>(r2link::EventKind::Completed) &&
-            ev.request_type == static_cast<uint8_t>(r2link::MessageType::DomeRequest)) {
-            homing_state = HOMING_INACTIVE;
-            centerHoloServos();
-            if (pending_macro_after_home != R2_NONE) {
-                R2Macro macro = pending_macro_after_home;
-                pending_macro_after_home = R2_NONE;
-                startR2Macro(macro);
-            }
-        } else if ((ev.kind == static_cast<uint8_t>(r2link::EventKind::HardwareError) ||
-                    ev.kind == static_cast<uint8_t>(r2link::EventKind::Timeout) ||
-                    ev.kind == static_cast<uint8_t>(r2link::EventKind::Cancelled)) &&
-                   ev.request_type == static_cast<uint8_t>(r2link::MessageType::DomeRequest)) {
-            homing_state = HOMING_INACTIVE;
-            pending_macro_after_home = R2_NONE;
-        }
-    }
+    dispatchBodyEvents();
 
     // 4. Process maintenance timeouts
     processMaintenance(now);
 
-    // 5. Process commissioning keepalive
+    // 5. Process commissioning keepalive and the deferred startup sound
     processCommissioningKeepalive(now);
+    processStartupSound(now);
 
     // 3. Dual Hall sensors publish
     processHallSensors(now);
@@ -1376,8 +1472,7 @@ void loop() {
     }
 #endif
     if (otaInProgress) {
-        stopDomeMotion();
-        return;
+        return; // motion was stopped once when the update started
     }
 
     processTransmitterInputs();

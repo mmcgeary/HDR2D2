@@ -116,7 +116,7 @@ void DomeBehaviour::tick(const DomeBehaviourInput& input, uint32_t now_ms) {
             r2link::DomeRequest req{};
             req.operation = uint8_t(r2link::DomeOperation::SeekReference);
             req.reference = uint8_t(r2link::DomeReference::Front);
-            req.owner = uint8_t(r2link::DomeOwner::Idle);
+            req.owner = r2link::kDomeRequestOwnerIdle;
             req.control_epoch = input.status.control_epoch;
             req.dome_authority_generation = input.status.dome_authority_generation;
             req.speed_percent = 0;
@@ -146,7 +146,7 @@ void DomeBehaviour::tick(const DomeBehaviourInput& input, uint32_t now_ms) {
                 r2link::DomeRequest req{};
                 req.operation = uint8_t(r2link::DomeOperation::SeekReference);
                 req.reference = uint8_t(r2link::DomeReference::Front);
-                req.owner = uint8_t(r2link::DomeOwner::Idle);
+                req.owner = r2link::kDomeRequestOwnerIdle;
                 req.control_epoch = input.status.control_epoch;
                 req.dome_authority_generation = input.status.dome_authority_generation;
                 req.speed_percent = 0;
@@ -176,7 +176,7 @@ void DomeBehaviour::tick(const DomeBehaviourInput& input, uint32_t now_ms) {
                 req.operation = uint8_t(r2link::DomeOperation::Velocity);
                 req.speed_percent = speed;
                 req.lease_ms = 100;
-                req.owner = uint8_t(r2link::DomeOwner::Idle);
+                req.owner = r2link::kDomeRequestOwnerIdle;
                 req.control_epoch = input.status.control_epoch;
                 req.dome_authority_generation = input.status.dome_authority_generation;
                 req.reference = 0;
@@ -215,7 +215,7 @@ void DomeBehaviour::tick(const DomeBehaviourInput& input, uint32_t now_ms) {
                 req.operation = uint8_t(r2link::DomeOperation::Velocity);
                 req.speed_percent = speed;
                 req.lease_ms = 100;
-                req.owner = uint8_t(r2link::DomeOwner::Idle);
+                req.owner = r2link::kDomeRequestOwnerIdle;
                 req.control_epoch = input.status.control_epoch;
                 req.dome_authority_generation = input.status.dome_authority_generation;
                 req.reference = 0;

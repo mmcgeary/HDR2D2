@@ -164,7 +164,11 @@ struct ScriptedAudioPort : public r2link::BytePort {
         for (size_t i = 0; i + 9 < n; ++i) {
             if (b[i] == 0x7E && b[i + 9] == 0xEF) {
                 uint8_t cmd = b[i + 3];
-                if (cmd == 0x0F || cmd == 0x42) {
+                if (cmd == 0x0C) { // reset: a real player reports online with its storage device
+                    uint8_t resp[10];
+                    body::DfPlayer::serializePacket(0x3F, 0, 0, 2, resp);
+                    rx.insert(rx.end(), resp, resp + 10);
+                } else if (cmd == 0x0F || cmd == 0x42) {
                     uint8_t resp[10];
                     body::DfPlayer::serializePacket(0x42, 0, 0, 1, resp); // Playing
                     rx.insert(rx.end(), resp, resp + 10);
@@ -233,6 +237,8 @@ static body::RcSnapshot makeRcSnapshot(uint32_t t, uint16_t ch6 = 1000, uint16_t
     rc.channels[3] = dome;
     rc.channels[5] = ch6;
     rc.channels[8] = ch9;
+    // Same flag bits IbusInput::snapshot() sets on a valid frame.
+    rc.flags = 1 | (ch6 >= 1750 ? 2 : 0) | (ch9 >= 1750 ? 8 : 0);
     return rc;
 }
 
@@ -315,7 +321,7 @@ class BodyIntegrationTests(unittest.TestCase):
     // 2. Body status fresh
     auto bstat = rig.client.bodyStatus(rig.now);
     assert(bstat.fresh);
-    assert(bstat.value.profile_ready == 1);
+    assert(bstat.value.profile_ready == 7);  // drive | manual dome | auto dome
 
     // 3. Observed CH6 OFF -> ON -> 500ms neutral -> Drive arms
     for (int i = 0; i < 30; ++i) {
@@ -504,6 +510,62 @@ class BodyIntegrationTests(unittest.TestCase):
         rig.step(20);
     }
     assert(rig.controller.status().faults & (1u << 3)); // Radio lost fault
+''')
+
+    def test_idle_dome_behaviour_reaches_the_body_and_sweeps(self):
+        self.check(r'''
+    struct MinRandom : IDomeRandom { int32_t pick(int32_t lo, int32_t) override { return lo; } } rnd;
+    HostRig rig;
+    DomeBehaviour behaviour(rig.client, rnd);
+    rig.handshake();
+    int seeks_completed = 0;
+    bool saw_velocity = false;
+    int16_t min_angle = 0;
+    uint32_t hall_counter = 0;
+    for (int i = 0; i < 2000; ++i) {                 // 40 s, CH6 OFF, CH9 ON, sticks centred
+        rig.controller.updateRc(makeRcSnapshot(rig.now, 1000, 2000), rig.now);
+        rig.client.publishHall(0x03, 0x01, ++hall_counter, rig.now);   // front magnet under sensor
+        rig.step(20);
+        r2link::Event ev;
+        while (rig.client.takeEvent(ev)) {
+            if (ev.kind == uint8_t(r2link::EventKind::Completed) &&
+                ev.request_type == uint8_t(r2link::MessageType::DomeRequest)) ++seeks_completed;
+            behaviour.onEvent(ev);
+        }
+        r2link::Completion c;
+        while (rig.client.takeCompletion(c))
+            if (c.type == r2link::MessageType::DomeRequest)
+                behaviour.onReply(c.sequence, c.outcome == r2link::Outcome::Replied
+                                  ? r2link::Result(c.result) : r2link::Result::NotReady);
+        behaviour.tick(rig.client.makeDomeBehaviourInput(rig.now), rig.now);
+        const auto& dome = rig.controller.dome();
+        saw_velocity |= dome.state() == r2link::DomeState::RemoteVelocity;
+        if (dome.position().valid() && dome.position().angleDdeg() < min_angle) min_angle = dome.position().angleDdeg();
+    }
+    assert(!behaviour.faulted());
+    assert(seeks_completed >= 1);    // idle reference seek accepted and completed by the body
+    assert(saw_velocity);            // velocity leases reached the body
+    assert(min_angle <= -400);       // and the dead-reckoned sweep reached its -45 deg target
+''')
+
+    def test_commission_read_returns_the_requested_field(self):
+        self.check(r'''
+    HostRig rig;
+    rig.handshake();
+    for (int i = 0; i < 25; ++i) { rig.controller.updateRc(makeRcSnapshot(rig.now, 1000, 1000), rig.now); rig.step(20); }
+    r2link::CommissionRequest read{};
+    read.operation = 0;                       // Read
+    read.field = 1;                           // subtype 1: one profile field
+    read.value = body::kFieldBrakeMa;         // which field
+    read.wheel = 1;                           // right wheel
+    read.control_epoch = rig.client.bodyStatus(rig.now).value.control_epoch;
+    assert(rig.client.requestCommission(read, rig.now).queued);
+    for (int i = 0; i < 10; ++i) { rig.controller.updateRc(makeRcSnapshot(rig.now, 1000, 1000), rig.now); rig.step(20); }
+    DiagnosticsSnapshot d = rig.client.diagnostics(rig.now);
+    assert(d.fresh);
+    assert(d.value.subtype == 1);
+    assert(d.value.field == body::kFieldBrakeMa && d.value.wheel == 1);
+    assert(d.value.value == 1500);
 ''')
 
     def test_audio_request_retry_idempotence(self):

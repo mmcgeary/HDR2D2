@@ -58,8 +58,11 @@ public:
     const DfPlayer& audio() const { return audio_; }
     VescLink& leftVesc() { return left_vesc_; }
     VescLink& rightVesc() { return right_vesc_; }
+    // profile() is the staged copy that CLI/commissioning edits; actuators run
+    // activeProfile(), which changes only on boot load or an explicit Save.
     const CommissioningProfile& profile() const { return profile_; }
     CommissioningProfile& profile() { return profile_; }
+    const CommissioningProfile& activeProfile() const { return active_; }
     ConfigStore& configStore() { return config_store_; }
     r2link::Endpoint& linkEndpoint() { return link_endpoint_; }
     const r2link::Endpoint& linkEndpoint() const { return link_endpoint_; }
@@ -68,7 +71,14 @@ public:
     bool processCli(const char* line, char* out, size_t out_max, uint32_t now_ms);
 
 private:
-    void applyMotionLocks(uint8_t reasons, uint32_t now_ms);
+    // BodyController owns the control epoch and lock set. Bit 0 (operator STOP) is
+    // realised as each subsystem's stop latch, bit 2 (maintenance) as its lock set.
+    void engageLocks(uint8_t add, uint32_t now_ms);
+    // All-or-nothing against the drive's latches: refused releases change nothing.
+    r2link::Result releaseLocks(uint8_t clear, uint32_t now_ms);
+    bool releaseGateOpen(uint32_t now_ms) const;
+    void activateSavedProfile();
+    void publishStatusNow(uint32_t now_ms);
     void updateStatus(uint32_t now_ms);
     void pumpLink(uint32_t now_ms);
     void drainEvents(uint32_t now_ms);
@@ -81,7 +91,8 @@ private:
     r2link::Result handleCommissionRequest(const r2link::Frame& frame, uint32_t now_ms);
 
     ConfigStore& config_store_;
-    CommissioningProfile profile_;
+    CommissioningProfile profile_;   // staged
+    CommissioningProfile active_;    // saved, used by drive, dome and VESC links
 
     r2link::BytePort& link_port_;
     r2link::Endpoint link_endpoint_;

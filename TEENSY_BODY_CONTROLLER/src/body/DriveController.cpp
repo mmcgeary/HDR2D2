@@ -161,9 +161,15 @@ void DriveController::output(Wheel& w, WheelCommand& c, int16_t target,
     const int32_t cap = magnitude(target) * 1000;
     if (w.ramp_reset) { dt = 0; w.ramp_reset = false; }
     // dt is bounded to one control period; stalled time never becomes a jump.
-    if (w.magnitude_milli > cap) w.magnitude_milli = cap;
-    else {
-        w.magnitude_milli += int32_t(slew) * dt;
+    // Partial reductions ramp down at the same commissioned slew: a duty step
+    // down is hard regenerative braking, which can tip a tall droid. A centred
+    // stick (target 0) still brakes at once, limited by the brake current.
+    const int32_t step = int32_t(slew) * int32_t(dt);
+    if (w.magnitude_milli > cap) {
+        w.magnitude_milli -= step;
+        if (w.magnitude_milli < cap) w.magnitude_milli = cap;
+    } else {
+        w.magnitude_milli += step;
         if (w.magnitude_milli > cap) w.magnitude_milli = cap;
     }
     c.duty_permille = int16_t(w.magnitude_milli / 1000 * sign(target) * direction);

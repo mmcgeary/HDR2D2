@@ -1,8 +1,8 @@
 # Body and Dome Commissioning
 
-> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Both the Teensy 4.1 body controller and AstroPixels Plus ESP32 firmware are fully implemented; flash both boards before combined testing.
+> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Flash both the Teensy 4.1 body controller and the AstroPixels Plus ESP32 with the current firmware before combined testing; nothing counts as bench-verified until the commissioning record is filled in.
 
-The Teensy body firmware, ESP32 body link client, and `/commissioning` Web UI are fully implemented and verified with 100% test coverage.
+The Teensy body firmware, ESP32 body link client, and `/commissioning` Web UI are implemented and covered by host unit and two-board integration tests. Hardware behaviour is verified only by the checks in this guide.
 
 **Wireless assembled-test workflow:** No laptop or USB cable is required while the dome is attached or rotating. The onboard Wi-Fi **Commissioning** page (`http://192.168.4.1/commissioning`) displays live radio/body diagnostics, both Hall sensors (Front and Rear), live test progress, revolution counts, and rotation rates. It provides guarded tests (`Neutral`, `Front Ref`, `Rear Ref`, `Timing CW`, `Timing CCW`), emergency `Cancel Test`, explicit acceptance buttons, and `Save Profile` to Teensy EEPROM. All actuator outputs remain inert and neutral until an approved commissioning profile is explicitly saved. USB instructions below apply to initial flashing or stationary setup; use the wireless page instead for installed diagnostics and rotation tests. Disconnect external programming cables before any dome rotation.
 
@@ -86,7 +86,7 @@ With servo fuses still out, connect CH3/CH6 to ESP32 RX16/TX17. Fit D-LOGIC3A. C
 
 Connect to Wi-Fi `AstroPixels` / `Astromech`, dashboard `http://192.168.4.1`. Lighting and Wi-Fi must boot even with body offline; body actions must then be rejected visibly.
 
-Prepare DFPlayer's FAT32 card with folder `/01`. Request a track and confirm accepted -> playback started -> completion in diagnostics. Disconnect DFPlayer TX with power off and repeat: software must not claim confirmed playback without feedback. Start with volume 10/30. Check the isolator wiring and neither amplifier speaker terminal is grounded.
+Prepare DFPlayer's FAT32 card with folder `/01`. At boot the Teensy resets the DFPlayer, retries every 5s until it answers, then sets volume 10/30. Audio stays `Offline` until the player answers. Request a track and confirm accepted -> playback started -> completion in diagnostics. Disconnect DFPlayer TX with power off and repeat: a track the player never confirms ends with a timeout after 2s; software must not claim confirmed playback without feedback. Check the isolator wiring and neither amplifier speaker terminal is grounded.
 
 ## 5. Dome and holo motion, unloaded first
 
@@ -113,18 +113,21 @@ The wireless commissioning web page allows complete calibration of the continuou
    - **Hall Sensors:** Live display of Front and Rear sensors (`ACTIVE` / `INACTIVE`), sensor validity bits, and telemetry sample age in milliseconds.
    - **RC Snapshot:** Real-time steering, throttle, manual dome stick (CH4), CH6 drive switch, and CH9 auto dome switch values.
    - **Calibration State:** Current test state (`Idle`, `Neutral`, `FrontRef`, `RearRef`, `TimingCw`, `TimingCcw`), completed revolutions, and measured CW/CCW angular rates in deg/s.
-   - **Acceptance Status:** Shows whether each required calibration bit has been accepted (`Neutral`, `FrontRef`, `RearRef`, `Timing`), along with current readiness flags (`manual_dome`, `auto_dome`, `drive`).
-3. **Step-by-Step Commissioning Procedure:**
-   - **Step 1 — Neutral Test:** Disengage the dome drive gear. Click **Neutral Test**. The controller commands servo neutral (default 1500us). Verify that the servo shaft does not creep or crawl in either direction. If creep is observed, calibrate the servo neutral trim. Once stationary, click **Accept Neutral**.
-   - **Step 2 — Front Reference Test:** Click **Front Ref Test**. The dome slowly rotates until the Front Hall sensor detects the front magnet and halts automatically. Verify the Front Hall status indicates `ACTIVE`. Click **Accept Front Ref**.
-   - **Step 3 — Rear Reference Test:** Click **Rear Ref Test**. The dome slowly rotates until the Rear Hall sensor detects the rear magnet and halts automatically. Verify the Rear Hall status indicates `ACTIVE`. Click **Accept Rear Ref**.
-   - **Step 4 — Timing Calibrations (CW & CCW):** Click **Timing CW**. The controller commands automatic rotation for 3 complete revolutions, measuring the median period between magnet pulses to compute CW angular velocity. Next, click **Timing CCW** to perform 3 complete CCW revolutions. Once both rates are measured, click **Accept Timing**.
-   - **Step 5 — Save Profile:** Click **Save Profile**. This sends `CommissionRequest(SaveProfile)` over the link to Teensy, persisting the calibration fields and acceptance bitmask into EEPROM. Actuator motion is enabled only after this explicit save.
+   - **Gates:** Live CH6/CH9/sticks/Hall gate state and the saved profile generation.
+   - **Profile Fields:** Field ID / Wheel / Value boxes with **Set Field** and **Read Field** (read-back shown below them). Field ids are listed on the page and in `ConfigStore.h`.
+3. **Two switch positions:** dome **tests** run with CH6 OFF, **CH9 ON** and sticks centred. **Set Field**, **Accept** and **Save** need CH6 OFF, **CH9 OFF** and sticks centred. Flip CH9 between them.
+4. **Step-by-Step Commissioning Procedure:**
+   - **Step 0 — Stage the dome fields (CH9 OFF):** Set field 0 `servo_neutral` (start at 1500), 1 `servo_min`, 2 `servo_max` and 3 `auto_speed` (percent, 1–25).
+   - **Step 1 — Neutral Test (CH9 ON):** Disengage the dome drive gear. Click **Neutral Test**. The controller holds the staged `servo_neutral` pulse for 3s, then the test shows `Completed`. Watch the shaft the whole time. If it creeps, flip CH9 OFF, Set Field 0 to a new trim and repeat. When it stays still, flip CH9 OFF and click **Accept Neutral**.
+   - **Step 2 — Front Reference Test (CH9 ON):** Click **Front Ref Test**. The dome slowly rotates until the Front Hall sensor detects the front magnet and halts automatically. Verify the Front Hall status indicates `ACTIVE`. Flip CH9 OFF and click **Accept Front Ref**.
+   - **Step 3 — Rear Reference Test (CH9 ON):** Click **Rear Ref Test**. Same as the front, for the rear magnet. Flip CH9 OFF and click **Accept Rear Ref**. Each acceptance needs a completed run of *its own* test, made with the servo/auto-speed settings that are staged now; changing those fields later voids the run.
+   - **Step 4 — Timing Calibrations (CW & CCW, CH9 ON):** Click **Timing CW**. The controller rotates 3 complete revolutions and stages the median CW rate into field 19 `cw_rate`. Then click **Timing CCW**, which stages field 20 `ccw_rate`; the CW result is kept. With both runs completed, flip CH9 OFF and click **Accept Timing**.
+   - **Step 5 — Save Profile (CH9 OFF):** Click **Save Profile**. This sends `CommissionRequest(SaveProfile)` over the link to Teensy, persisting the staged fields and acceptance bitmask into EEPROM. The saved profile takes effect at once (no reboot). Actuators only ever run the saved profile; unsaved edits change nothing until the next Save.
 4. **Safety Interlocks & Guards:**
    - **Automatic Keepalive Guard:** The browser sends a keepalive ping every 100ms. If the browser tab is closed, Wi-Fi drops, or keepalive is lost for >300ms, the Teensy automatically aborts any active test and commands neutral stop immediately.
    - **Emergency Cancel:** The **Cancel Test** button immediately terminates test motion and returns the servo to neutral.
-   - **Radio Takeover Interlock:** Commissioning tests require CH6 OFF and CH9 OFF. If the operator enables CH6 or touches the manual dome stick (CH4), the controller immediately cancels calibration and yields control.
-   - **Inert Boot Guard:** All actuator motion remains inhibited/neutral until the explicit acceptance bits and profile are saved.
+   - **Radio Takeover Interlock:** Dome tests require CH6 OFF, CH9 ON and centred sticks. If the operator enables CH6, turns CH9 OFF or touches a stick, the controller cancels the test and returns the servo to neutral.
+   - **Inert Boot Guard:** Until the servo neutral is accepted and saved, the dome servo receives no pulses and the CH4 stick does nothing. Until all eight VESC sign-offs are accepted and saved, the feet stay disarmed.
 
 ## 6. VESC commissioning and foot drive
 
@@ -140,7 +143,7 @@ Before enabling foot drive, verify that the Teensy correctly negotiates telemetr
 4. Save all `VESC_RAW wheel=… offset=… length=… HEX…` lines for that packet. Concatenate the hexadecimal chunks in increasing offset order; `length` is the full frame length (not payload length). Each loop prints at most 16 captured bytes only when USB has buffer space; no continuous trace or actuator test is started. Capture both FW_VERSION and GET_VALUES separately for **each** controller. Retain controller identity, date, firmware/version, full raw bytes, decoded values, VESC Tool version and comparison notes as the fixture's provenance.
 5. Strip the short (`02`, one-byte length) or long (`03`, two-byte big-endian length) header, CRC and `03` terminator for decoding. The FW payload starts `00 major minor`. Named layout **1 / kLayoutLegacyGetValues** has payload offsets including command byte: MOSFET signed dC at 1; motor/input signed current at 5/9 (wire 0.01A -> mA by multiplying by 10); signed duty permille at 21; signed eRPM at 23; signed voltage at 27 (wire 0.1V -> cV by multiplying by 10); fault byte at 53. Motor TEMP at 3 is not connected and is **invalid**, not a usable temperature. CRC and terminator must validate; required fields must fit their body-message representation.
 6. Using each controller's stationary USB connection, compare the observed firmware and decoded voltage, MOSFET temperature, signed motor/input current, duty, eRPM and fault against **VESC Tool** on that same controller under stable conditions. Record differences and units; queries sample averaged current, so note timing differences rather than inventing agreement. Verify current sign and scaling during low-speed bench testing under light load before floor driving. Check the actual installed firmware's GET_VALUES layout if any field disagrees. Do not select a profile from length alone.
-7. Only after the comparison passes may the later saved-profile workflow explicitly accept that exact per-wheel firmware major/minor and layout using the existing `vesc_config` acceptance bit. Set/save does not imply acceptance; firmware/profile changes clear cached driver readiness and require new validated data. Actuator writes additionally require the separately accepted timeout/brake, direction and reversal records. Verify current limits and braking behaviour according to the commissioned power budget.
+7. Only after the comparison passes, stage that wheel's fields (6 `fw_major`, 7 `fw_minor`, 8 `layout` = 1, currents 9-12, voltages 13/14, 15 `timeout_ms` = 150, 16 `timeout_brake_ma`, 17/18 reversal) and accept `vesc_config` (bit 4 left / 5 right). Use the `/commissioning` **Accept bit** box or `profile accept vesc_config_left` over USB, with CH6 OFF, CH9 OFF and sticks centred. Set/save does not imply acceptance, and changing a field clears the sign-offs that depend on it. Actuator writes additionally require the separately accepted `timeout_brake` (6/7), `direction` (8/9) and `reversal` (10/11) records; accept each only after observing that test. Then **Save Profile**: the drive uses it without a reboot. Verify current limits and braking behaviour according to the commissioned power budget.
 8. Disconnect all external USB/data/programming cables and power before reassembly. Reconnect the keyed ring connectors and restraint, then verify clearances unpowered. Use the wireless commissioning page for installed rotation checks; **no rotating tether**.
 
 Set CH6 OFF. Center steering/throttle, turn CH6 ON, keep centered 500ms, then check low-rate movement and wheel direction. A controller fault or stale feedback stops both wheels and requires OFF -> ON -> neutral rearming.
@@ -165,10 +168,11 @@ Disconnect/reconnect signal cables only with power off, then repeat the indicate
 | Dome link unplugged | Remove one link direction | Peer heartbeat timeout 300ms; remote actions cancel; healthy manual foot drive remains available |
 | Remote velocity renewal lost | Stop dome request renewals | Lease expires <=150ms plus one 20ms actuator cycle; servo commands neutral |
 | Hall update lost during homing | Suppress Hall updates using diagnostic test | Hall age>150ms fails seek; no deferred Leia |
-| Web STOP acknowledgement | Press STOP during a routine | Local routine stops; body stops feet/dome/audio and latches stop; UI confirms only after body reply |
+| Web STOP acknowledgement | Press STOP during a routine | Local routine stops; body stops feet/dome/audio and latches stop; UI confirms only after body reply. **Release STOP** is refused until CH6 OFF and sticks centred 500ms, then clears feet and dome together |
 | STOP with body offline | Press STOP with link disconnected | "Body stop unconfirmed"; physical cutoff remains available |
 | Manual dome override | Deflect CH4 during home/automatic rotation | Remote action cancels and manual control takes priority |
-| Restart during lock | Reboot dome after Faint/maintenance lock | Lock remains latched; reconnect does not release it |
+| Restart during lock | Reboot dome after a STOP or maintenance lock | Lock remains latched on the body; reconnect does not release it. Release STOP / Recover body locks clears it. Locks live in Teensy RAM, so a Teensy power cycle starts unlocked |
+| Routine dome actions | Prepare update, start a commissioning test, lose RC on the dome | None of these latches a body STOP; only the STOP button does |
 
 Software detection time is not wheel stopping time. Record physical stopping behaviour separately from software timeout measurements.
 
@@ -178,9 +182,11 @@ The firmware implements an acknowledged maintenance lock before OTA flashing:
 
 1. CH6 OFF, center motion sticks, stop routine.
 2. Press **Prepare update** on the firmware page; wait for body maintenance-lock acknowledgement.
-3. Start web upload or ArduinoOTA only after that confirmation. Unprepared uploads must be rejected before writing flash.
+3. Start web upload or ArduinoOTA only after that confirmation. Unprepared uploads are aborted before an image is activated (ArduinoOTA via `Update.abort()` in its start hook).
+3a. Cancelling an update sends UNLOCK; the page stays Locked until the body confirms, which needs CH6 OFF and sticks centred 500ms.
 4. Verify feet and dome remain inhibited throughout update/reboot and on failed upload.
 5. After a dome restart loses its old token, use explicit **Recover body locks** with CH6 OFF and motion sticks centered 500ms. Recovery leaves feet disarmed; it does not start motion.
+6. Dashboard **Reboot** and **Clear Prefs** take the same maintenance lock before restarting the dome when the body is connected (with no body link they restart straight away). Afterwards the body is still maintenance-locked; use **Recover body locks** as in step 5.
 
 Do not use an old firmware upload path that lacks this handshake on the assembled target harness.
 

@@ -55,10 +55,19 @@ public:
     ServoCommand output() const;
     void cancel(uint32_t now_ms);
 
+    // The Neutral test holds the trial pulse this long, then completes so the
+    // operator can accept what they observed.
+    static const uint32_t kNeutralObserveMs = 3000;
+
 private:
     uint16_t speedToPulse(int16_t speed_percent, uint16_t neutral_us) const;
     bool isSticksNeutral() const;
+    bool stationaryGate() const;   // CH6 OFF, CH9 OFF, sticks neutral, fresh RC
     void updateStatusFlags();
+    // Digest of the configuration a dome run depends on (servo trims, auto speed).
+    uint32_t evidenceDigest() const;
+    void complete();
+    bool evidenceFor(uint8_t bit, uint32_t& run_id, bool& cw, bool& ccw) const;
 
     ConfigStore& store_;
     CommissioningProfile& profile_;
@@ -76,6 +85,10 @@ private:
 
     uint16_t trial_neutral_us_{1500};
     uint8_t trial_speed_percent_{15};
+
+    // Latest completed run of each test and the configuration it ran against.
+    uint32_t done_run_[7]{};
+    uint32_t done_digest_[7]{};
 
     uint8_t timing_phase_{0}; // 0 = find initial front edge, 1 = rev 0, 2 = rev 1, 3 = rev 2
     bool saw_rear_{false};

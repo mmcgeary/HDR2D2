@@ -94,10 +94,13 @@ assert(mixDrive(1460,1540,1000).left==0);
 assert(mixDrive(900,1500,1000).left==-1000);
 Fixture f;f.armDrive(1000);f.run(1020,4000,2000);
 assert(f.drive.commands().left.duty_permille==950);
+// A lower rate cap is approached at the commissioned slew, not stepped to.
 f.rc(4020,2000,1500,2000,1250);f.deliverWheelSamples(4020,0,0);f.update(4020);
+assert(f.drive.commands().left.duty_permille==940);
+for(uint32_t t=4040;t<=5300;t+=20) { f.rc(t,2000,1500,2000,1250);f.deliverWheelSamples(t,0,0);f.update(t); }
 assert(f.drive.commands().left.duty_permille==350);
-f.rc(4040,2000,1500,2000,1750);f.deliverWheelSamples(4040,0,0);f.update(4040);
-assert(f.drive.commands().left.duty_permille<=700);
+f.rc(5320,2000,1500,2000,1500);f.deliverWheelSamples(5320,0,0);f.update(5320);   // 70% cap
+assert(f.drive.commands().left.duty_permille==360);
 ''')
 
     def test_boot_off_on_neutral_boundary_and_deflection(self):
@@ -163,6 +166,17 @@ assert(f.drive.submitRemote(request,1000)==r2link::Result::Inhibited);
 request.lease_ms=151;assert(f.drive.submitRemote(request,1000)==r2link::Result::InvalidArgument);
 f.profile.allow_remote_drive=1;f.tickDrive(1020,2000);
 assert(f.drive.commands().left.mode==WheelMode::Disabled);
+''')
+
+    def test_partial_throttle_reduction_ramps_down_at_the_slew(self):
+        self.check(r'''
+Fixture f;f.armDrive(1000);f.run(1020,3000,2000);
+assert(f.drive.commands().left.duty_permille==950);
+f.run(3020,3020,1770);                                  // half stick: target 500
+assert(f.drive.commands().left.duty_permille==940);     // one 20ms slew step, not a jump
+f.run(3040,4000,1770);
+assert(f.drive.commands().left.duty_permille==500);
+f.tickDrive(4020,1500);f.brake();                       // centred: current-limited brake now
 ''')
 
     def test_slew_fractional_neutral_stop_and_missed_deadline(self):

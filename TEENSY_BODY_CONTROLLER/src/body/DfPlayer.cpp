@@ -124,6 +124,7 @@ r2link::Result DfPlayer::request(const r2link::AudioRequest& req, uint16_t owner
         owner_seq_ = owner_seq;
         state_ = r2link::AudioState::Starting;
         playback_start_ms_ = 0;
+        start_request_ms_ = now_ms;
         elapsed_ms_ = 0;
 
         const TrackInfo* info = findTrack(track_);
@@ -252,7 +253,9 @@ void DfPlayer::handlePacket(const uint8_t* p, uint32_t now_ms) {
                 }
             }
         } else if (param_l == 0) {
-            if (state_ == r2link::AudioState::Playing || state_ == r2link::AudioState::Starting) {
+            // While Starting the player may still be opening the file: "stopped" is
+            // not a completion then. A play that never starts is ended by the timeout.
+            if (state_ == r2link::AudioState::Playing) {
                 state_ = r2link::AudioState::Idle;
                 pushEvent(r2link::EventKind::Completed, owner_seq_, r2link::Detail::None);
             }
@@ -309,12 +312,24 @@ void DfPlayer::tick(uint32_t now_ms) {
         if (now_ms - init_start_ms_ >= 3000) {
             state_ = r2link::AudioState::Offline;
         }
+        if (now_ms - init_start_ms_ >= kResetRetryMs && q_count_ == 0) {
+            init_start_ms_ = now_ms;
+            enqueueCommand(0x0C, 0, 0); // retry reset until the player answers
+        }
     }
 
     // 2. Process incoming packets
     processIncoming(now_ms);
 
-    // 3. Completion guard timeout check
+    // 3. A play that never reports playback is abandoned rather than left Starting.
+    if (state_ == r2link::AudioState::Starting && now_ms - start_request_ms_ >= kStartTimeoutMs) {
+        pushEvent(r2link::EventKind::Timeout, owner_seq_, r2link::Detail::AudioUnavailable);
+        state_ = r2link::AudioState::Idle;
+        clearQueuedPlays();
+        enqueueCommand(0x16, 0, 0, true); // Stop, so a late start cannot play unowned
+    }
+
+    // 3b. Completion guard timeout check
     if (state_ == r2link::AudioState::Playing && playback_start_ms_ > 0) {
         elapsed_ms_ = now_ms - playback_start_ms_;
         if (elapsed_ms_ >= guard_ms_) {

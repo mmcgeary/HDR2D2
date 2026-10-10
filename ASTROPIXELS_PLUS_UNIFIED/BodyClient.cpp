@@ -258,6 +258,15 @@ RequestHandle BodyClient::requestDome(const r2link::DomeRequest& req, uint32_t n
         last_error_.result = static_cast<uint8_t>(r2link::Result::InvalidArgument);
         return RequestHandle{0, false};
     }
+    if (req.operation == static_cast<uint8_t>(r2link::DomeOperation::Velocity)) {
+        // Velocity leases are a latest-value stream, not a reliable request: there
+        // is no sequence to track, the next renewal supersedes this one.
+        if (!endpoint_->publishLatest(frame, now_ms)) {
+            last_error_.code = 4;
+            return RequestHandle{0, false};
+        }
+        return RequestHandle{0, true};
+    }
     uint16_t seq = 0;
     if (!endpoint_->request(frame, now_ms, seq)) {
         last_error_.code = (endpoint_->lastReject() == r2link::Reject::Busy) ? 2 : 4;

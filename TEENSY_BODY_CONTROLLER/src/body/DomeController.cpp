@@ -184,7 +184,10 @@ r2link::Result DomeController::request(const r2link::DomeRequest& req, uint16_t 
     if (req.operation == 1) { // Velocity
         clearActiveRequest();
         velocity_active_ = true;
-        velocity_speed_ = req.speed_percent;
+        // Remote velocity runs at the commissioned auto speed in the requested
+        // direction: that is the only speed dead reckoning is calibrated for.
+        velocity_speed_ = req.speed_percent > 0 ? int16_t(profile_->auto_speed_percent)
+                        : req.speed_percent < 0 ? int16_t(-int16_t(profile_->auto_speed_percent)) : 0;
         lease_expiry_ms_ = now_ms + req.lease_ms;
         active_req_seq_ = request_seq;
         active_req_owner_ = req.owner;
@@ -245,9 +248,11 @@ void DomeController::tick(uint32_t now_ms) {
         return;
     }
 
-    // 2. Manual stick control (CH4) takes priority over everything else
+    // 2. Manual stick control (CH4) takes priority over everything else, once the
+    //    servo neutral has been commissioned and saved.
     const bool rc_ok = isRcFresh(now_ms);
-    const bool stick_deflected = rc_ok && !centered(rc_.channels[kManualDome]);
+    const bool manual_ready = profile_ && readiness(*profile_).manual_dome;
+    const bool stick_deflected = rc_ok && manual_ready && !centered(rc_.channels[kManualDome]);
     if (stick_deflected) {
         if (!manual_active_) {
             // Entry into manual ownership
@@ -348,10 +353,10 @@ void DomeController::tick(uint32_t now_ms) {
         profile_ && readiness(*profile_).auto_dome && !seek_active_ && !velocity_active_) {
 
         if (hall_.active_mask & 0x01) {
-            // Front already active: startup complete
+            // Front already active: startup complete; the dome is free for idle/event use.
             startup_done_ = true;
             startup_seeking_ = false;
-            owner_ = r2link::DomeOwner::Startup;
+            owner_ = r2link::DomeOwner::None;
             state_ = r2link::DomeState::HoldingReference;
             return;
         }
@@ -443,9 +448,7 @@ void DomeController::tick(uint32_t now_ms) {
     }
 
     // 7. Neutral default
-    if (owner_ != r2link::DomeOwner::Startup) {
-        owner_ = r2link::DomeOwner::None;
-    }
+    owner_ = r2link::DomeOwner::None;
     if (state_ != r2link::DomeState::HoldingReference) {
         state_ = r2link::DomeState::Inhibited;
     }
@@ -453,7 +456,14 @@ void DomeController::tick(uint32_t now_ms) {
 
 ServoCommand DomeController::output() const {
     ServoCommand cmd{};
-    cmd.pulses = true; // Pulse sleep stays disabled by default
+    // An uncommissioned continuous-rotation servo gets no signal at all: an
+    // untrimmed "neutral" pulse can creep.
+    if (!profile_ || !readiness(*profile_).manual_dome) {
+        cmd.pulses = false;
+        cmd.pulse_us = 0;
+        return cmd;
+    }
+    cmd.pulses = true;
 
     if (stopped_ || motion_locks_ != 0) {
         cmd.pulse_us = speedToPulse(0);

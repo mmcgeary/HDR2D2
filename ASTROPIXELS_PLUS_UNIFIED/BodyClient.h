@@ -76,6 +76,7 @@ public:
 
     void begin(r2link::BytePort& port, uint32_t local_session);
     void tick(uint32_t now_ms);
+    bool linkUp(uint32_t now_ms) const { return endpoint_ && endpoint_->connected(now_ms); }
 
     // Subsystem queries
     BodyRcState rcSnapshot(uint32_t now_ms) const;

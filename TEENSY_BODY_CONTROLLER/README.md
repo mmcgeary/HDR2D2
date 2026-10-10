@@ -12,7 +12,7 @@ The body executive is coordinated by `body::BodyController` (`src/body/BodyContr
   - Drive control updates on a 20ms cadence with paired wheel command dispatch.
   - VESC duplex telemetry polling at 100ms per wheel; raw diagnostic capture support.
   - RC snapshot updates and periodic `BODY_STATUS` publishing (200ms) and `AUDIO_STATUS` (500ms).
-  - Watchdog supervision via `Watchdog_t4` (`WDT_T4<WDT1>` with 1.0s timeout) fed only when scheduling passes remain healthy (<25ms loop time).
+  - Watchdog supervision via `Watchdog_t4` (`WDT_T4<WDT1>` with 1.0s timeout) fed only when the previous scheduling pass took <=50ms.
 - **Subsystem Orchestration:**
   - `DriveController`: Dual-wheel VESC mixing, ramp slew, reversal dwell, and failsafe braking.
   - `DomeController`: Continuous servo positioning, RC manual steering, drive-follow biasing, and Hall tracking.
@@ -24,11 +24,12 @@ The body executive is coordinated by `body::BodyController` (`src/body/BodyContr
 
 To guarantee safe coordination between local RC inputs and remote commands:
 - **Motion Locks:** All physical motion (drive and dome) is inhibited when `motionLocked()` is true.
-  - Lock reason 1: Emergency / Stop Latched (`STOP_ALL` operation).
-  - Lock reason 2: Handheld Radio Inactive / Disarmed (CH6 OFF).
-  - Lock reason 4: Maintenance Lock (`LOCK` operation with explicit non-zero token).
+  - Lock bit 0 (value 1): STOP latched (`STOP_ALL`, or operator `LOCK`). Released by `RELEASE_STOP`/operator `UNLOCK`.
+  - Lock bit 2 (value 4): Maintenance Lock (`LOCK` operation with explicit non-zero token). Released by `UNLOCK` with that token.
+  - CH6 OFF is not a lock: it simply disarms the feet.
+  - Releases are all-or-nothing and require fresh RC, CH6 OFF and sticks centred 500ms; a refused release (`NotReady`) changes nothing. `RECOVER_LOCKS` clears both bits behind the same gate.
 - **Epoch Tracking:** Any state change (`STOP_ALL`, `RELEASE_STOP`, `LOCK`, `UNLOCK`, `RECOVER_LOCKS`) increments `control_epoch`. Stale motion commands carrying an older epoch are rejected with `Result::WrongEpoch`.
-- **Commissioning-First Safety:** Actuator outputs remain inert until a valid profile is saved to EEPROM and approved via `profile enable`.
+- **Commissioning-First Safety:** Actuators run only the *saved* profile (`activeProfile()`); edits are staged until Save, which applies without a reboot. The dome servo gets no pulses until servo neutral is accepted and saved; the feet stay disarmed until all eight VESC sign-offs are accepted and saved.
 
 ## USB Line CLI
 
@@ -36,10 +37,11 @@ The controller provides an interactive, bounded line-based USB serial CLI:
 - `status`: Displays current drive state, motion locks, control epoch, faults, and voltages.
 - `rc`: Displays latest radio input snapshot (channels 1-14, age, validity).
 - `vesc`: Displays left and right VESC RPM, duty, current, and voltage.
-- `profile show`: Lists all commissioning profile fields and values.
+- `profile show`: Shows saved and staged readiness and acceptance masks, plus the staged servo neutral and auto speed.
 - `profile set FIELD VALUE`: Modifies a profile field (only permitted when CH6/CH9 are OFF and actuators are neutral).
-- `profile save`: Persists the current configuration profile to EEPROM.
-- `profile enable`: Evaluates and arms readiness flags (drive, manual dome, auto dome) if prerequisite calibrations are met.
+- `profile save`: Persists the staged profile to EEPROM and makes it the active profile immediately (no reboot).
+- `profile accept BIT`: Accepts a sign-off bit by name (`servo_neutral`, `front_reference`, `rear_reference`, `auto_timing`, `vesc_config_left`/`_right`, `timeout_brake_*`, `direction_*`, `reversal_*`), with the same evidence rules and CH6/CH9 OFF gate as the wireless page.
+- `profile enable`: Reports the saved profile's readiness (drive, manual dome, auto dome); it does not change anything.
 - `stop`: Immediately latches emergency stop and stops all actuators.
 
 ## Testing

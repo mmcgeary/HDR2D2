@@ -13,7 +13,12 @@ class DfPlayer {
 public:
     DfPlayer(r2link::BytePort& port, const TrackInfo* catalog = nullptr, size_t count = 0);
 
+    // Test hook: skip the reset handshake. Production boots through tick(), which
+    // resets the player, retries while it is offline and configures it once online.
     void initSimulated(uint32_t now_ms);
+
+    static const uint32_t kStartTimeoutMs = 2000;  // Play without confirmed playback
+    static const uint32_t kResetRetryMs = 5000;    // reset re-sent while offline
 
     void tick(uint32_t now_ms);
     r2link::Result request(const r2link::AudioRequest& req, uint16_t owner_seq, uint32_t now_ms);
@@ -47,6 +52,7 @@ private:
     uint16_t owner_seq_{0};
 
     uint32_t playback_start_ms_{0};
+    uint32_t start_request_ms_{0};
     uint32_t elapsed_ms_{0};
     uint32_t pause_start_ms_{0};
     uint32_t guard_ms_{600000};

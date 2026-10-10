@@ -97,6 +97,22 @@ class DomeTests(unittest.TestCase):
                          include_dirs=[BODY.parent.parent / "tests/radio_fakes", BODY, SHARED])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_uncommissioned_dome_ignores_the_stick_and_sends_no_pulses(self):
+        self.check(r'''
+DomeFixture f;
+f.profile.acceptance = 0;            // servo neutral never accepted: manual dome not ready
+assert(!readiness(f.profile).manual_dome);
+f.rc(100, 1900, 1000, 1000);         // CH4 deflected, auto dome OFF, feet OFF
+f.tick(100);
+f.tick(120);
+assert(f.dome.state() != r2link::DomeState::Manual);
+assert(!f.dome.output().pulses);
+f.acceptAutoDome();                  // commissioned: the stick drives the dome
+f.tick(140);
+assert(f.dome.state() == r2link::DomeState::Manual);
+assert(f.dome.output().pulses && f.dome.output().pulse_us > 1500);
+''')
+
     def test_position_anchors_normalization_wrap_and_fractional_integration(self):
         self.check(r'''
 CommissioningProfile p = saved();

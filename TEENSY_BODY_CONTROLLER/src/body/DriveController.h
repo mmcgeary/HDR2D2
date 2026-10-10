@@ -18,7 +18,7 @@ struct WheelCommands { WheelCommand left, right; };
 enum class ReversalState : uint8_t { Tracking, Braking, Qualifying };
 
 // Loop context, fixed storage. Safety gates run on every update; powered
-// commands renew at 20ms. A >20ms powered deadline miss latches a rearm fault.
+// commands renew at 20ms. A >50ms powered deadline miss latches a rearm fault.
 class DriveController {
 public:
     DriveController();

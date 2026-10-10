@@ -6,13 +6,20 @@ from cpp_test_support import run_cpp
 
 ROOT = Path(__file__).resolve().parents[1]
 SKETCH = ROOT / "ASTROPIXELS_PLUS_UNIFIED/ASTROPIXELS_PLUS_UNIFIED.ino"
+ASTRO = ROOT / "ASTROPIXELS_PLUS_UNIFIED"
+SHARED = ROOT / "shared/R2BodyLink"
+
+
+def run_sketch(program):
+    """Compile sketch functions against plus_macro_fakes.h and the real protocol headers."""
+    return run_cpp(program, include_dirs=[ASTRO, SHARED])
 
 
 def function(source, name, return_type=None):
     if return_type:
         prefix = f"{return_type} {name}("
     else:
-        for rt in ("void", "bool", "int", "uint32_t", "RequestHandle"):
+        for rt in ("void", "bool", "int", "uint8_t", "uint32_t", "RequestHandle"):
             if f"{rt} {name}(" in source:
                 prefix = f"{rt} {name}("
                 break
@@ -168,152 +175,45 @@ class PlusBehaviorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, "RC snapshot failsafe regressed")
 
     def test_stale_radio_command_cannot_restart_dome(self):
-        source = SKETCH.read_text()
-        stop_fn = function(source, "stopDomeMotion")
-        start_fn = function(source, "startDomeHoming")
-        result = run_cpp("""
-            #include <cstdint>
-            #include <cstdio>
-            #include <vector>
-            #define F(x) x
-            enum { HOMING_INACTIVE, HOMING_SEEKING, HOMING_ALIGNED };
-            int homing_state = HOMING_INACTIVE;
-            bool rc_connected = false;
-            uint16_t rc_channels[10] = {};
-            #define RC_CH_DOME_STEER 3
-            bool dome_motion_inhibited = true;
-            bool otaInProgress = false;
-            enum R2Macro : uint8_t { R2_NONE, R2_LEIA };
-            R2Macro pending_macro_after_home = R2_NONE;
-            uint32_t now = 100;
-            uint32_t millis() { return now; }
-            void cancelR2Macro() {}
-            void disableHoloServos() {}
-            struct Console { void println(const char*) {} } Serial;
-            namespace r2link {
-                enum class DomeOperation : uint8_t { Cancel=0, Velocity=1, SeekReference=2 };
-                enum class DomeOwner : uint8_t { Idle=0, Event=1 };
-                enum class DomeReference : uint8_t { Front=0, Rear=1 };
-                struct DomeRequest {
-                    uint8_t operation{0};
-                    uint8_t owner{0};
-                    uint8_t reference{0};
-                    int16_t speed_percent{0};
-                    uint16_t lease_ms{0};
-                    uint16_t control_epoch{0};
-                    uint32_t dome_authority_generation{0};
-                };
-                struct ControlRequest {
-                    uint8_t operation{0};
-                    uint8_t reason{0};
-                    uint16_t token{0};
-                    uint16_t control_epoch{0};
-                };
-                struct BodyStatus { uint32_t dome_authority_generation{5}; uint16_t control_epoch{1}; };
-                const uint8_t kReasonOperator = 0;
-            }
-            struct BodyStatusSnapshot { r2link::BodyStatus value; };
-            struct RequestHandle {
-                uint16_t sequence{0};
-                bool queued{false};
-                RequestHandle() = default;
-                RequestHandle(uint16_t s, bool q) : sequence(s), queued(q) {}
-            };
-            struct FakeBodyClient {
-                std::vector<r2link::DomeRequest> requests;
-                std::vector<r2link::ControlRequest> control_requests;
-                BodyStatusSnapshot bodyStatus(uint32_t) const { return BodyStatusSnapshot{}; }
-                RequestHandle requestDome(const r2link::DomeRequest& req, uint32_t) { requests.push_back(req); return RequestHandle{1, true}; }
-                RequestHandle requestControl(const r2link::ControlRequest& req, uint32_t) { control_requests.push_back(req); return RequestHandle{1, true}; }
-            } g_body_client;
-            bool rcNeutral() { return rc_channels[3] >= 1460 && rc_channels[3] <= 1540; }
-        """ + stop_fn + start_fn + """
-            int main() {
-                // Radio disconnected -> startDomeHoming rejected
-                startDomeHoming(R2_NONE);
-                if (homing_state != HOMING_INACTIVE || !g_body_client.requests.empty()) return 1;
-
-                // Radio connected but motion inhibited -> rejected
-                rc_connected = true;
-                startDomeHoming(R2_NONE);
-                if (homing_state != HOMING_INACTIVE || !g_body_client.requests.empty()) return 2;
-
-                // Rearm neutral -> startDomeHoming accepted
-                dome_motion_inhibited = false;
-                startDomeHoming(R2_LEIA);
-                if (homing_state != HOMING_SEEKING || g_body_client.requests.size() != 1) return 3;
-                if (g_body_client.requests[0].operation != 2 || // SeekReference
-                    g_body_client.requests[0].reference != 0) return 4; // Front
-
-                // stopDomeMotion sends Cancel
-                stopDomeMotion();
-                if (homing_state != HOMING_INACTIVE || !dome_motion_inhibited) return 5;
-                if (g_body_client.requests.size() != 2 ||
-                    g_body_client.requests[1].operation != 0) return 6; // Cancel
-
-                return 0;
-            }
-        """)
-        self.assertEqual(result.returncode, 0, result.stdout)
+        self.run_sketch_body(self.DOME_FUNCTIONS, r'''
+    now = 100; rc_connected = false; dome_motion_inhibited = true;
+    // Radio disconnected -> startDomeHoming rejected
+    startDomeHoming(R2_NONE);
+    assert(homing_state == HOMING_INACTIVE && g_body_client.dome_requests.empty());
+    // Radio connected but motion inhibited -> rejected
+    rc_connected = true;
+    startDomeHoming(R2_NONE);
+    assert(homing_state == HOMING_INACTIVE && g_body_client.dome_requests.empty());
+    // Rearm neutral -> startDomeHoming accepted: SeekReference to the front
+    dome_motion_inhibited = false;
+    startDomeHoming(R2_LEIA);
+    assert(homing_state == HOMING_SEEKING && g_body_client.dome_requests.size() == 1);
+    assert(g_body_client.dome_requests[0].operation == 2 && g_body_client.dome_requests[0].reference == 0);
+    // stopDomeMotion sends Cancel and re-inhibits
+    stopDomeMotion();
+    assert(homing_state == HOMING_INACTIVE && dome_motion_inhibited);
+    assert(g_body_client.dome_requests.size() == 2 && g_body_client.dome_requests[1].operation == 0);
+''')
 
     def test_homing_timeout_and_radio_loss_cancel_deferred_leia(self):
-        source = SKETCH.read_text()
-        self.assertIn("g_body_client.takeEvent", source)
-        result = run_cpp("""
-            #include <cstdint>
-            #define F(x) x
-            enum R2Macro : uint8_t { R2_NONE, R2_LEIA };
-            R2Macro active_macro = R2_NONE;
-            R2Macro pending_macro_after_home = R2_NONE;
-            enum { HOMING_INACTIVE, HOMING_SEEKING };
-            int homing_state = HOMING_INACTIVE;
-            int macro_started = 0;
-            void startR2Macro(R2Macro m) { active_macro = m; ++macro_started; }
-            int holo_centered = 0;
-            void centerHoloServos() { ++holo_centered; }
-            namespace r2link {
-                enum class EventKind : uint8_t { None=0, Completed=1, Fault=2, Cancelled=3 };
-                enum class MessageType : uint8_t { DomeRequest=0x07 };
-                struct Event {
-                    uint8_t kind{0};
-                    uint8_t request_type{0};
-                    Event(uint8_t k, uint8_t rt) : kind(k), request_type(rt) {}
-                };
-            }
-            void onEvent(const r2link::Event& ev) {
-                if (ev.kind == 1 && ev.request_type == 0x07) {
-                    homing_state = HOMING_INACTIVE;
-                    centerHoloServos();
-                    if (pending_macro_after_home != R2_NONE) {
-                        R2Macro m = pending_macro_after_home;
-                        pending_macro_after_home = R2_NONE;
-                        startR2Macro(m);
-                    }
-                } else if ((ev.kind == 2 || ev.kind == 3) && ev.request_type == 0x07) {
-                    homing_state = HOMING_INACTIVE;
-                    pending_macro_after_home = R2_NONE;
-                }
-            }
-            int main() {
-                homing_state = HOMING_SEEKING;
-                pending_macro_after_home = R2_LEIA;
-
-                // Event Fault -> cancels deferred macro
-                r2link::Event fault_ev{static_cast<uint8_t>(r2link::EventKind::Fault), 0x07};
-                onEvent(fault_ev);
-                if (homing_state != HOMING_INACTIVE || pending_macro_after_home != R2_NONE || macro_started != 0) return 1;
-
-                // Event Completed -> triggers deferred Leia
-                homing_state = HOMING_SEEKING;
-                pending_macro_after_home = R2_LEIA;
-                r2link::Event comp_ev{static_cast<uint8_t>(r2link::EventKind::Completed), 0x07};
-                onEvent(comp_ev);
-                if (homing_state != HOMING_INACTIVE || macro_started != 1 || active_macro != R2_LEIA || holo_centered != 1) return 2;
-
-                return 0;
-            }
-        """)
-        self.assertEqual(result.returncode, 0, result.stdout)
+        self.run_sketch_body(self.DOME_FUNCTIONS + ("dispatchBodyEvents",), r'''
+    now = 1000; rc_connected = true; dome_motion_inhibited = false;
+    rc_channels[RC_CH_AUTO_DOME] = 1000;
+    const uint8_t dome = uint8_t(r2link::MessageType::DomeRequest);
+    // A failed home drops the deferred macro
+    homing_state = HOMING_SEEKING; pending_macro_after_home = R2_LEIA;
+    g_body_client.events.push_back(r2link::Event{uint8_t(r2link::EventKind::HardwareError), dome, 9, 0});
+    dispatchBodyEvents();
+    assert(homing_state == HOMING_INACTIVE && pending_macro_after_home == R2_NONE);
+    assert(macro.phase == MacroPhase::Idle && g_dome_behaviour.events.size() == 1);
+    // A completed home starts the deferred Leia macro
+    homing_state = HOMING_SEEKING; pending_macro_after_home = R2_LEIA;
+    const int centred = centers;
+    g_body_client.events.push_back(r2link::Event{uint8_t(r2link::EventKind::Completed), dome, 10, 0});
+    dispatchBodyEvents();
+    assert(homing_state == HOMING_INACTIVE && pending_macro_after_home == R2_NONE);
+    assert(macro.kind == R2_LEIA && centers > centred);
+''')
 
     def test_stop_random_prevents_future_audio_events(self):
         source = (ROOT / "ASTROPIXELS_PLUS_UNIFIED/MarcduinoSound.h").read_text()
@@ -356,11 +256,11 @@ class PlusBehaviorTests(unittest.TestCase):
         self.assertIn("void startR2Macro(R2Macro macro) {", source,
                       "Plus needs one shared macro owner for Wi-Fi and RC")
         functions = "\n".join(function(source, name) for name in
-                              ("cancelR2Macro", "finishR2Macro", "startMacroChoreography",
+                              ("sendDomeRequest", "cancelR2Macro", "finishR2Macro", "startMacroChoreography",
                                "processMacroCompletion", "processMacroEvent",
                                "startR2Macro", "processR2Macro"))
         prelude = (ROOT / "tests/plus_macro_fakes.h").read_text()
-        result = run_cpp(prelude + functions + """
+        result = run_sketch(prelude + functions + """
             int main() {
                 now = 100;
                 startR2Macro(R2_CANTINA);
@@ -392,11 +292,11 @@ class PlusBehaviorTests(unittest.TestCase):
     def test_macro_ordering_and_acknowledgement(self):
         source = SKETCH.read_text()
         functions = "\n".join(function(source, name) for name in
-                              ("cancelR2Macro", "finishR2Macro", "startMacroChoreography",
+                              ("sendDomeRequest", "cancelR2Macro", "finishR2Macro", "startMacroChoreography",
                                "processMacroCompletion", "processMacroEvent",
                                "startR2Macro", "processR2Macro"))
         prelude = (ROOT / "tests/plus_macro_fakes.h").read_text()
-        result = run_cpp(prelude + functions + """
+        result = run_sketch(prelude + functions + """
             int main() {
                 now = 1000;
                 rc_channels[RC_CH_AUTO_DOME] = 2000;
@@ -441,11 +341,11 @@ class PlusBehaviorTests(unittest.TestCase):
     def test_macro_entry_points_takeover_and_guards(self):
         source = SKETCH.read_text()
         functions = "\n".join(function(source, name) for name in
-                              ("stopDomeMotion", "cancelR2Macro", "finishR2Macro", "startMacroChoreography",
+                              ("sendDomeRequest", "stopDomeMotion", "emergencyStop", "cancelR2Macro", "finishR2Macro", "startMacroChoreography",
                                "processMacroCompletion", "processMacroEvent",
                                "startR2Macro", "processR2Macro"))
         prelude = (ROOT / "tests/plus_macro_fakes.h").read_text()
-        result = run_cpp(prelude + functions + """
+        result = run_sketch(prelude + functions + """
             int main() {
                 now = 1000;
 
@@ -490,8 +390,8 @@ class PlusBehaviorTests(unittest.TestCase):
                 macro.dome_cancelled = true;
                 assert(macro.phase == MacroPhase::Running);
 
-                // 5. STOP cancels everything and issues ControlRequest operation 0
-                stopDomeMotion();
+                // 5. Operator STOP cancels everything and issues ControlRequest operation 0
+                emergencyStop();
                 assert(macro.phase == MacroPhase::Idle);
                 assert(active_macro == R2_NONE);
                 assert(!g_body_client.control_requests.empty());
@@ -515,11 +415,11 @@ class PlusBehaviorTests(unittest.TestCase):
     def test_maintenance_lock_gates_ota_and_reboot(self):
         source = SKETCH.read_text()
         functions = "\n".join(function(source, name) for name in
-                              ("stopDomeMotion", "cancelR2Macro", "prepareMaintenance",
+                              ("sendDomeRequest", "stopDomeMotion", "cancelR2Macro", "restartNow", "prepareMaintenance",
                                "maintenanceReady", "releaseMaintenance", "recoverBodyLocks",
                                "processMaintenanceCompletion", "reboot"))
         prelude = (ROOT / "tests/plus_macro_fakes.h").read_text()
-        result = run_cpp(prelude + functions + """
+        result = run_sketch(prelude + functions + """
             int main() {
                 now = 1000;
                 assert(!maintenanceReady());
@@ -541,12 +441,14 @@ class PlusBehaviorTests(unittest.TestCase):
                 assert(maintenanceReady());
                 assert(g_maintenance.state == MaintenanceState::Locked);
 
-                // releaseMaintenance issues UNLOCK
+                // releaseMaintenance issues UNLOCK and is Idle once the body confirms it
                 releaseMaintenance();
-                assert(g_maintenance.state == MaintenanceState::Idle);
-                assert(!maintenanceReady());
                 assert(g_body_client.control_requests.back().operation == 3);
                 assert(g_body_client.control_requests.back().token == 0xBEEF);
+                comp.sequence = g_maintenance.sequence;
+                processMaintenanceCompletion(comp);
+                assert(g_maintenance.state == MaintenanceState::Idle);
+                assert(!maintenanceReady());
 
                 // recoverBodyLocks issues RECOVER_LOCKS (operation 4, reason 0, token 0)
                 recoverBodyLocks();
@@ -563,6 +465,233 @@ class PlusBehaviorTests(unittest.TestCase):
             }
         """)
         self.assertEqual(result.returncode, 0, result.stdout)
+
+    MACRO_FUNCTIONS = ("cancelR2Macro", "finishR2Macro", "startMacroChoreography",
+                       "processMacroCompletion", "processMacroEvent", "startR2Macro", "processR2Macro")
+    DOME_FUNCTIONS = ("sendDomeRequest", "stopDomeMotion", "startDomeHoming") + MACRO_FUNCTIONS
+
+    def sketch_program(self, names, body):
+        source = SKETCH.read_text()
+        functions = "\n".join(function(source, name) for name in names)
+        prelude = (ROOT / "tests/plus_macro_fakes.h").read_text()
+        # Forward declarations so extracted functions may call each other in any order.
+        return prelude + "\nvoid emergencyStop();\nvoid stopDomeMotion();\n" + functions + \
+            "\nint main() {\n" + body + "\nreturn 0;\n}\n"
+
+    def run_sketch_body(self, names, body):
+        result = run_sketch(self.sketch_program(names, body))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_dome_requests_carry_current_epoch_and_wire_owner(self):
+        self.run_sketch_body(self.DOME_FUNCTIONS, r'''
+    now = 1000; rc_connected = true; dome_motion_inhibited = false;
+    rc_channels[RC_CH_AUTO_DOME] = 2000;
+    startDomeHoming(R2_NONE);
+    assert(g_body_client.dome_requests.size() == 1);
+    const r2link::DomeRequest& home = g_body_client.dome_requests[0];
+    assert(home.operation == 2 && home.owner == 1);
+    assert(home.control_epoch == 7 && home.dome_authority_generation == 5);
+    startR2Macro(R2_LEIA);
+    assert(macro.phase == MacroPhase::WaitingHome && macro.home_sequence != 0);
+    assert(g_body_client.dome_requests.back().control_epoch == 7);
+    stopDomeMotion();
+    assert(g_body_client.dome_requests.back().operation == 0);
+    assert(g_body_client.dome_requests.back().control_epoch == 7);
+    assert(g_body_client.encode_failures == 0);
+''')
+
+    def test_routine_dome_paths_do_not_latch_a_body_stop(self):
+        self.run_sketch_body(self.DOME_FUNCTIONS + (
+            "restartNow", "prepareMaintenance", "startCommissionTest", "processBodyRcSnapshot"), r'''
+    now = 1000; rc_connected = true; dome_motion_inhibited = false;
+    prepareMaintenance(false, false);
+    assert(g_body_client.control_requests.back().operation == 2);
+    assert(g_body_client.control_requests.back().control_epoch == 7);
+    dome_motion_inhibited = false;
+    startCommissionTest(1, 0);
+    assert(!g_body_client.commission_requests.empty());
+    assert(g_body_client.commission_requests.back().operation == 1);
+    assert(g_body_client.commission_requests.back().control_epoch == 7);
+    g_body_client.rc_state.valid = true;
+    for (auto& c : g_body_client.rc_state.channels) c = 1500;
+    processBodyRcSnapshot(now);
+    g_body_client.rc_state.valid = false;
+    processBodyRcSnapshot(now + 300);   // body RC lost: the body owns that failsafe
+    stopDomeMotion();
+    assert(g_body_client.stopAllCount() == 0);
+''')
+
+    def test_operator_stop_is_the_only_stop_all(self):
+        self.run_sketch_body(self.DOME_FUNCTIONS + ("emergencyStop",), r'''
+    now = 1000;
+    emergencyStop();
+    assert(g_body_client.stopAllCount() == 1);
+    assert(g_body_client.dome_requests.back().operation == 0);
+''')
+
+    def test_release_maintenance_keeps_lock_until_body_confirms(self):
+        self.run_sketch_body(self.DOME_FUNCTIONS + (
+            "restartNow", "prepareMaintenance", "maintenanceReady", "releaseMaintenance", "processMaintenanceCompletion"), r'''
+    now = 1000;
+    prepareMaintenance(false, false);
+    r2link::Completion c{};
+    c.type = r2link::MessageType::ControlRequest; c.outcome = r2link::Outcome::Replied;
+    c.sequence = g_maintenance.sequence; c.result = uint8_t(r2link::Result::Accepted);
+    processMaintenanceCompletion(c);
+    assert(maintenanceReady());
+    releaseMaintenance();
+    assert(g_body_client.control_requests.back().operation == 3);
+    assert(g_body_client.control_requests.back().control_epoch == 7);
+    c.sequence = g_maintenance.sequence; c.result = uint8_t(r2link::Result::NotReady);
+    processMaintenanceCompletion(c);   // body refused: CH6 ON or sticks off-centre
+    assert(g_maintenance.state == MaintenanceState::Locked);
+    releaseMaintenance();
+    c.sequence = g_maintenance.sequence; c.result = uint8_t(r2link::Result::Accepted);
+    processMaintenanceCompletion(c);
+    assert(g_maintenance.state == MaintenanceState::Idle);
+''')
+
+    def test_reboot_restarts_after_body_lock_or_when_link_is_down(self):
+        self.run_sketch_body(self.DOME_FUNCTIONS + (
+            "restartNow", "prepareMaintenance", "maintenanceReady", "processMaintenanceCompletion", "reboot"), r'''
+    now = 1000;
+    reboot();
+    assert(g_body_client.control_requests.back().operation == 2);
+    assert(ESP.restarts == 0);
+    r2link::Completion c{};
+    c.type = r2link::MessageType::ControlRequest; c.outcome = r2link::Outcome::Replied;
+    c.sequence = g_maintenance.sequence; c.result = uint8_t(r2link::Result::Accepted);
+    processMaintenanceCompletion(c);
+    assert(ESP.restarts == 1);
+    assert(g_body_client.stopAllCount() == 0);
+    g_maintenance = MaintenanceInfo{};
+    g_body_client.link_up = false;      // no body to lock: restarting cannot affect motion
+    reboot();
+    assert(ESP.restarts == 2);
+''')
+
+    def test_wireless_commissioning_requests_encode_with_current_epoch(self):
+        self.run_sketch_body(("setCommissionField", "readCommissionField", "acceptCommissionBit"), r'''
+    now = 1000;
+    setCommissionField(12, 1, 1500);           // brake_ma, right wheel
+    const r2link::CommissionRequest& set = g_body_client.commission_requests.back();
+    assert(set.operation == 4 && set.field == 12 && set.wheel == 1 && set.value == 1500);
+    assert(set.control_epoch == 7);
+    readCommissionField(12, 1);
+    const r2link::CommissionRequest& read = g_body_client.commission_requests.back();
+    assert(read.operation == 0 && read.field == 1 && read.value == 12 && read.wheel == 1);
+    acceptCommissionBit(4);                     // vesc_config_left
+    const r2link::CommissionRequest& acc = g_body_client.commission_requests.back();
+    assert(acc.operation == 6 && acc.value == 4 && acc.control_epoch == 7);
+    assert(g_body_client.commission_requests.size() == 3 && g_body_client.encode_failures == 0);
+''')
+
+    def test_marc_sound_requests_reach_the_body_on_a_live_link(self):
+        program = r'''
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <cstdint>
+#include <cassert>
+#include <deque>
+uint32_t now = 5000;
+uint32_t millis() { return now; }
+long random(long low, long) { return low; }
+struct Stream { void write(uint8_t) {} void print(const char*) {} };
+#define DEBUG_PRINTLN(x) do {} while (0)
+#define MARCDUINO_ACTION(name, cmd, body)
+#define SizeOfArray(a) (sizeof(a) / sizeof((a)[0]))
+void playDFPlayerTrack(uint16_t) {}
+#include "MarcduinoSound.h"
+#include "BodyClient.h"
+
+struct Pipe : r2link::BytePort {
+    std::deque<uint8_t> rx; Pipe* peer = nullptr;
+    int read() override { if (rx.empty()) return -1; int b = rx.front(); rx.pop_front(); return b; }
+    size_t writable() const override { return 1024; }
+    size_t write(const uint8_t* d, size_t n) override { peer->rx.insert(peer->rx.end(), d, d + n); return n; }
+};
+
+int main() {
+    Pipe bp, dp; bp.peer = &dp; dp.peer = &bp;
+    r2link::Endpoint body(bp, r2link::kRoleBody, 7);
+    BodyClient client; client.begin(dp, 9);
+    RemoteAudio audio(client);
+    MarcSound sound;
+    sound.beginRemote(audio);
+    for (int i = 0; i < 2000 && !(body.connected(now) && client.linkUp(now)); ++i) { ++now; body.tick(now); client.tick(now); }
+    assert(client.linkUp(now));
+
+    sound.playSound(3, 2);      // happy bank, sound 2 -> track 52
+    sound.stop();
+    sound.setVolume(0.5f);
+    for (int i = 0; i < 20; ++i) { ++now; client.tick(now); body.tick(now); }
+
+    int plays = 0, stops = 0, volumes = 0;
+    r2link::Frame f{};
+    while (body.takeReceived(f)) {
+        r2link::AudioRequest a{}; r2link::ErrorCounters e{};
+        if (f.type != r2link::MessageType::AudioRequest || r2link::decode(f, a, e) != r2link::Status::Ok) continue;
+        if (a.operation == 0 && a.track == 52) ++plays;
+        if (a.operation == 1) ++stops;
+        if (a.operation == 4 && a.volume == 15) ++volumes;
+    }
+    assert(plays == 1 && stops == 1 && volumes == 1);
+    return 0;
+}
+'''
+        result = run_cpp(program, extra_sources=[ASTRO / "BodyClient.cpp", ASTRO / "RemoteAudio.cpp",
+                                                SHARED / "src/Endpoint.cpp", SHARED / "src/Codec.cpp"],
+                         include_dirs=[ASTRO, SHARED])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_startup_sound_waits_for_the_body_link(self):
+        self.run_sketch_body(("processStartupSound",), r'''
+    g_body_client.link_up = false;
+    processStartupSound(1000);
+    assert(sMarcSound.start_sounds == 0);   // a request now would be dropped
+    g_body_client.link_up = true;
+    processStartupSound(1100);
+    processStartupSound(1200);
+    assert(sMarcSound.start_sounds == 1);
+''')
+
+    def test_dome_request_replies_reach_the_idle_scheduler(self):
+        self.run_sketch_body(self.DOME_FUNCTIONS + (
+            "restartNow", "prepareMaintenance", "processMaintenanceCompletion", "dispatchBodyCompletions"), r'''
+    r2link::Completion c{};
+    c.type = r2link::MessageType::DomeRequest; c.sequence = 41;
+    c.outcome = r2link::Outcome::Replied; c.result = uint8_t(r2link::Result::Inhibited);
+    g_body_client.completions.push_back(c);
+    c.sequence = 42; c.outcome = r2link::Outcome::TimedOut; c.result = 0;
+    g_body_client.completions.push_back(c);
+    c.type = r2link::MessageType::AudioRequest; c.sequence = 43; c.outcome = r2link::Outcome::Replied;
+    g_body_client.completions.push_back(c);
+    dispatchBodyCompletions();
+    assert(g_dome_behaviour.replies.size() == 2);
+    assert(g_dome_behaviour.replies[0].first == 41 && g_dome_behaviour.replies[0].second == r2link::Result::Inhibited);
+    assert(g_dome_behaviour.replies[1].first == 42 && g_dome_behaviour.replies[1].second == r2link::Result::NotReady);
+''')
+
+    def test_ota_aborts_unless_the_body_maintenance_lock_is_held(self):
+        self.run_sketch_body(self.DOME_FUNCTIONS + ("maintenanceReady", "onOtaStart"), r'''
+    now = 1000;
+    onOtaStart();                                   // no maintenance lock
+    assert(Update.aborts == 1 && !otaInProgress);
+    g_maintenance.state = MaintenanceState::Locked;
+    onOtaStart();
+    assert(Update.aborts == 1 && otaInProgress);
+    assert(g_body_client.dome_requests.back().operation == 0);   // dome motion cancelled
+''')
+
+    def test_dial_positions_are_evenly_spaced_and_reach_thirteen(self):
+        self.run_sketch_body(("dialPosition",), r'''
+    // 13 bins of 77us: 1000-1076 -> 1, 1077-1153 -> 2, ..., 1924-2000 -> 13.
+    const uint16_t us[] = {900, 1000, 1076, 1077, 1500, 1923, 1924, 2000, 2100};
+    const uint8_t want[] = {1, 1, 1, 2, 7, 12, 13, 13, 13};
+    for (size_t i = 0; i < sizeof us / sizeof us[0]; ++i) assert(dialPosition(us[i]) == want[i]);
+''')
 
     def test_vesc_drive_mixing_and_can_forwarding(self):
         source = SKETCH.read_text()

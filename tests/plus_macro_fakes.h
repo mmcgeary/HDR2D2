@@ -12,6 +12,7 @@ long random(long low, long) { return low; }
 struct Console {
     void println(const char*) {}
     void print(const char*) {}
+    template <class... A> void printf(const char*, A...) {}
 } Serial;
 
 enum R2Macro : uint8_t { R2_NONE, R2_SCREAM, R2_CANTINA, R2_LEIA, R2_DISCO, R2_FAINT };
@@ -42,7 +43,8 @@ enum class MaintenanceState : uint8_t {
     Requested,
     Locked,
     Updating,
-    Failed
+    Failed,
+    Releasing
 };
 
 struct MaintenanceInfo {
@@ -64,6 +66,9 @@ uint32_t last_macro_step = UINT32_MAX;
 uint32_t next_holo_twitch_ms = 0;
 
 bool rc_connected = true, dome_motion_inhibited = false, otaInProgress = false;
+unsigned long last_rc_packet_ms = 0;
+static uint32_t g_commission_run_id = 0;
+static uint32_t g_last_commission_keepalive_ms = 0;
 enum { HOMING_INACTIVE, HOMING_SEEKING, HOMING_ALIGNED };
 int homing_state = HOMING_INACTIVE;
 R2Macro pending_macro_after_home = R2_NONE;
@@ -87,108 +92,59 @@ bool driveNeutral() {
            rc_channels[RC_CH_DRIVE_THROTTLE] >= 1460 && rc_channels[RC_CH_DRIVE_THROTTLE] <= 1540;
 }
 
-namespace r2link {
-    enum class Result : uint8_t {
-        Accepted = 0, InvalidArgument, NotReady, ManualOverride, Inhibited,
-        Unsupported, Busy, WrongEpoch, HardwareError
-    };
-    enum class Outcome : uint8_t { Replied, TimedOut, Unsent, PeerLost, SessionChanged, EncodeFailed };
-    enum class EventKind : uint8_t {
-        Completed = 0, Cancelled = 1, Timeout = 2, HardwareError = 3,
-        PlaybackStarted = 4, DomeTakeover = 5,
-        Fault = 3
-    };
-    enum class MessageType : uint8_t {
-        DomeRequest = 0x07, AudioRequest = 0x08, ControlRequest = 0x23
-    };
-    enum class AudioPriority : uint8_t { Ambient = 0, Foreground = 1 };
-    enum class DomeOperation : uint8_t { Cancel = 0, Velocity = 1, SeekReference = 2 };
-    enum class DomeOwner : uint8_t { Idle = 0, Event = 1 };
-    enum class DomeReference : uint8_t { Front = 0, Rear = 1 };
-
-    struct Completion {
-        MessageType type{MessageType::ControlRequest};
-        uint16_t sequence{0};
-        Outcome outcome{Outcome::Replied};
-        uint8_t result{0};
-        uint16_t detail{0};
-    };
-
-    struct Event {
-        uint8_t kind{0};
-        uint8_t request_type{0};
-        uint16_t request_seq{0};
-        Event() = default;
-        Event(uint8_t k, uint8_t rt, uint16_t rs = 0) : kind(k), request_type(rt), request_seq(rs) {}
-    };
-
-    struct DomeRequest {
-        uint8_t operation{0};
-        uint8_t owner{0};
-        uint8_t reference{0};
-        int16_t speed_percent{0};
-        uint16_t lease_ms{0};
-        uint16_t control_epoch{0};
-        uint32_t dome_authority_generation{0};
-    };
-
-    struct ControlRequest {
-        uint8_t operation{0};
-        uint8_t reason{0};
-        uint16_t token{0};
-        uint16_t control_epoch{0};
-    };
-
-    struct BodyStatus {
-        uint8_t drive_state{3};
-        uint8_t dome_state{1};
-        uint16_t control_epoch{1};
-        uint32_t dome_authority_generation{5};
-        uint8_t motion_locked_reasons{0};
-    };
-
-    const uint8_t kReasonOperator = 0;
-    const uint8_t kReasonMaintenance = 2;
-}
-
-struct RequestHandle {
-    uint16_t sequence{0};
-    bool queued{false};
-
-    RequestHandle() = default;
-    RequestHandle(uint16_t seq, bool q) : sequence(seq), queued(q) {}
-};
-
-struct BodyStatusSnapshot {
-    r2link::BodyStatus value{};
-    bool fresh{true};
-    uint32_t effective_age_ms{10};
-};
+// Real protocol types and validators, so a request the sketch builds is only
+// "sent" when the real codec would encode it.
+#include "Messages.h"
+#include "Codec.h"
+#include "Endpoint.h"
+#include "BodyClient.h"
 
 struct FakeBodyClient {
     uint16_t next_seq{1};
+    bool link_up{true};
+    bool status_fresh{true};
+    r2link::BodyStatus status{};
+    size_t encode_failures{0};
     std::vector<r2link::DomeRequest> dome_requests;
     std::vector<r2link::ControlRequest> control_requests;
+    std::vector<r2link::CommissionRequest> commission_requests;
     std::vector<r2link::Completion> completions;
     std::vector<r2link::Event> events;
 
+    FakeBodyClient() {
+        status.control_epoch = 7;
+        status.dome_authority_generation = 5;
+    }
+
+    bool linkUp(uint32_t) const { return link_up; }
+
+    BodyRcState rc_state{};
+    BodyRcState rcSnapshot(uint32_t) const { return rc_state; }
+
     BodyStatusSnapshot bodyStatus(uint32_t) const {
         BodyStatusSnapshot s{};
-        s.value.dome_authority_generation = 5;
-        s.value.control_epoch = 1;
-        s.value.motion_locked_reasons = (g_maintenance.state == MaintenanceState::Locked) ? (1 << 2) : 0;
-        s.fresh = true;
+        s.value = status;
+        s.fresh = link_up && status_fresh;
         return s;
     }
 
-    RequestHandle requestDome(const r2link::DomeRequest& req, uint32_t) {
-        dome_requests.push_back(req);
+    template <class T>
+    RequestHandle record(const T& req, std::vector<T>& log) {
+        r2link::Frame f{};
+        r2link::ErrorCounters e{};
+        if (!link_up) return RequestHandle{0, false};
+        if (r2link::encode(req, f, e) != r2link::Status::Ok) { ++encode_failures; return RequestHandle{0, false}; }
+        log.push_back(req);
         return RequestHandle{next_seq++, true};
     }
+    RequestHandle requestDome(const r2link::DomeRequest& req, uint32_t) { return record(req, dome_requests); }
+    RequestHandle requestControl(const r2link::ControlRequest& req, uint32_t) { return record(req, control_requests); }
+    RequestHandle requestCommission(const r2link::CommissionRequest& req, uint32_t) { return record(req, commission_requests); }
 
-    RequestHandle requestControl(const r2link::ControlRequest& req, uint32_t) {
-        control_requests.push_back(req);
-        return RequestHandle{next_seq++, true};
+    size_t stopAllCount() const {
+        size_t n = 0;
+        for (const auto& c : control_requests) n += c.operation == 0;
+        return n;
     }
 
     bool takeCompletion(r2link::Completion& out) {
@@ -206,6 +162,13 @@ struct FakeBodyClient {
     }
 } g_body_client;
 
+struct FakeDomeBehaviour {
+    std::vector<std::pair<uint16_t, r2link::Result>> replies;
+    std::vector<r2link::Event> events;
+    void onReply(uint16_t seq, r2link::Result r) { replies.push_back({seq, r}); }
+    void onEvent(const r2link::Event& ev) { events.push_back(ev); }
+} g_dome_behaviour;
+
 struct FakeRemoteAudio {
     RequestHandle play(uint16_t track, r2link::AudioPriority, uint32_t) {
         tracks.push_back(track);
@@ -214,6 +177,8 @@ struct FakeRemoteAudio {
 } g_remote_audio;
 
 struct Sound {
+    int start_sounds = 0;
+    void playStartSound() { ++start_sounds; }
     void suspendRandom() {}
     void stop() {}
     void startRandomInSeconds(int) {}
@@ -231,6 +196,8 @@ struct PreferencesFake {
 struct Servos {
     void moveToPulse(int, int) {}
     void moveToPulse(int, int, int) {}
+    void stop() {}
+    void setOutputAll(bool) {}
 } servoDispatch;
 
 struct Display {
@@ -241,6 +208,7 @@ struct Display {
 struct Holo {
     bool dark = false;
     void selectSequence(int seq, int = 0) { dark = seq == 7; }
+    void assignServos(Servos*, int, int) {}
 } frontHolo, rearHolo, topHolo;
 
 namespace LogicEngineDefaults {
@@ -257,6 +225,10 @@ void disableHoloServos() { outputs_off=true; }
 void playDFPlayerTrack(uint16_t track) { tracks.push_back(track); }
 void resetSequence() {}
 void unmountFileSystems() {}
+struct UpdateFake {
+    int aborts{0};
+    void abort() { ++aborts; }
+} Update;
 struct EspFake {
     int restarts{0};
     void restart() { ++restarts; }
@@ -265,6 +237,8 @@ struct EspFake {
 
 void cancelR2Macro();
 void finishR2Macro();
+RequestHandle sendDomeRequest(r2link::DomeOperation operation, r2link::DomeReference reference);
+static void restartNow(bool clear_prefs);
 void startMacroChoreography(R2Macro m);
 
 inline uint16_t getMacroTrack(R2Macro m) {

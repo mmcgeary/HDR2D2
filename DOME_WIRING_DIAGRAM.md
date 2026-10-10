@@ -1,6 +1,6 @@
 # Body/Dome Wiring and AstroPixels Connections
 
-> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Both the Teensy 4.1 body controller and AstroPixels Plus ESP32 firmware are fully implemented; flash both boards before combined testing.
+> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Flash both the Teensy 4.1 body controller and the AstroPixels Plus ESP32 with the current firmware before combined testing; nothing counts as bench-verified until the commissioning record is filled in.
 
 Use [Body Controller Wiring](BODY_CONTROLLER_WIRING.md) for Teensy terminals and [Power Harness](POWER_HARNESS_GUIDE.md) for exact fuse/distribution wiring. The [interactive inspector](wiring_visualizer.html) is the terminal graph.
 

@@ -125,8 +125,8 @@ void setup() {
     g_audio_port.begin();
     g_dome_link.begin();
     g_controller.init(millis());
-    g_dome_servo.attach(body_pins::kDomeServo);
-    g_dome_servo.writeMicroseconds(g_profile.servo_neutral ? g_profile.servo_neutral : 1500);
+    // The dome servo is attached by loop() only once a commissioned output asks for
+    // pulses; an uncommissioned continuous-rotation servo gets no signal.
 
 #if defined(TEENSY_HAS_WDT)
     WDT_timings_t wdt_config{};
@@ -153,10 +153,13 @@ void loop() {
     g_controller.tick(now_ms, now_us);
     g_body_status = g_controller.status();
 
-    // 4. Actuator servo pulse output
+    // 4. Actuator servo pulse output (write first so the first pulse is already correct)
     const body::ServoCommand dome_cmd = g_controller.domeOutput();
     if (dome_cmd.pulses) {
         g_dome_servo.writeMicroseconds(dome_cmd.pulse_us);
+        if (!g_dome_servo.attached()) g_dome_servo.attach(body_pins::kDomeServo);
+    } else if (g_dome_servo.attached()) {
+        g_dome_servo.detach();
     }
 
     // 5. Telemetry measurements
@@ -181,13 +184,14 @@ void loop() {
         const body::RcSnapshot rc = g_input.snapshot(now_ms);
         const body::IbusInputCounters& r = g_input.counters();
         const body::IbusTelemetryCounters& t = g_telemetry.counters();
-        const bool commissioned = g_body_status.profile_ready != 0;
+        // profile_ready: bit0 drive, bit1 manual dome, bit2 auto dome (saved profile)
+        const uint8_t ready = g_body_status.profile_ready;
         char line[272];
         const int n = snprintf(line, sizeof line,
-            "[BODY] %s rc=%u flags=%u age=%lu "
+            "[BODY] %s(ready=0x%X) rc=%u flags=%u age=%lu "
             "CH1/2/4/6/8/9=%u/%u/%u/%u/%u/%u "
             "rx=%lu crc=%lu range=%lu partial=%lu sensor=%lu late=%lu echo=%lu\n",
-            commissioned ? "COMMISSIONED" : "UNCOMMISSIONED",
+            ready == 7 ? "COMMISSIONED" : ready ? "PARTIAL" : "UNCOMMISSIONED", unsigned(ready),
             unsigned(rc.valid), unsigned(rc.flags), (unsigned long)(now_ms - rc.sample_ms),
             unsigned(rc.channels[0]), unsigned(rc.channels[1]), unsigned(rc.channels[3]),
             unsigned(rc.channels[5]), unsigned(rc.channels[7]), unsigned(rc.channels[8]),

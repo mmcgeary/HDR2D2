@@ -1,6 +1,6 @@
 # R2-D2 Power Harness: Assembly and Fuse Schedule
 
-> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Both the Teensy 4.1 body controller and AstroPixels Plus ESP32 firmware are fully implemented; flash both boards before combined testing.
+> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Flash both the Teensy 4.1 body controller and the AstroPixels Plus ESP32 with the current firmware before combined testing; nothing counts as bench-verified until the commissioning record is filled in.
 
 This is the approved first-assembly schedule. Use [Body Controller Wiring](BODY_CONTROLLER_WIRING.md) for the exact Teensy terminals and [Commissioning](BODY_CONTROLLER_COMMISSIONING.md) before applying motion. The [interactive inspector](wiring_visualizer.html) supplies terminal-to-terminal wiring.
 

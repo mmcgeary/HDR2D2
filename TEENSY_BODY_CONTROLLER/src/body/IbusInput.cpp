@@ -33,7 +33,8 @@ bool IbusInput::accept(uint32_t now) {
     uint16_t channels[14];
     bool good = true;
     for (uint8_t i = 0; i < 14; ++i) {
-        channels[i] = bytes_[2 + 2*i] | uint16_t(bytes_[3 + 2*i]) << 8;
+        // Low 12 bits only: newer receivers pack channels 15-18 into the top nibbles.
+        channels[i] = (bytes_[2 + 2*i] | uint16_t(bytes_[3 + 2*i]) << 8) & 0x0FFF;
         if (channels[i] < 900 || channels[i] > 2100) good = false;
     }
     if (!good) {

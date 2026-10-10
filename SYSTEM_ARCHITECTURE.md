@@ -1,6 +1,6 @@
 # R2-D2 System Architecture
 
-> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Both the Teensy 4.1 body controller and AstroPixels Plus ESP32 firmware are fully implemented; flash both boards before combined testing.
+> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Flash both the Teensy 4.1 body controller and the AstroPixels Plus ESP32 with the current firmware before combined testing; nothing counts as bench-verified until the commissioning record is filled in.
 
 The selected first-assembly architecture splits real-time body control from dome lighting/choreography.
 
@@ -53,7 +53,7 @@ Teensy validates all 14 received channel fields, requires fresh RC <=250ms and b
 
 Neutral and disarm use positive brake-current commands, not zero duty. Each VESC has a 150ms command timeout and tested timeout braking. Neither firmware nor master cutoff guarantees a fixed mechanical stopping distance.
 
-Manual dome control is permitted with fresh radio and CH9 OFF. Automatic home requires CH9 ON, centered dome stick and fresh Hall updates; manual override cancels it. Peer link loss cancels remote actions but does not unnecessarily stop healthy manual foot drive. Transmitter CH3 is unused; CH9 gates Auto Dome. STOP and maintenance locks are latched across peer loss/reboot until explicitly released/recovered; the Faint macro does not engage maintenance lock.
+Manual dome control needs fresh radio and a saved, accepted servo neutral (until then the dome servo gets no signal); deflecting CH4 overrides any automatic dome action. Automatic home requires CH9 ON, centered dome stick and fresh Hall updates; manual override cancels it. Peer link loss cancels remote actions but does not unnecessarily stop healthy manual foot drive. Transmitter CH3 is unused; CH9 gates Auto Dome. STOP and maintenance locks are latched on the Teensy across peer loss and dome reboot until explicitly released/recovered (they live in Teensy RAM, so a Teensy power cycle starts unlocked); a release is refused, and changes nothing, until CH6 is OFF and the sticks have been centred 500ms. Only the operator STOP latches a body stop; routine dome actions never do. The Faint macro does not engage maintenance lock.
 
 Audio timing uses DFPlayer feedback; command acknowledgement alone does not prove audible playback. Leia starts only after home completes and confirmed playback starts. OTA begins only after body acknowledges an all-motion maintenance lock.
 
@@ -69,6 +69,6 @@ Audio timing uses DFPlayer feedback; command acknowledgement alone does not prov
 | [Controller Operator Guide](CONTROLLER_OPERATOR_GUIDE.md) | Switch/stick layout, routine dial schedule, and power-on checklist |
 | [BOM](Master_R2D2_BOM.xls) | Selected/owned/ordered/unused inventory |
 | [Inspector](wiring_visualizer.html) | Terminal graph and printable wire schedule |
-| [Firmware plan](docs/superpowers/plans/2026-10-09-teensy-firmware.md) | Fully implemented; all unit and integration tests passing |
+| [Firmware plan](docs/superpowers/plans/2026-10-09-teensy-firmware.md) | Implemented; host unit and two-board integration tests passing; hardware not yet commissioned |
 
-Firmware migration is fully implemented. Mechanical mount files remain work-in-progress; verify fit, axle retention, leg clearance and dome coupler before powered tests.
+Firmware migration is implemented and host-tested; hardware behaviour is verified only by the commissioning record. Mechanical mount files remain work-in-progress; verify fit, axle retention, leg clearance and dome coupler before powered tests.

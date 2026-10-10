@@ -345,6 +345,75 @@ int main() {
         result = run_cpp(program, extra_sources=SOURCES, include_dirs=[ROOT / "tests/radio_fakes", BODY, SHARED, INC])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def run_audio(self, body):
+        program = PRELUDE + r'''
+static bool sent(const FakeAudioPort& port, uint8_t cmd, int param_l = -1) {
+    for (size_t i = 0; i + 9 < port.tx_bytes.size(); ++i)
+        if (port.tx_bytes[i] == 0x7E && port.tx_bytes[i + 3] == cmd &&
+            (param_l < 0 || port.tx_bytes[i + 6] == param_l)) return true;
+    return false;
+}
+static r2link::AudioRequest playRequest(uint16_t track) {
+    r2link::AudioRequest play{};
+    play.operation = uint8_t(r2link::AudioOperation::Play);
+    play.folder = 1; play.track = track;
+    play.priority = uint8_t(r2link::AudioPriority::Foreground);
+    return play;
+}
+int main() {
+''' + body + "\nreturn 0;\n}\n"
+        result = run_cpp(program, extra_sources=SOURCES, include_dirs=[ROOT / "tests/radio_fakes", BODY, SHARED, INC])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_stopped_status_while_starting_is_not_completion(self):
+        self.run_audio(r'''
+    FakeAudioPort port;
+    body::DfPlayer player(port, kTrackCatalog, kTrackCatalogCount);
+    player.initSimulated(0);
+    assert(player.request(playRequest(110), 42, 100) == r2link::Result::Accepted);
+    player.tick(100);
+    port.inject(makeDfPacket(0x42, 0x02, 0x00));   // SD card, stopped: the file is still opening
+    player.tick(700);
+    r2link::Event ev{};
+    assert(!player.takeEvent(ev));
+    assert(player.status(700).state == uint8_t(r2link::AudioState::Starting));
+    port.inject(makeDfPacket(0x42, 0x02, 0x01));   // now playing
+    player.tick(1300);
+    assert(player.takeEvent(ev) && ev.kind == uint8_t(r2link::EventKind::PlaybackStarted));
+''')
+
+    def test_track_that_never_starts_times_out(self):
+        self.run_audio(r'''
+    FakeAudioPort port;
+    body::DfPlayer player(port, kTrackCatalog, kTrackCatalogCount);
+    player.initSimulated(0);
+    assert(player.request(playRequest(110), 42, 100) == r2link::Result::Accepted);
+    for (uint32_t t = 100; t <= 2000; t += 50) player.tick(t);
+    r2link::Event ev{};
+    assert(!player.takeEvent(ev));
+    for (uint32_t t = 2050; t <= 2300; t += 50) player.tick(t);
+    assert(player.takeEvent(ev));
+    assert(ev.kind == uint8_t(r2link::EventKind::Timeout) && ev.request_seq == 42);
+    assert(ev.detail == uint16_t(r2link::Detail::AudioUnavailable));
+    assert(player.status(2300).state == uint8_t(r2link::AudioState::Idle));
+''')
+
+    def test_offline_player_is_retried_and_configured_when_it_appears(self):
+        self.run_audio(r'''
+    FakeAudioPort port;
+    body::DfPlayer player(port, kTrackCatalog, kTrackCatalogCount);
+    for (uint32_t t = 0; t <= 4000; t += 50) player.tick(t);
+    assert(player.status(4000).state == uint8_t(r2link::AudioState::Offline));
+    port.clearTx();
+    for (uint32_t t = 4050; t <= 9000; t += 50) player.tick(t);
+    assert(sent(port, 0x0C));                       // reset re-sent while offline
+    port.inject(makeDfPacket(0x3F, 0x00, 0x02));    // player online, SD card present
+    port.clearTx();
+    for (uint32_t t = 9050; t <= 9600; t += 50) player.tick(t);
+    assert(player.status(9600).state == uint8_t(r2link::AudioState::Idle));
+    assert(sent(port, 0x06, 10));                   // configured volume 10/30
+''')
+
     def test_startup_offline_after_timeout(self):
         program = PRELUDE + r'''
 int main() {

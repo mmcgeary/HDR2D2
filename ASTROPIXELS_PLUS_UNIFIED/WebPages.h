@@ -44,7 +44,8 @@ WElement setupContents[] = {
 
 WElement domeContents[] = {
     WLabel("Motion requires a live radio. Center the dome stick to rearm after STOP.", "safety"),
-    WButton("STOP", "stop", []() { stopDomeMotion(); }),
+    WButton("STOP", "stop", []() { emergencyStop(); }),
+    WButton("Release STOP", "releaseStop", []() { releaseBodyStop(); }),
     WButton("Home dome", "homeDome", []() { startDomeHoming(); }),
     WButton("Scream", "scream", []() { startR2Macro(R2_SCREAM); }),
     WButton("Cantina", "cantina", []() { startR2Macro(R2_CANTINA); }),
@@ -495,10 +496,25 @@ inline String formatCommissionRates() {
 inline String formatCommissionAcceptance() {
     auto cs = g_body_client.commissionStatus(millis());
     if (!cs.fresh) return String("N/A");
+    const uint32_t f = cs.value.flags;
+    char buf[96];
+    snprintf(buf, sizeof(buf), "CH6 %s, CH9 %s, sticks %s, Hall %s | saved gen %lu",
+             (f & 1) ? "OFF" : "ON", (f & 2) ? "ON" : "OFF", (f & 4) ? "centred" : "moved",
+             (f & 8) ? "fresh" : "stale", (unsigned long)cs.value.config_generation);
+    return String(buf);
+}
+
+int commissionFieldId = 0;
+int commissionFieldWheel = 0;
+int commissionFieldValue = 0;
+int commissionAcceptBit = 0;
+
+inline String formatCommissionFieldRead() {
+    auto d = g_body_client.diagnostics(millis());
+    if (!d.fresh || d.value.subtype != 1) return String("Press Read Field");
     char buf[64];
-    snprintf(buf, sizeof(buf), "Flags: 0x%04lX, Gen: %lu",
-             (unsigned long)cs.value.flags,
-             (unsigned long)cs.value.config_generation);
+    snprintf(buf, sizeof(buf), "field %u wheel %u = %ld",
+             d.value.field, d.value.wheel, (long)d.value.value);
     return String(buf);
 }
 
@@ -536,6 +552,41 @@ WElement commissioningContents[] = {
     WButton("Accept Rear Ref", "c_acc_rref", []() { acceptCommissionBit(2); }),
     WVerticalAlign(),
     WButton("Accept Timing", "c_acc_tim", []() { acceptCommissionBit(3); }),
+    WVerticalAlign(),
+    W1("Profile Fields (CH6 OFF, CH9 OFF, sticks centred)"),
+    WLabel("Fields: 0 servo_neutral, 1 servo_min, 2 servo_max, 3 auto_speed, 4 slew, 5 direction, "
+           "6 fw_major, 7 fw_minor, 8 layout, 9 motor_ma, 10 battery_ma, 11 regen_ma, 12 brake_ma, "
+           "13 undervoltage_cv, 14 overvoltage_cv, 15 timeout_ms, 16 timeout_brake_ma, "
+           "17 reversal_erpm, 18 reversal_dwell_ms, 19 cw_rate, 20 ccw_rate. Wheel: 0 left, 1 right.", "c_fields"),
+    WTextFieldInteger("Field ID:", "c_fid",
+        []()->String { return String(commissionFieldId); },
+        [](String val) { commissionFieldId = val.toInt(); }),
+    WTextFieldInteger("Wheel:", "c_fwheel",
+        []()->String { return String(commissionFieldWheel); },
+        [](String val) { commissionFieldWheel = val.toInt(); }),
+    WTextFieldInteger("Value:", "c_fval",
+        []()->String { return String(commissionFieldValue); },
+        [](String val) { commissionFieldValue = val.toInt(); }),
+    WButton("Set Field", "c_fset", []() {
+        setCommissionField(commissionFieldId, commissionFieldWheel, commissionFieldValue);
+    }),
+    WHorizontalAlign(),
+    WButton("Read Field", "c_fread", []() {
+        readCommissionField(commissionFieldId, commissionFieldWheel);
+    }),
+    WVerticalAlign(),
+    WTextField("Read back:", "c_fresult", []()->String { return formatCommissionFieldRead(); }, [](String) {}),
+    WVerticalAlign(),
+    W1("Sign-offs"),
+    WLabel("Bits: 0 neutral, 1 front ref, 2 rear ref, 3 timing (need their completed test); "
+           "4/5 VESC config L/R, 6/7 timeout brake L/R, 8/9 direction L/R, 10/11 reversal L/R "
+           "(you confirm you checked these in VESC Tool / on the stand).", "c_bits"),
+    WTextFieldInteger("Accept bit:", "c_abit",
+        []()->String { return String(commissionAcceptBit); },
+        [](String val) { commissionAcceptBit = val.toInt(); }),
+    WButton("Accept Bit", "c_abtn", []() {
+        if (commissionAcceptBit >= 0 && commissionAcceptBit <= 11) acceptCommissionBit(commissionAcceptBit);
+    }),
     WHorizontalAlign(),
     WButton("Save Profile", "c_save", []() { saveCommissionProfile(); }),
     WVerticalAlign(),

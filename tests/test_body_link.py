@@ -320,7 +320,7 @@ class TypedPayloadTests(unittest.TestCase):
     b.faults = 0x1000; BAD(b, Status::BadReserved, reserved_bits) b.faults = 0; b.lock_reasons = 0x02; BAD(b, Status::BadReserved, reserved_bits)
     b.lock_reasons = 0x08; BAD(b, Status::BadReserved, reserved_bits) b.lock_reasons = 0;
     b.drive_state = 6; BAD(b, Status::BadEnum, enum_value) b.drive_state = 0; b.dome_state = 5; BAD(b, Status::BadEnum, enum_value)
-    b.dome_state = 0; b.profile_ready = 2; BAD(b, Status::BadEnum, enum_value) b.profile_ready = 0;
+    b.dome_state = 0; b.profile_ready = 8; BAD(b, Status::BadReserved, reserved_bits) b.profile_ready = 0;
     b.drive_intent = 4; BAD(b, Status::BadEnum, enum_value) b.drive_intent = 0; b.dome_owner = 6; BAD(b, Status::BadEnum, enum_value)
     b.dome_owner = 0; b.angle_valid = 1; b.estimated_angle_ddeg = 1800; BAD(b, Status::BadRange, range)
     b.estimated_angle_ddeg = -1801; BAD(b, Status::BadRange, range)

@@ -1,6 +1,6 @@
 # Dual FSESC4.20: Two Independent UARTs
 
-> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Both the Teensy 4.1 body controller and AstroPixels Plus ESP32 firmware are fully implemented; flash both boards before combined testing.
+> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Flash both the Teensy 4.1 body controller and the AstroPixels Plus ESP32 with the current firmware before combined testing; nothing counts as bench-verified until the commissioning record is filled in.
 
 The Flipsky Dual FSESC4.20 drives two Razor Tekno Pop12V hub/wheel motors, one per foot. Exact motor power is unconfirmed (roughly80-100W discussed). Do not derive safe winding current or braking limits from that estimate.
 
@@ -87,7 +87,7 @@ Connect each side to VESC Tool over USB and apply the following recommended sett
 5. **FOC & Hall Sensor Detection Wizard:**
    - With wheels elevated and clear of the floor, run the **FOC Motor Detection Wizard** for each side.
    - Select **Sensored / Hall Sensor** mode. The wizard automatically measures stator resistance (R), inductance (L), flux linkage, and Hall sensor timing offsets.
-   - Verify motor rotation direction. If a wheel spins backwards relative to throttle commands, toggle the **Invert Motor Direction** setting in VESC Tool or via the commissioning UI.
+   - Verify motor rotation direction. If a wheel spins backwards relative to throttle commands, either toggle **Invert Motor Direction** in VESC Tool, or set that wheel's `direction` field (field 5) to `-1`. Set it on the `/commissioning` page (Field ID 5, Wheel 0 or 1), or over USB with `profile set direction -1 WHEEL`.
    - Write and save configuration to the controller.
 
 ### Commissioning Record Table
@@ -99,7 +99,7 @@ Record the final tuned parameters from VESC Tool in this commissioning log for d
 | **Hardware / Firmware Version** | | | FW 5.x / HW 4.20 |
 | **App Configuration** | UART (115200 baud) | UART (115200 baud) | UART @ 115200 |
 | **App Timeout / Brake Current** | 150ms / 3.0A | 150ms / 3.0A | 150ms / 3.0A |
-| **Battery Current Max** | | | **6.0A – 7.0A** (12–14A combined) |
+| **Battery Current Max** | | | **5.0A – 5.5A** (10–11A combined) |
 | **Battery Current Max Regen** | | | **-2.5A to -3.0A** (-5 to -6A combined) |
 | **Motor Current Max** | | | **12.0A – 15.0A** phase |
 | **Motor Current Max Brake** | | | **-6.0A to -8.0A** phase |
@@ -121,20 +121,24 @@ Receiver stays in body: SERVO ->Lonely Binary channel 1->TeensyRX21, SENSOR <->c
 | CH2 | Throttle |
 | CH3 | Unused |
 | CH4 | Manual dome rotation |
-| CH5 / SwB | Duty rates35/70/100% |
+| CH5 / SwC (3-pos) | Duty rates35/70/100% |
 | CH6 / SwA | Drive enable |
 | CH7 / VrA | Mood/macro selection |
-| CH8 / SwC | Trigger |
+| CH8 / SwB | Trigger |
 | CH9 / SwD | Auto Dome enable |
 | CH10 | Unused |
 
 Disable transmitter-side tank mixing: Teensy mixes throttle/steer. Confirm radio channel mapping in diagnostics.
 
-At boot/fault, CH6 OFF <=1250us -> ON >=1750us -> CH1/2 neutral1460-1540us for 500ms is required. Mid-position disarms. Validate all 14 iBUS channel fields900-2100us; stale frames>250ms inhibit drive.
+At boot/fault, CH6 OFF <=1250us -> ON >=1750us -> CH1/2 neutral1460-1540us for 500ms is required. Mid-position disarms. All 14 iBUS channel fields (low 12 bits; newer receivers pack channels 15-18 in the top nibbles) must be 900-2100us; stale frames>250ms inhibit drive.
 
-The50Hz mixer calculates L=throttle+steer, R=throttle-steer, divides both by max(1,abs(L),abs(R)), then applies selected rate and95% duty cap. This preserves turning proportions without independently clipping each side.
+The50Hz mixer calculates L=throttle+steer, R=throttle-steer, divides both by max(1,abs(L),abs(R)), then applies selected rate and95% duty cap. This preserves turning proportions without independently clipping each side. Duty changes in both directions are limited to the commissioned slew (`slew`, permille/s): a partial stick reduction, or a lower rate on SwC, ramps down rather than stepping into hard regenerative braking. A centred stick, CH6 OFF, a fault or STOP still brakes at the commissioned brake current straight away.
 
-Both feedback records are polled every 100ms, must be <=500ms old, supported and fault-free. A fault/stale record on either controller stops **both** feet and requires rearming. Neutral/stop sends **positive `COMM_SET_CURRENT_BRAKE` magnitude**, not `COMM_SET_DUTY(0)`. Normal motion uses duty commands.
+Both feedback records are polled every 100ms, must be <=500ms old, supported and fault-free. A fault/stale record on either controller stops **both** feet and requires rearming. Neutral/stop sends **positive `COMM_SET_CURRENT_BRAKE` magnitude**, not `COMM_SET_DUTY(0)`, renewed every 20ms (well inside the 150ms VESC timeout, and leaving UART time for the telemetry polls). Normal motion uses duty commands.
+
+### Signing off the VESC records
+
+Drive stays disabled until both wheels have all four sign-offs (acceptance bits): `vesc_config` 4/5, `timeout_brake` 6/7, `direction` 8/9 and `reversal` 10/11 (left/right). Each one records that **you** checked that item in VESC Tool or on the stand against the values staged in the profile. Set the fields first (`/commissioning` Field ID/Wheel/Value, or `profile set FIELD VALUE WHEEL` over USB). Then, with CH6 OFF, CH9 OFF and sticks centred, accept each bit with the `/commissioning` **Accept bit** box or with `profile accept vesc_config_left` (and the other bit names) over USB. Finally press **Save Profile** (or run `profile save`). The saved profile takes effect at once; no reboot is needed. Changing a field later clears the sign-offs that depend on it.
 
 ## 5. Acceptance before floor driving
 

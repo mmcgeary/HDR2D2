@@ -85,6 +85,18 @@ class BodyRadioTests(unittest.TestCase):
     feed(p, frame(13, 2100), 12); assert(p.snapshot(12).sample_counter == 3);
 ''')
 
+    def test_extended_channel_nibbles_are_ignored(self):
+        # Newer FlySky receivers carry channels 15-18 in the top 4 bits of each
+        # channel word; only the low 12 bits are the channel value.
+        self.check(r'''
+    IbusInput p;
+    feed(p, frame(0, 0xA000u | 1700u), 10);
+    assert(p.snapshot(10).valid && p.counters().channel_errors == 0);
+    assert(p.snapshot(10).channels[0] == 1700);
+    feed(p, frame(13, 0x5000u | 1500u), 20);
+    assert(p.snapshot(20).sample_counter == 2);
+''')
+
     def test_checksum_headers_and_flags_use_only_ch6_and_ch9(self):
         self.check(r'''
     IbusInput p;
@@ -328,7 +340,9 @@ int main() {
     assert(!g_link.connected(0));
     auto b=frame(5,1000); Serial5.bytes.insert(Serial5.bytes.end(),b.begin(),b.end());
     auto request=poll(0x81); Serial6.bytes.insert(Serial6.bytes.end(),request.begin(),request.end());
+    assert(!g_dome_servo.attached());   // uncommissioned: no dome servo signal at boot
     loop(); assert(g_input.snapshot(0).valid && Serial6.written==0);
+    assert(!g_dome_servo.attached());
     assert(Serial1.written==6 && Serial2.written==6);
     assert(!g_left.sample(0).valid && !g_right.sample(0).valid);
     assert(g_drive.commands().left.mode==body::WheelMode::Disabled);

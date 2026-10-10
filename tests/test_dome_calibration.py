@@ -130,6 +130,46 @@ struct CalibrationFixture {
             }
         }
     }
+
+    CommissionRequest makeAccept(uint8_t bit) {
+        CommissionRequest req{};
+        req.operation = static_cast<uint8_t>(CommissionOp::Accept);
+        req.value = bit;
+        req.control_epoch = 1;
+        return req;
+    }
+
+    CommissionRequest makeSetField(uint8_t field, uint8_t wheel, int32_t value) {
+        CommissionRequest req{};
+        req.operation = static_cast<uint8_t>(CommissionOp::SetField);
+        req.field = field;
+        req.wheel = wheel;
+        req.value = value;
+        req.control_epoch = 1;
+        return req;
+    }
+
+    // Flip CH9 (auto dome) and let the RC snapshot settle.
+    void setCh9(uint16_t us) { rc.channels[8] = us; tick(now + 20); }
+
+    // Front edge to start, then three revolutions of rev_ms each with the rear
+    // magnet passed half way round.
+    void runTiming(CommissionTest test, uint32_t run_id, uint32_t rev_ms) {
+        assert(cal.handleRequest(makeBegin(static_cast<uint8_t>(test), run_id), now) == Result::Accepted);
+        uint32_t edge = now + 10;
+        hall.active_mask = 0x01; tick(edge);
+        hall.active_mask = 0x00; advance(edge + 50);
+        for (int rev = 0; rev < 3; ++rev) {
+            const uint32_t mid = edge + rev_ms / 2;
+            advance(mid - 1);
+            hall.active_mask = 0x02; tick(mid);
+            hall.active_mask = 0x00; advance(mid + 50);
+            edge += rev_ms;
+            advance(edge - 1);
+            hall.active_mask = 0x01; tick(edge);
+            hall.active_mask = 0x00; tick(edge + 10);
+        }
+    }
 };
 '''
 
@@ -305,6 +345,85 @@ class DomeCalibrationTests(unittest.TestCase):
     f.cal.cancel(f.now);
     assert(f.cal.output().pulses);
     assert(f.cal.output().pulse_us == 1500);
+''')
+
+    def test_neutral_test_completes_after_observation_window_and_is_acceptable(self):
+        self.check(r'''
+    CalibrationFixture f;
+    setField(f.profile, kFieldServoNeutral, 0, 1510);
+    setField(f.profile, kFieldServoMin, 0, 1000);
+    setField(f.profile, kFieldServoMax, 0, 2000);
+    assert(f.cal.handleRequest(f.makeBegin(static_cast<uint8_t>(CommissionTest::Neutral), 5), f.now) == Result::Accepted);
+    assert(f.cal.output().pulse_us == 1510);  // the staged neutral is the trial pulse
+    f.advance(f.now + 2900);
+    assert(f.cal.status().state == static_cast<uint8_t>(CommissionState::Running));
+    f.advance(f.now + 200);
+    assert(f.cal.status().state == static_cast<uint8_t>(CommissionState::Completed));
+    f.setCh9(1000);
+    assert(f.cal.handleRequest(f.makeAccept(kAcceptServoNeutral), f.now) == Result::Accepted);
+    assert(f.profile.acceptance & (1u << kAcceptServoNeutral));
+''')
+
+    def test_reference_acceptance_requires_its_own_completed_test(self):
+        self.check(r'''
+    CalibrationFixture f;
+    f.setCommissionedNeutral(1500);
+    assert(f.cal.handleRequest(f.makeBegin(static_cast<uint8_t>(CommissionTest::Neutral), 1), f.now) == Result::Accepted);
+    f.advance(f.now + 3100);
+    assert(f.cal.status().state == static_cast<uint8_t>(CommissionState::Completed));
+    f.setCh9(1000);
+    // A completed Neutral run is not evidence for the front reference.
+    assert(f.cal.handleRequest(f.makeAccept(kAcceptFrontRef), f.now) == Result::Inhibited);
+    f.setCh9(2000);
+    assert(f.cal.handleRequest(f.makeBegin(static_cast<uint8_t>(CommissionTest::FrontRef), 2), f.now) == Result::Accepted);
+    f.hall.active_mask = 0x01; f.tick(f.now + 20);
+    assert(f.cal.status().state == static_cast<uint8_t>(CommissionState::Completed));
+    f.hall.active_mask = 0x00; f.setCh9(1000);
+    assert(f.cal.handleRequest(f.makeAccept(kAcceptRearRef), f.now) == Result::Inhibited);
+    assert(f.cal.handleRequest(f.makeAccept(kAcceptFrontRef), f.now) == Result::Accepted);
+    // Changing the servo configuration after the run voids its evidence.
+    f.setCh9(2000);
+    assert(f.cal.handleRequest(f.makeBegin(static_cast<uint8_t>(CommissionTest::RearRef), 3), f.now) == Result::Accepted);
+    f.hall.active_mask = 0x02; f.tick(f.now + 20);
+    f.hall.active_mask = 0x00; f.setCh9(1000);
+    assert(f.cal.handleRequest(f.makeSetField(kFieldServoMax, 0, 1990), f.now) == Result::Accepted);
+    f.profile.acceptance |= (1u << kAcceptServoNeutral);  // re-accepted neutral, old rear run still stale
+    assert(f.cal.handleRequest(f.makeAccept(kAcceptRearRef), f.now) == Result::Inhibited);
+''')
+
+    def test_timing_runs_keep_both_directions_and_stage_measured_rates(self):
+        self.check(r'''
+    CalibrationFixture f;
+    f.setCommissionedNeutral(1500);
+    f.runTiming(CommissionTest::TimingCw, 10, 4000);
+    assert(f.cal.status().state == static_cast<uint8_t>(CommissionState::Completed));
+    assert(f.cal.status().proposed_cw_ddeg_s == 900);
+    assert(f.profile.cw_ddeg_per_s == 900);
+    f.setCh9(1000);
+    assert(f.cal.handleRequest(f.makeAccept(kAcceptAutoTiming), f.now) == Result::Inhibited);  // CCW missing
+    f.setCh9(2000);
+    f.runTiming(CommissionTest::TimingCcw, 11, 4500);
+    assert(f.cal.status().state == static_cast<uint8_t>(CommissionState::Completed));
+    assert(f.cal.status().proposed_cw_ddeg_s == 900);   // not wiped by the CCW run
+    assert(f.cal.status().proposed_ccw_ddeg_s == 800);
+    assert(f.profile.ccw_ddeg_per_s == 800);
+    f.setCh9(1000);
+    assert(f.cal.handleRequest(f.makeAccept(kAcceptAutoTiming), f.now) == Result::Accepted);
+''')
+
+    def test_set_field_requires_stationary_gate(self):
+        self.check(r'''
+    CalibrationFixture f;
+    f.rc.channels[5] = 2000; f.setCh9(1000);  // CH6 ON
+    assert(f.cal.handleRequest(f.makeSetField(kFieldServoNeutral, 0, 1510), f.now) == Result::Inhibited);
+    f.rc.channels[5] = 1000; f.setCh9(2000);  // CH9 ON
+    assert(f.cal.handleRequest(f.makeSetField(kFieldServoNeutral, 0, 1510), f.now) == Result::Inhibited);
+    f.rc.channels[3] = 1800; f.setCh9(1000);  // dome stick deflected
+    assert(f.cal.handleRequest(f.makeSetField(kFieldServoNeutral, 0, 1510), f.now) == Result::Inhibited);
+    assert(f.profile.servo_neutral == 0);
+    f.rc.channels[3] = 1500; f.setCh9(1000);
+    assert(f.cal.handleRequest(f.makeSetField(kFieldServoNeutral, 0, 1510), f.now) == Result::Accepted);
+    assert(f.profile.servo_neutral == 1510);
 ''')
 
     def test_three_revolutions_timing_and_median_speed(self):
