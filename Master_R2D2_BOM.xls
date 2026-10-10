@@ -166,11 +166,11 @@
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">9</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Drive Subsystem</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Homing Sensor</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Homing Sensors</Data></Cell>
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
-    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">KY-003 / 3144E Hall Effect Sensor</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome D-LOGIC fused5V; Lonely Binary HV2/LV2 to GPIO19. ESP32 publishes Hall state to Teensy for homing.</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">KY-003 / 3144E Hall Effect Sensors</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome D-LOGIC fused5V; Front 0° on HV2/LV2 to GPIO19, Rear 180° on HV3/LV3 to GPIO18. ESP32 publishes Hall state to Teensy for homing.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">10</Data></Cell>
@@ -539,7 +539,7 @@
     <Cell ss:StyleID="Pending"><Data ss:Type="String">Selected / Purchase not confirmed</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 kit; use2 four-channel boards</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Amazon.ca B0FFMLDYNY,27-piece MOSFET kit,10k pull-ups</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body ch1iBUSinput,ch2single-wiretelemetry,ch3servo; domech2Hall. LV externally supplied3.3V,HV respective fused5V,common ground. A/B labels alias LV/HV. Short leads; functional115200 checks without scope.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body ch1iBUSinput,ch2single-wiretelemetry,ch3servo; dome ch2 Front Hall, ch3 Rear Hall. LV externally supplied3.3V,HV respective fused5V,common ground. A/B labels alias LV/HV. Short leads; functional115200 checks without scope.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">51</Data></Cell>

@@ -127,6 +127,44 @@ class BodyDocumentationTests(unittest.TestCase):
         ids = [r.split(" | ")[0] for r in rows[1:]]
         self.assertEqual(len(ids), len(set(ids)))
 
+    def test_dual_hall_radio_channels_and_faint_lock_contract(self):
+        dome_wiring = self.read("DOME_WIRING_DIAGRAM.md")
+        self.assertIn("Two KY-003 Hall sensors (Front 0° and Rear 180°) detect the single dome ring magnet.", dome_wiring)
+        self.assertIn("| HV2 / B2 | KY-003 Front Hall signal (0°) |", dome_wiring)
+        self.assertIn("| LV2 / A2 | GPIO19 / AUX5 |", dome_wiring)
+        self.assertIn("| HV3 / B3 | KY-003 Rear Hall signal (180°) |", dome_wiring)
+        self.assertIn("| LV3 / A3 | GPIO18 / AUX4 |", dome_wiring)
+        self.assertIn("| GPIO18 | Rear Hall through dome shifter channel 3 / AUX4 |", dome_wiring)
+        self.assertIn("| GPIO19 | Front Hall through dome shifter channel 2 / AUX5 |", dome_wiring)
+
+        body_wiring = self.read("BODY_CONTROLLER_WIRING.md")
+        self.assertIn("Front Hall signal goes to HV2/B2 (LV2/A2 to GPIO19); Rear Hall signal goes to HV3/B3 (LV3/A3 to GPIO18)", body_wiring)
+
+        arch = self.read("SYSTEM_ARCHITECTURE.md")
+        self.assertIn("Two Hall sensors (Front/Rear)", arch)
+        self.assertIn("Transmitter CH3 is unused; CH9 gates Auto Dome.", arch)
+        self.assertIn("Faint macro does not engage maintenance lock", arch)
+
+        esp_readme = self.read("ASTROPIXELS_PLUS_UNIFIED/README.md")
+        self.assertIn("| CH3 / left vertical | Unused |", esp_readme)
+        self.assertIn("| CH9 / SwD | Auto Dome enable |", esp_readme)
+        self.assertIn("| GPIO18 | Rear Hall signal through dome Lonely Binary channel 3 |", esp_readme)
+        self.assertIn("| GPIO19 | Front Hall signal through dome Lonely Binary channel 2 |", esp_readme)
+        self.assertIn("Faint macro does not engage maintenance lock", esp_readme)
+
+        ns = {"s": "urn:schemas-microsoft-com:office:spreadsheet"}
+        rows = [
+            [d.text or "" for d in row.findall("s:Cell/s:Data", ns)]
+            for row in ET.parse(ROOT / "Master_R2D2_BOM.xls").findall(".//s:Row", ns)
+        ]
+        hall_row = next(r for r in rows if len(r) > 2 and r[2] == "Dome Homing Sensors")
+        self.assertEqual(hall_row[4], "2")
+        self.assertIn("GPIO19", hall_row[6])
+        self.assertIn("GPIO18", hall_row[6])
+
+        mag_row = next(r for r in rows if len(r) > 2 and r[2] == "Dome Homing Magnet")
+        self.assertEqual(mag_row[4], "1")
+
     def test_active_guide_local_links_resolve(self):
         for name in GUIDES + ("README.md",):
             path = ROOT / name

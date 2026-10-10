@@ -12,12 +12,13 @@ Follow [Body Wiring](../BODY_CONTROLLER_WIRING.md), [Dome Wiring](../DOME_WIRING
 | --- | --- |
 | GPIO16 | Serial2 RX, body link from TeensyTX17 via ringCH3 |
 | GPIO17 | Serial2 TX, body link to TeensyRX16 via ringCH6 |
-| GPIO19 | Hall signal through dome Lonely Binary channel 2 |
+| GPIO18 | Rear Hall signal through dome Lonely Binary channel 3 |
+| GPIO19 | Front Hall signal through dome Lonely Binary channel 2 |
 | GPIO21/22 | PCA9685 SDA/SCL |
 | GPIO15/33 | FLD/RLD |
 | GPIO32/23 | FPSI/RPSI |
 | GPIO25/26/27 | FHP/RHP/THP LEDs |
-| GPIO2/4/5/18 | Unused / spare |
+| GPIO2/4/5 | Unused / spare |
 
 Serial2's sole reader will be the framed body client at 115200; the old MarcDuino UART reader must be disabled while web/internal commands remain. Receiver, VESCs, continuous dome-servo pulses and DFPlayer UART move to Teensy.
 
@@ -30,7 +31,7 @@ Serial2's sole reader will be the framed body client at 115200; the old MarcDuin
 | CH5 | Unconnected | Unconnected | Spare |
 | CH6 | Teensy RX16 | ESP32 GPIO17 | Dome to body serial |
 
-UART 3.3V bypasses shifters. Dome Lonely Binary HV=D-LOGIC3A fused 5V, LV=ESP32 3.3V, GND common; HallHV2->LV2->GPIO19. No receiver signal in dome.
+UART 3.3V bypasses shifters. Dome Lonely Binary HV=D-LOGIC 3A fused 5V, LV=ESP32 3.3V, GND common; Front Hall HV2->LV2->GPIO19, Rear Hall HV3->LV3->GPIO18. No receiver signal in dome.
 
 PCA9685 VCC=3.3V, V+=D-SERVO 5A fused 5V with 16AWG feed/return; AstroPixels I2C D/C/G ->SDA/SCL/GND, V unconnected. Address 0x40,50Hz;0/1front pan/tilt,2/3rear,4/5top.
 
@@ -40,17 +41,17 @@ PCA9685 VCC=3.3V, V+=D-SERVO 5A fused 5V with 16AWG feed/return; AstroPixels I2C
 | --- | --- |
 | CH1 / right horizontal | Foot steering |
 | CH2 / right vertical | Foot throttle |
-| CH3 / left vertical | Front holo tilt |
+| CH3 / left vertical | Unused |
 | CH4 / left horizontal | Manual dome rotation |
 | CH5 / SwB | Normalized duty rates35/70/100%;95% absolute cap |
 | CH6 / SwA | Drive enable; OFF -> ON -> centered 500ms after boot/fault |
 | CH7 / VrA + CH8 / SwC | Macro selection / trigger |
-| CH9 / SwD | Ambient holo motion |
+| CH9 / SwD | Auto Dome enable |
 | CH10 | Unused |
 
-Teensy validates RC, both VESC feedback links and actuator locks. Stale/faulted feedback on either wheel inhibits both; neutral uses brake current, not zero duty. Manual dome can work with CH6 OFF; automatic home requires fresh RC, CH6 ON and neutral dome stick.
+Teensy validates RC, both VESC feedback links and actuator locks. Stale/faulted feedback on either wheel inhibits both; neutral uses brake current, not zero duty. Manual dome can work with CH9 OFF; automatic home requires fresh RC, CH9 ON and neutral dome stick.
 
-Target Wi-Fi STOP must show body confirmation or "Body stop unconfirmed." Maintenance/Faint locks remain latched across dome restart. These acknowledgements, body diagnostics page, explicit lock recovery and OTA preparation are **pending firmware features**, not guarantees of the current build.
+Target Wi-Fi STOP must show body confirmation or "Body stop unconfirmed." Maintenance locks remain latched across dome restart; Faint macro does not engage maintenance lock. These acknowledgements, body diagnostics page, explicit lock recovery and OTA preparation are **pending firmware features**, not guarantees of the current build.
 
 ## 3. Sound library and choreography
 

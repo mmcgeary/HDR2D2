@@ -375,7 +375,6 @@ WPage pages[] = {
                     stopDomeMotion();
                     cancelR2Macro();
                     disableHoloServos();
-                    WRITE_DOME_SERVO(0);
                     unmountFileSystems();
                     FLD.selectSequence(LogicEngineDefaults::NORMAL);
                     RLD.selectSequence(LogicEngineDefaults::NORMAL);

@@ -67,19 +67,14 @@
 // 1. PIN DEFINITIONS & HARDWARE CONSTANTS
 /////////////////////////////////////////////////////////////////////////
 
-// Serial Communication Pins
-#define PIN_IBUS_RX          16    // Hardware Serial1 RX (115,200 baud): FlySky i-Bus Stream (Receiver in Dome)
-#define PIN_SOUND_TX         17    // Simplex Audio TX (9,600 baud): Body DFPlayer RX via Slip Ring Ch 4
-#define PIN_VESC_UART_TX     18    // Hardware Serial2 TX (115,200 baud): Dual VESC COMM RX via Slip Ring Ch 6 (AUX 4)
-#define PIN_VESC_UART_RX     5     // Hardware Serial2 RX (115,200 baud): Dual VESC COMM TX via Slip Ring Ch 3 (AUX 3)
+// Serial Communication to Teensy 4.1 Body Controller via Slip Ring
+#define PIN_BODY_UART_RX     16    // Hardware Serial2 RX (115,200 baud): Body Controller via Slip Ring CH3
+#define PIN_BODY_UART_TX     17    // Hardware Serial2 TX (115,200 baud): Body Controller via Slip Ring CH6
+#define BODY_SERIAL          Serial2
 
-#define VESC_SERIAL          Serial2
-#define COMMAND_SERIAL       VESC_SERIAL
-#define IBUS_SERIAL          Serial1
-
-// Dome Drive & Homing Pins
-#define PIN_DOME_SERVO_PWM   4     // LEDC PWM: 35kg 360° Dome Continuous Servo (via LLC LV3->HV3, Ch 5)
-#define PIN_DOME_HALL_SENS   19    // Digital Input: KY-003 Hall Sensor (AUX 5 via LLC LV2)
+// Dome Dual Hall Sensor Inputs (KY-003 via LLC)
+#define PIN_DOME_HALL_FRONT  19    // Digital Input: Front Hall Sensor 0° (AUX 5 via LLC LV2)
+#define PIN_DOME_HALL_REAR   18    // Digital Input: Rear Hall Sensor 180° (AUX 4 via LLC LV3)
 
 // I2C Pins (PCA9685 Servo Controller)
 #define PIN_SDA              21
@@ -97,51 +92,51 @@
 
 // Spare AUX Pins
 #define PIN_AUX1             2
-#define PIN_AUX2             4     // Used for PIN_DOME_SERVO_PWM
-#define PIN_AUX3             5     // Used for PIN_VESC_UART_RX (Slip Ring Ch 3)
-#define PIN_AUX4             18    // Used for PIN_VESC_UART_TX (Slip Ring Ch 6)
-#define PIN_AUX5             19    // Used for PIN_DOME_HALL_SENS
+#define PIN_AUX2             4
+#define PIN_AUX3             5
 
 /////////////////////////////////////////////////////////////////////////
-// 2. AUDIO SERIAL CONFIGURATION (DFPLAYER MINI)
+// 2. BODY LINK CLIENT & REMOTE HARDWARE ADAPTERS
 /////////////////////////////////////////////////////////////////////////
 
-#ifndef SOUND_SERIAL
-class DfPlayerSerial : public Stream {
-private:
-    int _pin;
-    static const uint32_t BIT_TIME_US = 104; // 9600 baud = 104.16 us per bit
+#include "BodyClient.h"
+#include "RemoteAudio.h"
+#include "DomeBehaviour.h"
+
+class Esp32SerialPort : public r2link::BytePort {
 public:
-    DfPlayerSerial(int pin) : _pin(pin) {}
-    void begin(uint32_t baud = 9600) {
-        pinMode(_pin, OUTPUT);
-        digitalWrite(_pin, HIGH);
+    explicit Esp32SerialPort(HardwareSerial& serial) : serial_(serial) {}
+    int read() override { return serial_.read(); }
+    size_t writable() const override {
+        const int n = serial_.availableForWrite();
+        return n > 0 ? size_t(n) : 0;
     }
-    int available() override { return 0; }
-    int read() override { return -1; }
-    int peek() override { return -1; }
-    void flush() override {}
-    size_t write(uint8_t byte) override {
-        digitalWrite(_pin, LOW);
-        delayMicroseconds(BIT_TIME_US);
-        for (uint8_t i = 0; i < 8; i++) {
-            digitalWrite(_pin, (byte & (1 << i)) ? HIGH : LOW);
-            delayMicroseconds(BIT_TIME_US);
-        }
-        digitalWrite(_pin, HIGH);
-        delayMicroseconds(BIT_TIME_US);
-        return 1;
+    size_t write(const uint8_t* data, size_t length) override {
+        const size_t capacity = writable();
+        if (length > capacity) length = capacity;
+        return length ? serial_.write(data, length) : 0;
     }
-    size_t write(const uint8_t *buffer, size_t size) override {
-        for (size_t i = 0; i < size; i++) write(buffer[i]);
-        return size;
+private:
+    HardwareSerial& serial_;
+};
+
+class Esp32DomeRandom : public IDomeRandom {
+public:
+    int32_t pick(int32_t min_inclusive, int32_t max_exclusive) override {
+        if (min_inclusive >= max_exclusive) return min_inclusive;
+#if defined(ESP32)
+        return min_inclusive + (int32_t)(esp_random() % (uint32_t)(max_exclusive - min_inclusive));
+#else
+        return min_inclusive + (int32_t)(rand() % (max_exclusive - min_inclusive));
+#endif
     }
 };
 
-static DfPlayerSerial soundSerial(PIN_SOUND_TX);
-#define SOUND_SERIAL soundSerial
-#endif
-#define SOUND_BAUD           9600
+static Esp32SerialPort g_body_port(BODY_SERIAL);
+static BodyClient g_body_client;
+static RemoteAudio g_remote_audio(g_body_client);
+static Esp32DomeRandom g_dome_random;
+static DomeBehaviour g_dome_behaviour(g_body_client, g_dome_random, 25);
 
 #define MARC_SOUND_PLAYER    MarcSound::kDFMini
 #define MARC_SOUND_VOLUME    333   // 0 - 1000; ceil(333 / 1000 * 30) = 10
@@ -149,24 +144,6 @@ static DfPlayerSerial soundSerial(PIN_SOUND_TX);
 #define MARC_SOUND_RANDOM    true  // Ambient background chatter enabled
 #define MARC_SOUND_RANDOM_MIN 5000
 #define MARC_SOUND_RANDOM_MAX 25000
-
-/////////////////////////////////////////////////////////////////////////
-// 3. LEDC PWM CONFIGURATION (35KG CONTINUOUS ROTATION DOME SERVO)
-/////////////////////////////////////////////////////////////////////////
-
-#define DOME_LEDC_CHANNEL    0
-#define DOME_LEDC_FREQ       50    // 50Hz standard servo frequency
-#define DOME_LEDC_RES        16    // 16-bit resolution (0-65535)
-#define DOME_DUTY_STOP       4915  // ~1.50ms Center Neutral Stop
-#define DOME_DUTY_MAX_CW     6553  // ~2.00ms Full CW Velocity
-#define DOME_DUTY_MAX_CCW    3276  // ~1.00ms Full CCW Velocity
-#define DOME_CENTER_TRIM     0     // Fine-tune offset in duty ticks if servo drifts
-
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
-  #define WRITE_DOME_SERVO(duty) ledcWrite(PIN_DOME_SERVO_PWM, duty)
-#else
-  #define WRITE_DOME_SERVO(duty) ledcWrite(DOME_LEDC_CHANNEL, duty)
-#endif
 
 /////////////////////////////////////////////////////////////////////////
 // 4. PREFERENCES (NVS FLASH STORAGE)
@@ -309,7 +286,6 @@ void unmountFileSystems() {
 void reboot() {
     DEBUG_PRINTLN("[SYSTEM] Restarting...");
     stopDomeMotion();
-    WRITE_DOME_SERVO(0);
     unmountFileSystems();
     preferences.end();
     delay(1000);
@@ -381,14 +357,12 @@ unsigned long last_rc_packet_ms = 0;
 // FlySky FS-i6X Channel Mapping
 #define RC_CH_STEER            0  // Right Stick X (CH1): Tank Differential Steering
 #define RC_CH_THROTTLE         1  // Right Stick Y (CH2): Forward / Reverse Throttle
-#define RC_CH_HOLO_TILT        2  // Left Stick Y (CH3): Manual Front Holo Tilt
 #define RC_CH_DOME_STEER       3  // Left Stick X (CH4): Manual Dome Rotation
 #define RC_CH_SPEED_MODE       4  // Switch SwB   (CH5): Transmitter Dual Rates
 #define RC_CH_MOOD_SELECT      6  // Knob VrA     (CH7): Persistent Mood & Macro Selector (1-13)
 #define RC_CH_MACRO_TRIGGER    7  // Switch SwC   (CH8): Macro Fire Trigger (Flip DOWN)
-#define RC_CH_HOLO_ENABLE      8  // Switch SwD   (CH9): Holo Random Motion Toggle
 
-// Dome Homing State Machine
+// Dome Homing & Macro Tracking
 enum HomingState : uint8_t {
     HOMING_INACTIVE = 0,
     HOMING_SEEKING,
@@ -396,7 +370,6 @@ enum HomingState : uint8_t {
 };
 
 HomingState homing_state = HOMING_INACTIVE;
-unsigned long homing_start_time_ms = 0;
 R2Macro pending_macro_after_home = R2_NONE;
 bool dome_motion_inhibited = true;
 R2Macro active_macro = R2_NONE;
@@ -404,71 +377,14 @@ uint32_t macro_started_ms = 0;
 uint32_t macro_duration_ms = 0;
 uint32_t last_macro_step = UINT32_MAX;
 uint32_t next_holo_twitch_ms = 0;
-bool random_holo_enabled = false;
-
-// Dome Servo Creep Prevention Timer
-unsigned long dome_stop_command_ms = 0;
-bool dome_pulses_active = true;
-
-// Dome Homing Sensor Interrupt Flag
-volatile bool is_dome_at_home = false;
-
-// Manual Holo Tilt State
-unsigned long last_manual_holo_ms = 0;
-bool manual_holo_active = false;
-
-// Audio Deduplication & Direct Packet Driver
-uint8_t last_played_track = 0;
-unsigned long last_audio_cmd_ms = 0;
-uint16_t pending_audio_track = 0;
 
 // Forward Declarations
-void setDomeServoSpeed(int speed_percent);
-void processDomeHoming();
-void processDomeRotation();
-void processManualHoloTilt();
-void processIBusFrames();
+void processHallSensors(uint32_t now_ms);
+void processBodyRcSnapshot(uint32_t now_ms);
 void processTransmitterInputs();
 void playDFPlayerTrack(uint16_t track_num);
-
-// KY-003 Hall Sensor Interrupt Handler
-void IRAM_ATTR onHallSensorChange() {
-    is_dome_at_home = (digitalRead(PIN_DOME_HALL_SENS) == LOW);
-}
-
-/////////////////////////////////////////////////////////////////////////
-// 11. DOME SERVO MOTION & ACTIVE HOMING FUNCTIONS
-/////////////////////////////////////////////////////////////////////////
-
-void setDomeServoSpeed(int speed_percent) {
-    speed_percent = constrain(speed_percent, -100, 100);
-
-    if (speed_percent == 0) {
-        if (dome_pulses_active) {
-            WRITE_DOME_SERVO(DOME_DUTY_STOP + DOME_CENTER_TRIM);
-            if (dome_stop_command_ms == 0) {
-                dome_stop_command_ms = millis();
-            } else if (millis() - dome_stop_command_ms > 250) {
-                // Zero-Creep Sleep: Completely shut off PWM duty ticks after 250ms of stopped stick
-                WRITE_DOME_SERVO(0);
-                dome_pulses_active = false;
-            }
-        }
-        return;
-    }
-
-    // Active speed commanded -> Wake up PWM generator immediately
-    dome_stop_command_ms = 0;
-    dome_pulses_active = true;
-
-    uint32_t duty;
-    if (speed_percent > 0) {
-        duty = map(speed_percent, 1, 100, DOME_DUTY_STOP + 80, DOME_DUTY_MAX_CW);
-    } else {
-        duty = map(speed_percent, -1, -100, DOME_DUTY_STOP - 80, DOME_DUTY_MAX_CCW);
-    }
-    WRITE_DOME_SERVO(duty);
-}
+void stopDomeMotion();
+void startDomeHoming(R2Macro macro = R2_NONE);
 
 bool rcNeutral() {
     return rc_channels[RC_CH_DOME_STEER] >= 1460 &&
@@ -479,7 +395,15 @@ void stopDomeMotion() {
     homing_state = HOMING_INACTIVE;
     pending_macro_after_home = R2_NONE;
     dome_motion_inhibited = true;
-    setDomeServoSpeed(0);
+    r2link::DomeRequest req{};
+    req.operation = static_cast<uint8_t>(r2link::DomeOperation::Cancel);
+    req.owner = static_cast<uint8_t>(r2link::DomeOwner::Event);
+    req.reference = 0;
+    req.speed_percent = 0;
+    req.lease_ms = 0;
+    auto status = g_body_client.bodyStatus(millis());
+    req.generation = status.value.dome_authority_generation;
+    g_body_client.requestDome(req, millis());
 }
 
 void startDomeHoming(R2Macro macro) {
@@ -490,143 +414,69 @@ void startDomeHoming(R2Macro macro) {
     cancelR2Macro();
     pending_macro_after_home = macro;
     homing_state = HOMING_SEEKING;
-    homing_start_time_ms = millis();
-    Serial.println(F("[HOMING] Active 0° Dome Homing Routine Initiated..."));
+    r2link::DomeRequest req{};
+    req.operation = static_cast<uint8_t>(r2link::DomeOperation::SeekReference);
+    req.reference = static_cast<uint8_t>(r2link::DomeReference::Front);
+    req.owner = static_cast<uint8_t>(r2link::DomeOwner::Event);
+    req.speed_percent = 0;
+    req.lease_ms = 0;
+    auto status = g_body_client.bodyStatus(millis());
+    req.generation = status.value.dome_authority_generation;
+    g_body_client.requestDome(req, millis());
+    Serial.println(F("[HOMING] Active 0° Dome Homing Routine Initiated via Body..."));
 }
-
-void processDomeHoming() {
-    if (!rc_connected || dome_motion_inhibited || otaInProgress) {
-        stopDomeMotion();
-        return;
-    }
-    if (homing_state == HOMING_INACTIVE) return;
-
-    if (homing_state == HOMING_SEEKING) {
-        // Check for homing timeout (e.g. 10 seconds max seek)
-        if (millis() - homing_start_time_ms > 10000) {
-            Serial.println(F("[HOMING] WARNING: Homing seek timeout. Stopping dome."));
-            stopDomeMotion();
-            return;
-        }
-
-        // Active Magnet Detection: KY-003 Hall output is LOW when magnet is present
-        if (is_dome_at_home || digitalRead(PIN_DOME_HALL_SENS) == LOW) {
-            setDomeServoSpeed(0);
-            homing_state = HOMING_ALIGNED;
-            Serial.println(F("[HOMING] Dome LOCKED onto 0° Forward Magnet!"));
-
-            // Center all 6 Holo servos
-            for (uint8_t ch = 0; ch < 6; ch++) {
-                servoDispatch.moveToPulse(ch, 1500);
-            }
-
-            // If a chained macro was pending (such as Princess Leia), trigger it now
-            if (pending_macro_after_home != R2_NONE) {
-                R2Macro macro = pending_macro_after_home;
-                pending_macro_after_home = R2_NONE;
-                startR2Macro(macro);
-            }
-            dome_motion_inhibited = true;
-            return;
-        }
-
-        // Smooth search speed (25% CW)
-        setDomeServoSpeed(25);
-    } else if (homing_state == HOMING_ALIGNED) {
-        setDomeServoSpeed(0);
-        homing_state = HOMING_INACTIVE;
-    }
-}
-
-void processDomeRotation() {
-    if (!rc_connected || otaInProgress || active_macro != R2_NONE) {
-        setDomeServoSpeed(0);
-        return;
-    }
-    if (dome_motion_inhibited) {
-        setDomeServoSpeed(0);
-        if (rcNeutral()) dome_motion_inhibited = false;
-        return;
-    }
-    // If active homing is in progress, manual stick is overridden
-    if (homing_state != HOMING_INACTIVE) return;
-
-    uint16_t stick_us = rc_channels[RC_CH_DOME_STEER];
-
-    // Stick deadband between 1460us and 1540us
-    if (stick_us >= 1460 && stick_us <= 1540) {
-        setDomeServoSpeed(0);
-        return;
-    }
-
-    int speed = 0;
-    if (stick_us > 1540) {
-        speed = map(stick_us, 1540, 2000, 5, 100);
-    } else if (stick_us < 1460) {
-        speed = map(stick_us, 1460, 1000, -5, -100);
-    }
-    setDomeServoSpeed(speed);
-}
-
-void processManualHoloTilt() {
-    if (!rc_connected || otaInProgress || active_macro != R2_NONE ||
-        homing_state != HOMING_INACTIVE) return;
-    uint16_t stick_tilt_us = rc_channels[RC_CH_HOLO_TILT];
-
-    // Tilt deadband: 1460us to 1540us
-    if (stick_tilt_us < 1460 || stick_tilt_us > 1540) {
-        manual_holo_active = true;
-        last_manual_holo_ms = millis();
-        frontHolo.assignServos(nullptr, 0, 1);
-        servoDispatch.disable(1);
-
-        // Move Front Holo Tilt (Ch 1 in servoSettings) directly
-        uint16_t pulse = map(constrain(stick_tilt_us, 1000, 2000), 1000, 2000, 1200, 1800);
-        servoDispatch.moveToPulse(1, pulse);
-        return;
-    }
-
-    if (manual_holo_active) {
-        // Hold manual angle for 3 seconds of stick inactivity before releasing
-        if (millis() - last_manual_holo_ms > 3000) {
-            manual_holo_active = false;
-            frontHolo.assignServos(&servoDispatch, 0, 1);
-        }
-    }
-}
-
-/////////////////////////////////////////////////////////////////////////
-// 12. DIRECT HARDWARE DFPLAYER TRANSMITTER (9,600 BAUD)
-/////////////////////////////////////////////////////////////////////////
 
 void playDFPlayerTrack(uint16_t track_num) {
     if (track_num == 0 || track_num > 255) {
         Serial.println(F("[AUDIO] Invalid track; expected 1..255 in /01."));
         return;
     }
-    if (pending_audio_track != 0) {
-        Serial.println(F("[AUDIO] Pending track replaced by newer command."));
-    }
-    pending_audio_track = track_num;
+    g_remote_audio.play(track_num, r2link::AudioPriority::Foreground, millis());
 }
 
-void processAudioQueue() {
-    if (!pending_audio_track || millis() - last_audio_cmd_ms < 100) return;
-    uint16_t track_num = pending_audio_track;
-    pending_audio_track = 0;
+void processHallSensors(uint32_t now_ms) {
+    static uint32_t last_hall_publish_ms = 0;
+    static uint8_t last_active_mask = 0xFF;
+    static uint32_t hall_sample_counter = 0;
 
-    // Standard DFPlayer 10-Byte Packet: 7E FF 06 0F 00 [Folder] [Track] [CRC_H] [CRC_L] EF
-    // Uses Folder Play (0x0F) for reliable filename playback (/01/xxx.mp3)
-    uint8_t cmd[10] = {0x7E, 0xFF, 0x06, 0x0F, 0x00, 0x01, (uint8_t)(track_num & 0xFF), 0x00, 0x00, 0xEF};
-    uint16_t sum = 0;
-    for (uint8_t i = 1; i < 7; i++) sum += cmd[i];
-    sum = -sum;
-    cmd[7] = (uint8_t)(sum >> 8);
-    cmd[8] = (uint8_t)(sum & 0xFF);
+    // Both KY-003 sensors are active LOW (magnet detected = LOW)
+    uint8_t front_active = (digitalRead(PIN_DOME_HALL_FRONT) == LOW) ? 1 : 0;
+    uint8_t rear_active = (digitalRead(PIN_DOME_HALL_REAR) == LOW) ? 2 : 0;
+    uint8_t active_mask = front_active | rear_active;
+    uint8_t valid_mask = 0x03;
 
-    SOUND_SERIAL.write(cmd, 10);
-    last_played_track = (uint8_t)track_num;
-    last_audio_cmd_ms = millis();
+    if (active_mask != last_active_mask || (now_ms - last_hall_publish_ms >= 20)) {
+        last_active_mask = active_mask;
+        last_hall_publish_ms = now_ms;
+        ++hall_sample_counter;
+        g_body_client.publishHall(valid_mask, active_mask, hall_sample_counter, now_ms);
+    }
+}
+
+void processBodyRcSnapshot(uint32_t now_ms) {
+    BodyRcState rc = g_body_client.rcSnapshot(now_ms);
+    if (rc.valid) {
+        for (uint8_t ch = 0; ch < 10; ++ch) {
+            rc_channels[ch] = rc.channels[ch];
+        }
+        rc_connected = true;
+        last_rc_packet_ms = now_ms;
+        if (dome_motion_inhibited && rcNeutral()) {
+            dome_motion_inhibited = false;
+        }
+    } else {
+        if (rc_connected) {
+            rc_connected = false;
+            stopDomeMotion();
+            cancelR2Macro();
+            frontHolo.assignServos(nullptr, 0, 1);
+            rearHolo.assignServos(nullptr, 2, 3);
+            topHolo.assignServos(nullptr, 4, 5);
+            servoDispatch.stop();
+            servoDispatch.setOutputAll(false);
+            Serial.println(F("[SAFETY] Body RC Lost! Failsafe Stop Activated."));
+        }
+    }
 }
 
 void setHoloServoOwnership(bool reelTwoOwnsServos) {
@@ -664,7 +514,6 @@ bool r2MacroActive() {
 void cancelR2Macro() {
     if (active_macro != R2_NONE) {
         active_macro = R2_NONE;
-        pending_audio_track = 0;
         sMarcSound.stop();
         if (preferences.getBool(PREFERENCE_MARCSOUND_RANDOM, MARC_SOUND_RANDOM))
             sMarcSound.startRandomInSeconds(12);
@@ -682,7 +531,6 @@ void startR2Macro(R2Macro macro) {
     cancelR2Macro();
     homing_state = HOMING_INACTIVE;
     pending_macro_after_home = R2_NONE;
-    setDomeServoSpeed(0);
     sMarcSound.suspendRandom();
     active_macro = macro;
     macro_started_ms = millis();
@@ -774,100 +622,17 @@ void processRandomHolos() {
     }
     rearHolo.assignServos(&servoDispatch, 2, 3);
     topHolo.assignServos(&servoDispatch, 4, 5);
-    frontHolo.assignServos(manual_holo_active ? nullptr : &servoDispatch, 0, 1);
-    if (!random_holo_enabled || manual_holo_active) return;
+    frontHolo.assignServos(&servoDispatch, 0, 1);
     uint32_t now = millis();
     if (int32_t(now - next_holo_twitch_ms) < 0) return;
     servoDispatch.moveToPulse(random(0, 6), 300, random(1390, 1611));
     next_holo_twitch_ms = now + random(1500, 4501);
 }
 
-/////////////////////////////////////////////////////////////////////////
-// 13. FLYSKY i-BUS 32-BYTE NON-BLOCKING PACKET DECODER
-/////////////////////////////////////////////////////////////////////////
-
-void processIBusFrames() {
-    static uint8_t ibus_buffer[32];
-    static uint8_t ibus_idx = 0;
-
-    while (IBUS_SERIAL.available() > 0) {
-        uint8_t byte_in = IBUS_SERIAL.read();
-
-        if (ibus_idx == 0) {
-            if (byte_in == 0x20) { // Header Byte 1 (Length: 32 bytes)
-                ibus_buffer[0] = byte_in;
-                ibus_idx = 1;
-            }
-        } else if (ibus_idx == 1) {
-            if (byte_in == 0x40) { // Header Byte 2 (Command: 0x40)
-                ibus_buffer[1] = byte_in;
-                ibus_idx = 2;
-            } else {
-                ibus_idx = 0; // Desync recovery
-            }
-        } else {
-            ibus_buffer[ibus_idx++] = byte_in;
-
-            if (ibus_idx == 32) {
-                ibus_idx = 0;
-
-                // Verify 16-bit i-Bus Checksum
-                uint16_t checksum = 0xFFFF;
-                for (uint8_t i = 0; i < 30; i++) {
-                    checksum -= ibus_buffer[i];
-                }
-                uint16_t packet_checksum = ibus_buffer[30] | (ibus_buffer[31] << 8);
-
-                if (checksum == packet_checksum) {
-                    uint16_t channels[14];
-                    bool frame_valid = true;
-                    for (uint8_t ch = 0; ch < 14; ch++) {
-                        channels[ch] = ibus_buffer[2 + (ch * 2)] | (ibus_buffer[3 + (ch * 2)] << 8);
-                        if (channels[ch] < 900 || channels[ch] > 2100)
-                            frame_valid = false;
-                    }
-                    if (!frame_valid) {
-                        Serial.println(F("[i-BUS] Rejected out-of-range channel frame."));
-                        continue;
-                    }
-                    for (uint8_t ch = 0; ch < 10; ch++)
-                        rc_channels[ch] = channels[ch];
-                    rc_connected = true;
-                    last_rc_packet_ms = millis();
-                }
-            }
-        }
-    }
-
-    // 250ms RC Failsafe Detection
-    if (rc_connected && (millis() - last_rc_packet_ms > 250)) {
-        rc_connected = false;
-        stopDomeMotion();
-        cancelR2Macro();
-        frontHolo.assignServos(nullptr, 0, 1);
-        rearHolo.assignServos(nullptr, 2, 3);
-        topHolo.assignServos(nullptr, 4, 5);
-        servoDispatch.stop();
-        servoDispatch.setOutputAll(false);
-        manual_holo_active = false;
-        Serial.println(F("[SAFETY] i-Bus Connection Lost! Failsafe Stop Activated."));
-    }
-}
-
 void processTransmitterInputs() {
     if (!rc_connected) return;
 
-    // 1. Holo Random Movement Toggle (Switch SwD / CH9)
-    static bool last_swd_state = false;
-    bool swd_active = (rc_channels[RC_CH_HOLO_ENABLE] > 1600);
-    if (swd_active != last_swd_state) {
-        last_swd_state = swd_active;
-        random_holo_enabled = swd_active;
-        Serial.print(F("[HOLO] Random Posture Movement: "));
-        Serial.println(swd_active ? F("ENABLED") : F("DISABLED"));
-    }
-
-    // 2. Rotary Knob VrA (CH7: 1000us - 2000us mapped to 13 discrete positions)
+    // Rotary Knob VrA (CH7: 1000us - 2000us mapped to 13 discrete positions)
     uint8_t dial_pos = map(constrain(rc_channels[RC_CH_MOOD_SELECT], 1000, 2000), 1000, 2000, 1, 13);
 
     // 3. Macro Fire Trigger (Switch SwC / CH8: Flip DOWN > 1750us)
@@ -972,243 +737,7 @@ MARCDUINO_ACTION(Restart, #APRESTART, ({
 }))
 
 /////////////////////////////////////////////////////////////////////////
-// 15. DUAL VESC 4.20 UART & TANK MIXING CONTROLLER
-/////////////////////////////////////////////////////////////////////////
-
-#define VESC_COMM_SET_DUTY      5
-#define VESC_COMM_FORWARD_CAN   34
-#define VESC_CAN_ID_SLAVE       2
-
-static uint16_t vesc_crc16(const uint8_t *buf, uint32_t len) {
-    uint16_t crc = 0;
-    for (uint32_t i = 0; i < len; i++) {
-        crc ^= (uint16_t)buf[i] << 8;
-        for (uint8_t j = 0; j < 8; j++) {
-            if (crc & 0x8000) {
-                crc = (crc << 1) ^ 0x1021;
-            } else {
-                crc = crc << 1;
-            }
-        }
-    }
-    return crc;
-}
-
-void sendVescDuty(uint8_t can_id, float duty) {
-    duty = constrain(duty, -0.95f, 0.95f);
-    int32_t duty_int = (int32_t)(duty * 100000.0f);
-
-    uint8_t payload[8];
-    uint8_t p_len = 0;
-
-    if (can_id <= 1) {
-        // Direct command to Master (Controller ID 1)
-        payload[p_len++] = VESC_COMM_SET_DUTY;
-        payload[p_len++] = (duty_int >> 24) & 0xFF;
-        payload[p_len++] = (duty_int >> 16) & 0xFF;
-        payload[p_len++] = (duty_int >> 8) & 0xFF;
-        payload[p_len++] = duty_int & 0xFF;
-    } else {
-        // Forwarded over internal CAN bus to Slave (Controller ID can_id)
-        payload[p_len++] = VESC_COMM_FORWARD_CAN;
-        payload[p_len++] = can_id;
-        payload[p_len++] = VESC_COMM_SET_DUTY;
-        payload[p_len++] = (duty_int >> 24) & 0xFF;
-        payload[p_len++] = (duty_int >> 16) & 0xFF;
-        payload[p_len++] = (duty_int >> 8) & 0xFF;
-        payload[p_len++] = duty_int & 0xFF;
-    }
-
-    uint16_t crc = vesc_crc16(payload, p_len);
-
-    uint8_t frame[16];
-    uint8_t f_idx = 0;
-    frame[f_idx++] = 0x02;            // Packet start
-    frame[f_idx++] = p_len;           // Payload length
-    for (uint8_t i = 0; i < p_len; i++) {
-        frame[f_idx++] = payload[i];
-    }
-    frame[f_idx++] = (crc >> 8) & 0xFF;
-    frame[f_idx++] = crc & 0xFF;
-    frame[f_idx++] = 0x03;            // Packet end
-
-    COMMAND_SERIAL.write(frame, f_idx);
-}
-
-#define VESC_COMM_GET_VALUES    4
-
-struct VescTelemetry {
-    float battery_volts;
-    float motor_current;
-    float battery_current;
-    float mosfet_temp;
-    float motor_temp;
-    int32_t erpm;
-    uint8_t fault_code;
-    uint32_t last_update_ms;
-};
-
-VescTelemetry vesc_telemetry = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0, 0 };
-
-void requestVescTelemetry() {
-    uint8_t payload[1] = { VESC_COMM_GET_VALUES };
-    uint16_t crc = vesc_crc16(payload, 1);
-    uint8_t frame[6];
-    frame[0] = 0x02;
-    frame[1] = 0x01;
-    frame[2] = VESC_COMM_GET_VALUES;
-    frame[3] = (crc >> 8) & 0xFF;
-    frame[4] = crc & 0xFF;
-    frame[5] = 0x03;
-    COMMAND_SERIAL.write(frame, 6);
-}
-
-void parseVescValuesPayload(const uint8_t* payload, uint16_t len) {
-    if (len < 54) return;
-    if (payload[0] != VESC_COMM_GET_VALUES) return;
-
-    int16_t raw_temp_mos = (int16_t)((payload[1] << 8) | payload[2]);
-    int16_t raw_temp_mot = (int16_t)((payload[3] << 8) | payload[4]);
-    int32_t raw_curr_mot = (int32_t)((payload[5] << 24) | (payload[6] << 16) | (payload[7] << 8) | payload[8]);
-    int32_t raw_curr_in  = (int32_t)((payload[9] << 24) | (payload[10] << 16) | (payload[11] << 8) | payload[12]);
-    int32_t raw_erpm     = (int32_t)((payload[23] << 24) | (payload[24] << 16) | (payload[25] << 8) | payload[26]);
-    int16_t raw_vin      = (int16_t)((payload[27] << 8) | payload[28]);
-    uint8_t fault        = payload[53];
-
-    vesc_telemetry.mosfet_temp     = (float)raw_temp_mos / 10.0f;
-    vesc_telemetry.motor_temp      = (float)raw_temp_mot / 10.0f;
-    vesc_telemetry.motor_current   = (float)raw_curr_mot / 100.0f;
-    vesc_telemetry.battery_current = (float)raw_curr_in / 100.0f;
-    vesc_telemetry.erpm            = raw_erpm;
-    vesc_telemetry.battery_volts   = (float)raw_vin / 10.0f;
-    vesc_telemetry.fault_code      = fault;
-    vesc_telemetry.last_update_ms  = millis();
-}
-
-void processVescTelemetry() {
-    static uint8_t rx_buffer[128];
-    static uint8_t rx_state = 0;
-    static uint16_t payload_len = 0;
-    static uint16_t payload_idx = 0;
-    static uint16_t rx_crc = 0;
-    static uint32_t last_request_ms = 0;
-
-    uint32_t now = millis();
-    if (now - last_request_ms >= 200) {
-        last_request_ms = now;
-        requestVescTelemetry();
-    }
-
-    while (COMMAND_SERIAL.available() > 0) {
-        uint8_t b = COMMAND_SERIAL.read();
-        switch (rx_state) {
-            case 0:
-                if (b == 0x02) {
-                    rx_state = 1;
-                    payload_idx = 0;
-                }
-                break;
-            case 1:
-                payload_len = b;
-                if (payload_len > 0 && payload_len < sizeof(rx_buffer)) {
-                    rx_state = 2;
-                    payload_idx = 0;
-                } else {
-                    rx_state = 0;
-                }
-                break;
-            case 2:
-                rx_buffer[payload_idx++] = b;
-                if (payload_idx >= payload_len) {
-                    rx_state = 3;
-                }
-                break;
-            case 3:
-                rx_crc = ((uint16_t)b) << 8;
-                rx_state = 4;
-                break;
-            case 4:
-                rx_crc |= b;
-                rx_state = 5;
-                break;
-            case 5:
-                if (b == 0x03) {
-                    if (vesc_crc16(rx_buffer, payload_len) == rx_crc) {
-                        parseVescValuesPayload(rx_buffer, payload_len);
-                    }
-                }
-                rx_state = 0;
-                break;
-        }
-    }
-}
-
-void stopVescMotors() {
-    sendVescDuty(1, 0.0f);
-    sendVescDuty(VESC_CAN_ID_SLAVE, 0.0f);
-}
-
-void processVescDrive() {
-    static uint32_t last_vesc_update_ms = 0;
-    uint32_t now = millis();
-    if (now - last_vesc_update_ms < 20) return; // 50Hz update rate
-    last_vesc_update_ms = now;
-
-    if (!rc_connected || otaInProgress || active_macro == R2_FAINT) {
-        stopVescMotors();
-        return;
-    }
-
-    // Hardware fault or low battery cutoff
-    if (vesc_telemetry.last_update_ms > 0) {
-        if (vesc_telemetry.fault_code != 0) {
-            stopVescMotors();
-            return;
-        }
-        if (vesc_telemetry.battery_volts > 5.0f && vesc_telemetry.battery_volts < 10.5f) {
-            stopVescMotors();
-            return;
-        }
-    }
-
-    uint16_t raw_throttle = rc_channels[RC_CH_THROTTLE];
-    uint16_t raw_steer    = rc_channels[RC_CH_STEER];
-
-    // Deadband between 1460us and 1540us
-    float throttle = 0.0f;
-    float steer = 0.0f;
-
-    if (raw_throttle < 1460) {
-        throttle = (float)(raw_throttle - 1460) / 460.0f; // -1.0 to 0.0
-    } else if (raw_throttle > 1540) {
-        throttle = (float)(raw_throttle - 1540) / 460.0f; // 0.0 to +1.0
-    }
-
-    if (raw_steer < 1460) {
-        steer = (float)(raw_steer - 1460) / 460.0f; // -1.0 to 0.0
-    } else if (raw_steer > 1540) {
-        steer = (float)(raw_steer - 1540) / 460.0f; // 0.0 to +1.0
-    }
-
-    // Dual Rates Speed Switch (Switch SwB / CH5)
-    // Low: 35%, Mid: 70%, High: 100%
-    float max_rate = 0.35f;
-    if (rc_channels[RC_CH_SPEED_MODE] > 1750) {
-        max_rate = 1.0f;
-    } else if (rc_channels[RC_CH_SPEED_MODE] > 1250) {
-        max_rate = 0.70f;
-    }
-
-    // Tank Differential Mixing
-    float left_duty  = constrain((throttle + steer) * max_rate, -1.0f, 1.0f);
-    float right_duty = constrain((throttle - steer) * max_rate, -1.0f, 1.0f);
-
-    sendVescDuty(1, left_duty);
-    sendVescDuty(VESC_CAN_ID_SLAVE, right_duty);
-}
-
-/////////////////////////////////////////////////////////////////////////
-// 16. SYSTEM INITIALIZATION (SETUP)
+// 15. SYSTEM INITIALIZATION (SETUP)
 /////////////////////////////////////////////////////////////////////////
 
 void setup() {
@@ -1227,14 +756,18 @@ void setup() {
     wifiEnabled = wifiActive = preferences.getBool(PREFERENCE_WIFI_ENABLED, WIFI_ENABLED);
 #endif
 
-    // 1. Initialize Hardware UART2 for Dual VESC COMM (115,200 baud, TX on GPIO 18, RX on GPIO 5)
-    VESC_SERIAL.begin(115200, SERIAL_8N1, PIN_VESC_UART_RX, PIN_VESC_UART_TX);
+    // 1. Initialize Body Controller UART (115,200 baud, RX16, TX17 on Serial2)
+    BODY_SERIAL.begin(115200, SERIAL_8N1, PIN_BODY_UART_RX, PIN_BODY_UART_TX);
 
-    // 2. Initialize Hardware UART1 for FlySky i-Bus (115,200 baud on GPIO 16)
-    IBUS_SERIAL.begin(115200, SERIAL_8N1, PIN_IBUS_RX, -1);
+    // 2. Initialize BodyClient session from NVS boot counter
+    Preferences r2link_prefs;
+    r2link_prefs.begin("r2link", false);
+    uint32_t session = r2link_prefs.getUInt("session", 0) + 1;
+    if (session == 0) session = 1;
+    r2link_prefs.putUInt("session", session);
+    r2link_prefs.end();
 
-    // 3. Initialize Simplex Audio Serial for Body DFPlayer Mini (9,600 baud on GPIO 17)
-    soundSerial.begin(SOUND_BAUD);
+    g_body_client.begin(g_body_port, session);
 
     // 3. Mount SPIFFS Filesystem for Web Images & Data
     if (!mountReadOnlyFileSystem()) {
@@ -1246,11 +779,8 @@ void setup() {
     Wire.setTimeOut(10); // Prevent bus lockup from stalling main loop
     SetupEvent::ready();
 
-    // 5. Initialize DFPlayer Audio Engine
-    delay(1000); // Allow DFPlayer module to power up
-    if (!sMarcSound.begin(MarcSound::kDFMini, SOUND_SERIAL, MARC_SOUND_STARTUP)) {
-        DEBUG_PRINTLN("[AUDIO] Warning: DFPlayer init in simplex mode");
-    }
+    // 5. Initialize Remote Audio Engine via Body Controller
+    sMarcSound.beginRemote(g_remote_audio, MARC_SOUND_STARTUP);
     sMarcSound.setVolume(preferences.getInt(PREFERENCE_MARCSOUND_VOLUME, MARC_SOUND_VOLUME) / 1000.0);
 
     // 6. Assign PCA9685 Servos to 3 HoloProjectors
@@ -1258,27 +788,17 @@ void setup() {
     rearHolo.assignServos(&servoDispatch, 2, 3);
     topHolo.assignServos(&servoDispatch, 4, 5);
 
-    // 7. Initialize LEDC Hardware Timer for 35kg Continuous Dome Servo
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcAttach(PIN_DOME_SERVO_PWM, DOME_LEDC_FREQ, DOME_LEDC_RES);
-#else
-    ledcSetup(DOME_LEDC_CHANNEL, DOME_LEDC_FREQ, DOME_LEDC_RES);
-    ledcAttachPin(PIN_DOME_SERVO_PWM, DOME_LEDC_CHANNEL);
-#endif
-    setDomeServoSpeed(0); // Neutral zero-speed stop
+    // 7. Initialize Dual KY-003 Hall Effect Homing Sensors
+    pinMode(PIN_DOME_HALL_FRONT, INPUT_PULLUP);
+    pinMode(PIN_DOME_HALL_REAR, INPUT_PULLUP);
 
-    // 8. Initialize KY-003 Hall Effect Homing Sensor (GPIO 19 / AUX 5)
-    pinMode(PIN_DOME_HALL_SENS, INPUT_PULLUP);
-    is_dome_at_home = (digitalRead(PIN_DOME_HALL_SENS) == LOW);
-    attachInterrupt(digitalPinToInterrupt(PIN_DOME_HALL_SENS), onHallSensorChange, CHANGE);
-
-    // 9. Attach Procedural Shaders to Displays
+    // 8. Attach Procedural Shaders to Displays
     RLD.setLogicEffectSelector(CustomLogicEffectSelector);
     FLD.setLogicEffectSelector(CustomLogicEffectSelector);
     frontPSI.setLogicEffectSelector(CustomLogicEffectSelector);
     rearPSI.setLogicEffectSelector(CustomLogicEffectSelector);
 
-    // 10. Initial Movie Scroll Message
+    // 9. Initial Movie Scroll Message
     RLD.selectScrollTextLeft("... AstroPixels ....", LogicEngineRenderer::kBlue, 0, 15);
     FLD.selectScrollTextLeft("... R2-D2 ...", LogicEngineRenderer::kRed, 0, 15);
 
@@ -1316,7 +836,6 @@ void setup() {
             stopDomeMotion();
             cancelR2Macro();
             disableHoloServos();
-            WRITE_DOME_SERVO(0);
             DEBUG_PRINTLN("[OTA] Update Started...");
         }).onEnd([]() { DEBUG_PRINTLN("[OTA] Update Finished!"); })
           .onError([](ota_error_t error) {
@@ -1328,7 +847,7 @@ void setup() {
     }
 #endif
 
-    // 11. Play Startup Sound & Enable Random Chatter
+    // 10. Play Startup Sound & Enable Random Chatter
     sMarcSound.playStartSound();
     sMarcSound.setRandomMin(preferences.getInt(PREFERENCE_MARCSOUND_RANDOM_MIN, MARC_SOUND_RANDOM_MIN));
     sMarcSound.setRandomMax(preferences.getInt(PREFERENCE_MARCSOUND_RANDOM_MAX, MARC_SOUND_RANDOM_MAX));
@@ -1340,12 +859,46 @@ void setup() {
 }
 
 /////////////////////////////////////////////////////////////////////////
-// 17. COOPERATIVE CONTROL AND NETWORK LOOP
+// 16. COOPERATIVE CONTROL AND NETWORK LOOP
 /////////////////////////////////////////////////////////////////////////
 
 void loop() {
-    // All control-changing callbacks run on this task, not on a second core.
-    processIBusFrames();
+    uint32_t now = millis();
+
+    // 1. Tick body client and process incoming frames from Teensy
+    g_body_client.tick(now);
+
+    // 2. Drain events and forward to DomeBehaviour and macro sequencer
+    r2link::Event ev;
+    while (g_body_client.takeEvent(ev)) {
+        g_dome_behaviour.onEvent(ev);
+        if (ev.kind == static_cast<uint8_t>(r2link::EventKind::Completed) &&
+            ev.request_type == static_cast<uint8_t>(r2link::MessageType::DomeRequest)) {
+            homing_state = HOMING_INACTIVE;
+            centerHoloServos();
+            if (pending_macro_after_home != R2_NONE) {
+                R2Macro macro = pending_macro_after_home;
+                pending_macro_after_home = R2_NONE;
+                startR2Macro(macro);
+            }
+        } else if ((ev.kind == static_cast<uint8_t>(r2link::EventKind::Fault) ||
+                    ev.kind == static_cast<uint8_t>(r2link::EventKind::Cancelled)) &&
+                   ev.request_type == static_cast<uint8_t>(r2link::MessageType::DomeRequest)) {
+            homing_state = HOMING_INACTIVE;
+            pending_macro_after_home = R2_NONE;
+        }
+    }
+
+    // 3. Dual Hall sensors publish
+    processHallSensors(now);
+
+    // 4. Ingest RC snapshot from Teensy
+    processBodyRcSnapshot(now);
+
+    // 5. Autonomous dome behaviour scheduler
+    DomeBehaviourInput dome_input = g_body_client.makeDomeBehaviourInput(now, active_macro != R2_NONE);
+    g_dome_behaviour.tick(dome_input, now);
+
 #ifdef USE_WIFI
     if (wifiActive) {
 #ifdef USE_OTA
@@ -1358,19 +911,12 @@ void loop() {
 #endif
     if (otaInProgress) {
         stopDomeMotion();
-        stopVescMotors();
-        WRITE_DOME_SERVO(0);
         return;
     }
+
     processTransmitterInputs();
-    processDomeHoming();
-    processDomeRotation();
-    processManualHoloTilt();
     processRandomHolos();
     AnimatedEvent::process();
     processR2Macro();
-    processVescDrive();
-    processVescTelemetry();
     sMarcSound.idle();
-    processAudioQueue();
 }

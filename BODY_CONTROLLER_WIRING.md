@@ -79,7 +79,7 @@ These modules contain 10k ohm pull-ups; LV and HV are voltage **inputs**, not re
 | HV3 / B3 | Dome-rotation servo signal |
 | Channel 4 | Unconnected |
 
-The dome shifter uses dome fused D-LOGIC 5V at HV, ESP32 3.3V at LV and dome ground at GND. Hall signal goes to HV2/B2; LV2/A2 goes to GPIO19. Other channels are unused.
+The dome shifter uses dome fused D-LOGIC 5V at HV, ESP32 3.3V at LV and dome ground at GND. Front Hall signal goes to HV2/B2 (LV2/A2 to GPIO19); Rear Hall signal goes to HV3/B3 (LV3/A3 to GPIO18). Channels 1 and 4 are unused.
 
 ### Receiver power and input
 
@@ -128,7 +128,7 @@ Use end-to-end continuity to identify the six contacts; wire colours alone do no
 
 Serial is 115200, 8N1, two-way 3.3V, no shifter. Use AstroPixels' dedicated serial RX16/TX17 connections; do not connect a serial-header 5V pin. Ring CH2 provides common ground. Insulate both ends of CH4/CH5 separately and label SPARE.
 
-GPIO5/AUX3, GPIO18/AUX4 and GPIO4/AUX2 are spare. GPIO19 remains Hall input. GPIO21/22 remain I2C. The earlier receiver-in-dome, VESC-through-ring, CH4 audio and CH5 servo assignments are superseded; do not assemble them.
+GPIO5/AUX3 and GPIO4/AUX2 are spare. GPIO19 is Front Hall input, GPIO18 is Rear Hall input. GPIO21/22 remain I2C. The earlier receiver-in-dome, VESC-through-ring, CH4 audio and CH5 servo assignments are superseded; do not assemble them.
 
 ## 7. First-time harness assembly
 

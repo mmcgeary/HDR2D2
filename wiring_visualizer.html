@@ -62,7 +62,7 @@
     <h1>R2-D2 Power Harness and Pin-to-Pin Inspector</h1>
     <p class="notice">Schematic layout. Always verify physical connector pin markings before wiring.</p>
     <p class="notice">Assemble only with all power disconnected.</p>
-    <p class="notice"><strong>Body / dome ownership:</strong> Teensy 4.1 in Treedix B09NXYWYK7 owns the body FS-iA6B receiver, two independent full-duplex VESC UARTs (CAN switch OFF), bidirectional DFPlayer UART, and dome-servo pulses through body shifter CH3. Dome ESP32 owns Hall GPIO19 through dome shifter CH2, I2C and lighting. Direct 3.3V body link: CH3 TX17 → GPIO16 RX; CH6 GPIO17 TX → RX16. CH4/5 are insulated spares.</p>
+    <p class="notice"><strong>Body / dome ownership:</strong> Teensy 4.1 in Treedix B09NXYWYK7 owns the body FS-iA6B receiver, two independent full-duplex VESC UARTs (CAN switch OFF), bidirectional DFPlayer UART, and dome-servo pulses through body shifter CH3. Dome ESP32 owns Front Hall GPIO19 through dome shifter CH2, Rear Hall GPIO18 through dome shifter CH3, I2C and lighting. Direct 3.3V body link: CH3 TX17 → GPIO16 RX; CH6 GPIO17 TX → RX16. CH4/5 are insulated spares.</p>
     <p class="notice"><strong>USB / power:</strong> VUSB/VIN trace isolation is approved but not physically done. Follow the Teensy 4.1 underside cut and unpowered multimeter checks in <a href="BODY_CONTROLLER_WIRING.md">the body wiring guide</a>; verify no carrier re-bridge. After isolation, external VIN is required even with normal USB attached. Keep independent 5V positives and common grounds.</p>
     <div class="controls">
       <label for="filter">Circuit</label>
@@ -506,8 +506,8 @@
       "note": "Support both ends and make shoulder service loop. No tensile load on axle-exit wires. Separate Hall bundle from phases where practical."
     },
     "hall": {
-      "name": "KY-003 dome home sensor",
-      "area": "Rotating dome hub",
+      "name": "KY-003 front dome home sensor",
+      "area": "Rotating dome hub (0°)",
       "x": 1570,
       "y": 2216,
       "ports": [
@@ -515,7 +515,19 @@
         "GND",
         "SIGNAL"
       ],
-      "note": "Magnet stays stationary; sensor output level-shifted toGPIO19. Confirm module terminal markings; rotate by hand to test."
+      "note": "Front reference sensor at 0°; magnet stays stationary; sensor output level-shifted to GPIO19. Confirm module terminal markings; rotate by hand to test."
+    },
+    "rearHall": {
+      "name": "KY-003 rear dome home sensor",
+      "area": "Rotating dome hub (180°)",
+      "x": 1570,
+      "y": 2420,
+      "ports": [
+        "5V",
+        "GND",
+        "SIGNAL"
+      ],
+      "note": "Rear reference sensor at 180°; active-low open-collector output translated to GPIO18 via dome shifter CH3."
     },
     "shifter": {
       "name": "Lonely Binary dome MOSFET shifter",
@@ -530,19 +542,19 @@
         "LV1 UNUSED",
         "HV2 Hall IN 5V",
         "LV2 Hall OUT 3.3V",
-        "HV3 UNUSED",
-        "LV3 UNUSED",
+        "HV3 Rear Hall IN 5V",
+        "LV3 Rear Hall OUT 3.3V",
         "HV4 UNUSED",
         "LV4 UNUSED"
       ],
-      "note": "Selected B0FFMLDYNY kit, one four-channel board here; old shifters returned. LV1-LV4 aliases mean PCB A1-A4; HV1-HV4 mean PCB B1-B4. Known 10k ohm pull-ups. External LV/HV references, no voltage generation. Only CH2 used: Hall 5V -> GPIO19. CH1/3/4 unused, insulated. Verify supplied PCB labels/channel pairing and ground continuity unpowered. UARTs to both VESCs, DFPlayer and body/dome link bypass shifters.",
+      "note": "Selected B0FFMLDYNY kit, one four-channel board here; old shifters returned. LV1-LV4 aliases mean PCB A1-A4; HV1-HV4 mean PCB B1-B4. Known 10k ohm pull-ups. External LV/HV references, no voltage generation. CH2 Front Hall: Hall 5V -> GPIO19. CH3 Rear Hall: Rear Hall 5V -> GPIO18. CH1/4 unused, insulated. Verify supplied PCB labels/channel pairing and ground continuity unpowered. UARTs to both VESCs, DFPlayer and body/dome link bypass shifters.",
       "portLabels": {
         "HV1 UNUSED": "B1 / HV1 UNUSED",
         "LV1 UNUSED": "A1 / LV1 UNUSED",
         "HV2 Hall IN 5V": "B2 / HV2 Hall IN 5V",
         "LV2 Hall OUT 3.3V": "A2 / LV2 Hall OUT 3.3V",
-        "HV3 UNUSED": "B3 / HV3 UNUSED",
-        "LV3 UNUSED": "A3 / LV3 UNUSED",
+        "HV3 Rear Hall IN 5V": "B3 / HV3 Rear Hall IN 5V",
+        "LV3 Rear Hall OUT 3.3V": "A3 / LV3 Rear Hall OUT 3.3V",
         "HV4 UNUSED": "B4 / HV4 UNUSED",
         "LV4 UNUSED": "A4 / LV4 UNUSED",
         "LV 3.3V": "LV / A-side 3.3V reference",
@@ -562,7 +574,7 @@
         "GPIO16 RX",
         "GPIO19 HALL",
         "GPIO5 UNUSED",
-        "GPIO18 UNUSED",
+        "GPIO18 HALL",
         "GPIO4 UNUSED",
         "GPIO17 TX",
         "GPIO21 SDA",
@@ -586,10 +598,10 @@
         "GPIO16 RX": "Serial2 RX / GPIO16 from Teensy",
         "GPIO17 TX": "Serial2 TX / GPIO17 to Teensy",
         "GPIO5 UNUSED": "AUX3 GPIO5 UNUSED",
-        "GPIO18 UNUSED": "AUX4 GPIO18 UNUSED",
+        "GPIO18 HALL": "AUX4 GPIO18 Rear Hall",
         "GPIO4 UNUSED": "AUX2 GPIO4 UNUSED"
       },
-      "note": "Target AstroPixels dome controller after firmware migration. Serial2 RX GPIO16 and TX GPIO17 exclusively carry body link; disable legacy serial MarcDuino parser on this UART. GPIO19 Hall via dome shifter CH2. SDA21/SCL22 direct 3.3V PCA9685 I2C, I2C 5V header unused. Owns lighting/holo servos/Wi-Fi/choreography, not VESC/receiver/DFPlayer/dome-servo output. Fused 3A electronics/lighting rail supplies all factory S/V/G light sockets; internal connections below represent their positive supply conductors only.",
+      "note": "Target AstroPixels dome controller after firmware migration. Serial2 RX GPIO16 and TX GPIO17 exclusively carry body link; disable legacy serial MarcDuino parser on this UART. Front Hall on GPIO19 via dome shifter CH2, Rear Hall on GPIO18 via dome shifter CH3. SDA21/SCL22 direct 3.3V PCA9685 I2C, I2C 5V header unused. Owns lighting/holo servos/Wi-Fi/choreography, not VESC/receiver/DFPlayer/dome-servo output. Fused 3A electronics/lighting rail supplies all factory S/V/G light sockets; internal connections below represent their positive supply conductors only.",
       "connections": [
         [
           "5V TERMINAL",
@@ -1231,6 +1243,23 @@
       "note": "Module common ground."
     },
     {
+      "id": "rear-hall-power",
+      "from": "domeElectronics:HALL +",
+      "to": "rearHall:5V",
+      "cat": "dome5",
+      "spec": "22AWG regulated 5V positive",
+      "note": "3A-fused Rear Hall supply.",
+      "awg": 22
+    },
+    {
+      "id": "rear-hall-return",
+      "from": "rearHall:GND",
+      "to": "dome5:GND",
+      "cat": "dome5",
+      "spec": "22AWG black",
+      "note": "Module common ground."
+    },
+    {
       "id": "capacitor-positive",
       "from": "domeElectronics:CAPACITOR +",
       "to": "capacitor:+",
@@ -1286,6 +1315,22 @@
       "cat": "logic",
       "spec": "22AWG short3.3V Hall output",
       "note": "PreferredPlus usesGPIO19, not legacyGPIO5. ESP32-side signal is3.3V."
+    },
+    {
+      "id": "rear-home-high",
+      "from": "rearHall:SIGNAL",
+      "to": "shifter:HV3 Rear Hall IN 5V",
+      "cat": "logic",
+      "spec": "22AWG 5V-side Rear Hall input",
+      "note": "Rear Hall active-low detection enters HV3 and is translated down."
+    },
+    {
+      "id": "rear-home-low",
+      "from": "shifter:LV3 Rear Hall OUT 3.3V",
+      "to": "esp:GPIO18 HALL",
+      "cat": "logic",
+      "spec": "22AWG short 3.3V Rear Hall output",
+      "note": "Rear Hall on GPIO18. ESP32-side signal is 3.3V."
     },
     {
       "id": "dome-pwm-body",
@@ -2026,6 +2071,7 @@
         ["#fdba74",["sensor-high","sensor-low"]],
         ["#ddd6fe",["dome-pwm-body","dome-pwm-high"]],
         ["#a7f3d0",["home-high","home-low"]],
+        ["#6ee7b7",["rear-home-high","rear-home-low"]],
         ["#38bdf8",["pca-sda"]],["#2dd4bf",["pca-scl"]]
       ];
       const group=groups.find(([,ids])=>ids.includes(wire.id));
@@ -2064,7 +2110,7 @@
       if (component.endsWith("Vesc"))
         return /^(B[+-]|COMM|CAN)/.test(port) ? "left" : "right";
       if (component === "esp")
-        return /^(5V|GND|GPIO16|GPIO17|GPIO19)/.test(port) ? "left" : "right";
+        return /^(5V|GND|GPIO16|GPIO17|GPIO18|GPIO19)/.test(port) ? "left" : "right";
       if (component === "pca") return port.startsWith("CH") ? "right" : "left";
       if (component === "amp") return /^L[+-]$/.test(port) ? "right" : "left";
       if (component === "dfplayer") return port.startsWith("DAC") ? "right" : "left";

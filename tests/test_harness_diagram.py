@@ -233,9 +233,11 @@ class HarnessDiagramTests(unittest.TestCase):
                     self.assertRegex(shifter["portLabels"][port], r"[AB][1-4]")
         self.assertIn(("hall:SIGNAL", "shifter:HV2 Hall IN 5V"), routes)
         self.assertIn(("shifter:LV2 Hall OUT 3.3V", "esp:GPIO19 HALL"), routes)
+        self.assertIn(("rearHall:SIGNAL", "shifter:HV3 Rear Hall IN 5V"), routes)
+        self.assertIn(("shifter:LV3 Rear Hall OUT 3.3V", "esp:GPIO18 HALL"), routes)
         endpoints = {e for w in data["wires"] for e in (w["from"], w["to"])}
         for component, channels in (("bodyShifter", {"1", "2", "3"}),
-                                    ("shifter", {"2"})):
+                                    ("shifter", {"2", "3"})):
             used = {re.search(r":(?:LV|HV)([1-4])", endpoint).group(1)
                     for endpoint in endpoints
                     if re.match(rf"{component}:(?:LV|HV)[1-4]", endpoint)}
@@ -245,7 +247,7 @@ class HarnessDiagramTests(unittest.TestCase):
         data = self.load_data()
         for wire in data["wires"]:
             self.assertNotIn("UNUSED", wire["from"] + wire["to"])
-            self.assertNotRegex(wire["from"] + wire["to"], r"esp:GPIO(?:5|18|4)\b|CAN LINK")
+            self.assertNotRegex(wire["from"] + wire["to"], r"esp:GPIO(?:5|4)\b|CAN LINK")
         for controller in ("leftVesc", "rightVesc"):
             for port in ("COMM 5V UNUSED", "COMM 3.3V UNUSED",
                          "COMM ADC UNUSED", "COMM ADC2 UNUSED"):
@@ -267,7 +269,7 @@ class HarnessDiagramTests(unittest.TestCase):
              ["pca:V+ 5V"] + [f"{s}:5V" for s in
                              ("frontPan", "frontTilt", "rearPan", "rearTilt", "topPan", "topTilt")]),
             ("domeElectronicsFuse", 3, "dome5:FEED",
-             ["esp:5V TERMINAL", "hall:5V", "shifter:HV 5V", "capacitor:+"] +
+             ["esp:5V TERMINAL", "hall:5V", "rearHall:5V", "shifter:HV 5V", "capacitor:+"] +
              [f"lights:{p}" for p in data["components"]["lights"]["ports"]]),
         )
         def reachable(source, removed=None):
@@ -326,6 +328,7 @@ class HarnessDiagramTests(unittest.TestCase):
                 ["dome-link-tx","ring6","body-link-rx"],
                 ["ibus-shifter","ibus-low"],["sensor-high","sensor-low"],
                 ["dome-pwm-body","dome-pwm-high"],["home-high","home-low"],
+                ["rear-home-high","rear-home-low"],
                 ["left-vesc-tx"],["left-vesc-rx"],
                 ["right-vesc-tx"],["right-vesc-rx"],
                 ["audio-rx-body"],["audio-feedback"],["pca-sda"],["pca-scl"]

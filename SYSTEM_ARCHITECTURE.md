@@ -9,7 +9,7 @@ The selected first-assembly architecture splits real-time body control from dome
 | Body: Teensy 4.1 / Treedix | Dome: AstroPixels ESP32 |
 | --- | --- |
 | FlySky SERVO iBUS decode and SENSOR half-duplex replies | Lighting, holo servos/PCA9685 |
-| Differential mixing and two independent VESC UARTs | Hall input and published Hall state |
+| Differential mixing and two independent VESC UARTs | Two Hall sensors (Front/Rear) and published Hall state |
 | Continuous dome-rotation servo | Macros, audio selection and chatter |
 | Bidirectional DFPlayer UART and playback feedback | Wi-Fi UI, settings, OTA |
 | RC freshness, drive arming, actuator leases and locks | Body requests, acknowledgements and operator status |
@@ -24,7 +24,7 @@ flowchart LR
     T <-->|"Serial3 9600"| DF["DFPlayer / isolator / amplifier"]
     T -->|"Translated pin 2 pulses"| DS["Body dome servo"]
     T <-->|"Serial4 ring CH3/CH6"| E["Dome ESP32"]
-    H["Hall / Lonely Binary"] --> E
+    H["Dual Hall / Lonely Binary"] --> E
     E --> P["PCA9685 / six MG90S"]
     E --> LED["AstroPixels displays"]
     W["Wi-Fi dashboard / OTA"] <--> E
@@ -53,7 +53,7 @@ Teensy validates all 14 received channel fields, requires fresh RC <=250ms and b
 
 Neutral and disarm use positive brake-current commands, not zero duty. Each VESC has a 150ms command timeout and tested timeout braking. Neither firmware nor master cutoff guarantees a fixed mechanical stopping distance.
 
-Manual dome control is permitted with fresh radio and CH6 OFF. Automatic home requires CH6 ON, centered dome stick and fresh Hall updates; manual override cancels it. Peer link loss cancels remote actions but does not unnecessarily stop healthy manual foot drive. STOP, Faint and maintenance locks are different: they remain latched across peer loss/reboot until explicitly released/recovered.
+Manual dome control is permitted with fresh radio and CH9 OFF. Automatic home requires CH9 ON, centered dome stick and fresh Hall updates; manual override cancels it. Peer link loss cancels remote actions but does not unnecessarily stop healthy manual foot drive. Transmitter CH3 is unused; CH9 gates Auto Dome. STOP and maintenance locks are latched across peer loss/reboot until explicitly released/recovered; the Faint macro does not engage maintenance lock.
 
 Audio timing uses DFPlayer feedback; command acknowledgement alone does not prove audible playback. Leia starts only after home completes and confirmed playback starts. OTA begins only after body acknowledges an all-motion maintenance lock.
 

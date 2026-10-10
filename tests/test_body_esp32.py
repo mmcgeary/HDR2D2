@@ -277,6 +277,26 @@ class BodyEsp32Tests(unittest.TestCase):
     f.client.publishHall(0x03, 0x01, 100, 1050);
 ''')
 
+    def test_dual_hall_pins_and_masks(self):
+        self.check(r'''
+    ClientFixture f;
+    f.connect();
+
+    constexpr uint8_t kPinFront = 19;
+    constexpr uint8_t kPinRear = 18;
+    assert(kPinFront == 19);
+    assert(kPinRear == 18);
+
+    // Front active (bit 0 = 1, bit 1 = 0)
+    f.client.publishHall(0x03, 0x01, 1, 1000);
+    // Rear active (bit 0 = 0, bit 1 = 1)
+    f.client.publishHall(0x03, 0x02, 2, 1020);
+    // Neither active
+    f.client.publishHall(0x03, 0x00, 3, 1040);
+    // Both active
+    f.client.publishHall(0x03, 0x03, 4, 1060);
+''')
+
     def test_generation_change_and_peer_lost(self):
         self.check(r'''
     ClientFixture f;

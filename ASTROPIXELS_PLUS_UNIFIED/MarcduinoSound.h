@@ -1,4 +1,6 @@
-#include "DFRobotDFPlayerMini.h"
+#include "RemoteAudio.h"
+
+void playDFPlayerTrack(uint16_t track_num);
 /***********************************************************
  *  MP3sound.c
  *  MarcDuino interface to play sounds from an MP3Trigger board
@@ -185,7 +187,17 @@ public:
             case kDisabled:
                 break;
             case kDFMini:
-                playDFPlayerTrack(filenum);
+                if (fRemoteAudio)
+                {
+                    r2link::AudioPriority prio = (bank == 1 || bank == 2)
+                        ? r2link::AudioPriority::Ambient
+                        : r2link::AudioPriority::Foreground;
+                    fRemoteAudio->play(filenum, prio);
+                }
+                else
+                {
+                    playDFPlayerTrack(filenum);
+                }
                 break;
             case kMP3Trigger:
                 // send a 't'nnn number where nnn=file number
@@ -295,7 +307,8 @@ public:
             case kDisabled:
                 break;
             case kDFMini:
-                fDFMini.stop();
+                if (fRemoteAudio)
+                    fRemoteAudio->stop();
                 break;
             case kMP3Trigger:
                 playSound(0, MP3_EMPTY_SOUND);
@@ -382,7 +395,8 @@ public:
             case kDisabled:
                 break;
             case kDFMini:
-                fDFMini.volume(ceil(volume * DF_VOLUME_MAX));
+                if (fRemoteAudio)
+                    fRemoteAudio->setVolume(ceil(volume * DF_VOLUME_MAX));
                 break;
             case kMP3Trigger:
                 sendMP3(MP3_VOLUME_CMD);
@@ -398,6 +412,27 @@ public:
         }
     }
 
+    void initBankIndexes()
+    {
+        for (uint8_t i = 0; i < SizeOfArray(fBankIndexes); i++)
+        {
+            fBankIndexes[i] = 0;
+        }
+    }
+
+    bool beginRemote(RemoteAudio& remote, int startupSound = -1)
+    {
+        fRemoteAudio = &remote;
+        fModule = kDFMini;
+        fStartupSound = startupSound;
+        initBankIndexes();
+        if (fStartupSound > 0)
+        {
+            playSound(0, fStartupSound);
+        }
+        return true;
+    }
+
     bool begin(Module module, Stream& stream, int startupSound = -1)
     {
         fModule = kDisabled;
@@ -408,14 +443,8 @@ public:
                 fStream = nullptr;
                 break;
             case kDFMini:
-                fStream = &stream;
-                if (!fDFMini.begin(stream, false, false))
-                {
-                    DEBUG_PRINTLN("Unable to begin DFPlayer (Non-ACK mode):");
-                    return false;
-                }
-                fDFMini.EQ(DFPLAYER_EQ_NORMAL);
-                break;
+                DEBUG_PRINTLN("Direct local DFPlayer Mini is retired; use beginRemote(RemoteAudio&).");
+                return false;
             case kMP3Trigger:
                 fStream = &stream;
                 break;
@@ -423,11 +452,12 @@ public:
                 fStream = &stream;
                 break;
         }
-        for (uint8_t i=0; i < SizeOfArray(fBankIndexes); i++)
-        {
-            fBankIndexes[i] = 0;
-        }
+        initBankIndexes();
         fModule = module;
+        if (fStartupSound > 0)
+        {
+            playSound(0, fStartupSound);
+        }
         return true;
     }
 
@@ -563,7 +593,7 @@ public:
     }
 
 private:
-    DFRobotDFPlayerMini fDFMini;
+    RemoteAudio* fRemoteAudio = nullptr;
     Stream* fStream = nullptr;
     float fVolume = 0.5;
     Module fModule = kDisabled;

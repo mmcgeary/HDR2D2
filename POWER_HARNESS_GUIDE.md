@@ -72,7 +72,7 @@ BODY buck OUT+ -> BODY unfused positive -> B-SERVO 5A -> body dome servo
 DOME buck OUT+ -> DOME unfused positive -> D-SERVO 5A -> PCA9685 V+ terminal
                                       -> D-LOGIC3A -> insulated logic fan-out
                                                        -> AstroPixels 5V
-                                                       -> Hall5V / dome shifter HV
+                                                       -> Two Hall sensors 5V / dome shifter HV
 ```
 
 The two 5V positive rails never join. Common ground connects throughout via ring CH2. These bucks are non-isolated; their input/output negatives are common.

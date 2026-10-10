@@ -36,11 +36,13 @@ Use a four-channel **Lonely Binary B0FFMLDYNY** module; the old modules are bein
 | HV | D-LOGIC fused 5V |
 | LV | ESP32 3.3V |
 | GND | Dome ground |
-| HV2 / B2 | KY-003 Hall signal |
+| HV2 / B2 | KY-003 Front Hall signal (0°) |
 | LV2 / A2 | GPIO19 / AUX5 |
-| Channels 1/3/4 | Unconnected |
+| HV3 / B3 | KY-003 Rear Hall signal (180°) |
+| LV3 / A3 | GPIO18 / AUX4 |
+| Channels 1/4 | Unconnected |
 
-Hall VCC is D-LOGIC5V and ground is dome ground. Set/record detected polarity during commissioning. Hall state is sent to Teensy every 50ms/on change for body-controlled homing.
+Two KY-003 Hall sensors (Front 0° and Rear 180°) detect the single dome ring magnet. Hall VCC is D-LOGIC 5V and ground is dome ground. Set/record detected polarity during commissioning. Hall state is sent to Teensy every 20ms / on change for body-controlled homing and calibration.
 
 ## 4. PCA9685: separate logic and servo power
 
@@ -77,7 +79,8 @@ Test one servo at a time with horns removed, calibrate travel before mounting, t
 | --- | --- |
 | GPIO16 | Serial2 RX; ringCH3 from TeensyTX17 |
 | GPIO17 | Serial2 TX; ringCH6 to TeensyRX16 |
-| GPIO19 | Hall through dome shifter channel 2 / AUX5 |
+| GPIO18 | Rear Hall through dome shifter channel 3 / AUX4 |
+| GPIO19 | Front Hall through dome shifter channel 2 / AUX5 |
 | GPIO21 | I2C SDA / D |
 | GPIO22 | I2C SCL / C |
 | GPIO15 | Front logic displays / FLD |
@@ -87,7 +90,7 @@ Test one servo at a time with horns removed, calibrate travel before mounting, t
 | GPIO25 | Front holo LED / FHP |
 | GPIO26 | Rear holo LED / RHP |
 | GPIO27 | Top holo LED / THP |
-| GPIO2/4/5/18 | Unused / spare |
+| GPIO2/4/5 | Unused / spare |
 
 The dedicated body protocol is the sole Serial2 reader at 115200. Firmware migration must disable the old MarcDuino serial reader on that UART; web/internal command dispatch remains. GPIO5 is no longer a UART input, avoiding use of a boot-strapping pin.
 
