@@ -564,10 +564,35 @@ inline String formatAudioCheck() {
     return String(states[uint8_t(g_audio_check.state())]);
 }
 
-inline String formatFieldRow(uint8_t field, uint8_t wheel) {
+// A field's input holds only its number (empty while unknown or unset) so the digits-only
+// filter never fights placeholder text; FieldStateView shows the state beside it.
+inline String formatFieldValue(uint8_t field, uint8_t wheel) {
     int32_t v = 0;
-    if (!g_profile_mirror.known(field, wheel)) return String("...");
-    return g_profile_mirror.value(field, wheel, v) ? String(v) : String("(unset)");
+    return g_profile_mirror.value(field, wheel, v) ? String(v) : String("");
+}
+
+class FieldStateView : public WDynamic {
+public:
+    FieldStateView(uint8_t field, uint8_t wheel) : field_(field), wheel_(wheel) {}
+    void emitBody(Print& out) const override {
+        int32_t v = 0;
+        if (!g_profile_mirror.known(field_, wheel_)) out.println("<small>reading... (reload)</small>");
+        else if (!g_profile_mirror.value(field_, wheel_, v)) out.println("<small>(unset)</small>");
+    }
+private:
+    uint8_t field_, wheel_;
+};
+
+template <uint8_t Field, uint8_t Wheel>
+const WDynamic& fieldStateView() {
+    static const FieldStateView view(Field, Wheel);
+    return view;
+}
+
+inline String formatProfileSaved() {
+    const auto cs = g_body_client.commissionStatus(millis());
+    if (!cs.fresh) return String("unknown (no commissioning status)");
+    return String(cs.value.unsaved ? "unsaved changes" : "saved");
 }
 
 // Only a whole (optionally negative) number is staged; an emptied or garbled field is ignored.
@@ -591,17 +616,44 @@ inline void stageCommissionField(uint8_t field, uint8_t wheel, const String& tex
     g_profile_mirror.invalidate(field, wheel);
 }
 
+// Every wizard start button clears the "Cancel not sent" note. Starts that move the dome or
+// wheels are checked against the wizard first, so a refused start never stops dome motion.
+inline bool wizardIdle() { return g_wizard.state() != CommissionWizard::State::Running; }
+
+inline void wizardAcceptAndSave(const uint8_t* bits, uint8_t count) {
+    sWizardCancelRefused = false;
+    g_wizard.acceptAndSave(bits, count, millis());
+}
+
+inline void wizardApplyBaseline() {
+    sWizardCancelRefused = false;
+    g_wizard.applyBaseline(millis());
+}
+
+inline void wizardNeutral() {
+    sWizardCancelRefused = false;
+    if (wizardIdle() && prepareCommissionMotion()) g_wizard.startNeutral(millis());
+}
+
+inline void wizardCalibrateDome() {
+    sWizardCancelRefused = false;
+    if (wizardIdle() && prepareCommissionMotion()) g_wizard.startDomeCalibration(millis());
+}
+
 // Nudge the dome servo neutral from the mirrored value; refused until that value is
 // known (Apply baseline first on a fresh profile) so a guess never overwrites it.
 inline void nudgeDomeNeutral(int16_t delta_us) {
+    sWizardCancelRefused = false;
     int32_t v = 0;
-    if (!g_profile_mirror.value(0, 0, v) || !prepareCommissionMotion()) return;
+    if (!g_profile_mirror.value(0, 0, v) || !g_wizard.canNudge(delta_us, v) || !prepareCommissionMotion()) return;
     if (g_wizard.nudgeNeutral(delta_us, v, millis())) g_profile_mirror.invalidate(0, 0);
 }
 
+// "Wheels are raised" covers one run: it is cleared once a wheel test Begin is sent.
 inline void runWheelTest(uint8_t test, uint8_t wheel) {
-    if (!g_wheels_raised || !prepareCommissionMotion()) return;
-    g_wizard.startWheelTest(test, wheel, g_wheels_raised, millis());
+    sWizardCancelRefused = false;
+    if (!g_wheels_raised || !wizardIdle() || !prepareCommissionMotion()) return;
+    if (g_wizard.startWheelTest(test, wheel, g_wheels_raised, millis())) g_wheels_raised = false;
 }
 
 inline void setWheelDirection(uint8_t wheel, int32_t direction) {
@@ -668,22 +720,22 @@ WElement commissioningContents[] = {
     WDynamicElement(sChecklistView),
     WTextField("Next step:", "c_next", []()->String { return String(nextChecklistStep(checklistInput())); }, [](String) {}),
     WVerticalAlign(),
-    WButton("Apply baseline", "c_base", []() { g_wizard.applyBaseline(millis()); }),
+    WButton("Apply baseline", "c_base", []() { wizardApplyBaseline(); }),
     WHorizontalAlign(),
-    WButton("Save profile", "c_save", []() { g_wizard.acceptAndSave(nullptr, 0, millis()); }),
+    WButton("Save profile", "c_save", []() { wizardAcceptAndSave(nullptr, 0); }),
     WVerticalAlign(),
     W1("Dome"),
-    WButton("Neutral hold", "c_neutral", []() { if (prepareCommissionMotion()) g_wizard.startNeutral(millis()); }),
+    WButton("Neutral hold", "c_neutral", []() { wizardNeutral(); }),
     WHorizontalAlign(),
     WButton("Nudge -5us", "c_nm", []() { nudgeDomeNeutral(-5); }),
     WHorizontalAlign(),
     WButton("Nudge +5us", "c_np", []() { nudgeDomeNeutral(5); }),
     WHorizontalAlign(),
-    WButton("Accept neutral & Save", "c_acc_neu", []() { const uint8_t b[] = {0}; g_wizard.acceptAndSave(b, 1, millis()); }),
+    WButton("Accept neutral & Save", "c_acc_neu", []() { const uint8_t b[] = {0}; wizardAcceptAndSave(b, 1); }),
     WVerticalAlign(),
-    WButton("Calibrate dome (refs + timing)", "c_cal", []() { if (prepareCommissionMotion()) g_wizard.startDomeCalibration(millis()); }),
+    WButton("Calibrate dome (refs + timing)", "c_cal", []() { wizardCalibrateDome(); }),
     WHorizontalAlign(),
-    WButton("Accept dome & Save", "c_acc_dome", []() { const uint8_t b[] = {1, 2, 3}; g_wizard.acceptAndSave(b, 3, millis()); }),
+    WButton("Accept dome & Save", "c_acc_dome", []() { const uint8_t b[] = {1, 2, 3}; wizardAcceptAndSave(b, 3); }),
     WHorizontalAlign(),
     WButton("Cancel", "c_cancel", []() { sWizardCancelRefused = !g_wizard.cancel(millis()); }),
     WVerticalAlign(),
@@ -707,17 +759,22 @@ WElement commissioningContents[] = {
     rseriesSVG
 };
 
+// Each row is the input plus its state note (two array elements).
 #define FIELD_ROW(label, id, field, wheel) \
-    WTextFieldInteger(label, id, []()->String { return formatFieldRow(field, wheel); }, \
-        [](String val) { stageCommissionField(field, wheel, val); })
+    WTextFieldInteger(label, id, []()->String { return formatFieldValue(field, wheel); }, \
+        [](String val) { stageCommissionField(field, wheel, val); }), \
+    WDynamicElement(fieldStateView<field, wheel>())
 // Direction is -1/+1: the integer field's digits-only filter would block the sign.
 #define FIELD_ROW_SIGNED(label, id, field, wheel) \
-    WTextField(label, id, []()->String { return formatFieldRow(field, wheel); }, \
-        [](String val) { stageCommissionField(field, wheel, val); })
+    WTextField(label, id, []()->String { return formatFieldValue(field, wheel); }, \
+        [](String val) { stageCommissionField(field, wheel, val); }), \
+    WDynamicElement(fieldStateView<field, wheel>())
 
 WElement driveContents[] = {
     W1("Drive Commissioning (CH6 OFF, sticks centred)"),
     WLabel("Reload the page to refresh. Field edits are staged; accept and Save to keep them.", "d_note"),
+    WTextField("Profile:", "d_saved", []()->String { return formatProfileSaved(); }, [](String) {}),
+    WVerticalAlign(),
     WTextField("Left VESC:", "d_vl", []()->String { return formatVesc(0); }, [](String) {}),
     WVerticalAlign(),
     WTextField("Right VESC:", "d_vr", []()->String { return formatVesc(1); }, [](String) {}),
@@ -735,9 +792,9 @@ WElement driveContents[] = {
     FIELD_ROW("L reversal dwell ms:", "f18l", 18, 0), FIELD_ROW("R reversal dwell ms:", "f18r", 18, 1),
     FIELD_ROW_SIGNED("L direction:", "f5l", 5, 0), FIELD_ROW_SIGNED("R direction:", "f5r", 5, 1),
     WVerticalAlign(),
-    WButton("Accept VESC config & Save", "d_acc_cfg", []() { const uint8_t b[] = {4, 5}; g_wizard.acceptAndSave(b, 2, millis()); }),
+    WButton("Accept VESC config & Save", "d_acc_cfg", []() { const uint8_t b[] = {4, 5}; wizardAcceptAndSave(b, 2); }),
     WVerticalAlign(),
-    WCheckbox("Wheels are raised", "d_raised", []() { return g_wheels_raised; }, [](bool v) { g_wheels_raised = v; }),
+    WCheckbox("Wheels are raised (clears after each test)", "d_raised", []() { return g_wheels_raised; }, [](bool v) { g_wheels_raised = v; }),
     WVerticalAlign(),
     WButton("Timeout test L", "d_tl", []() { runWheelTest(6, 0); }),
     WHorizontalAlign(),
@@ -764,7 +821,7 @@ WElement driveContents[] = {
     WTextField("Wizard:", "d_wiz", []()->String { return formatWizard(); }, [](String) {}),
     WVerticalAlign(),
     WButton("Accept wheel tests & Save", "d_acc_wt", []() {
-        const uint8_t b[] = {6, 7, 8, 9, 10, 11}; g_wizard.acceptAndSave(b, 6, millis()); }),
+        const uint8_t b[] = {6, 7, 8, 9, 10, 11}; wizardAcceptAndSave(b, 6); }),
     WHorizontalAlign(),
     WButton("Cancel", "d_cancel", []() { sWizardCancelRefused = !g_wizard.cancel(millis()); }),
     WVerticalAlign(),

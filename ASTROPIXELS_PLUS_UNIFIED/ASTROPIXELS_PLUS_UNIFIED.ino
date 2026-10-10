@@ -290,8 +290,6 @@ void releaseMaintenance();
 void recoverBodyLocks();
 void clearPrefsAndReboot();
 void startCommissionTest(uint8_t test, int32_t val = 0);
-void cancelCommissionTest();
-void saveCommissionProfile();
 void acceptCommissionBit(uint8_t bit);
 void setCommissionField(uint8_t field, uint8_t wheel, int32_t value);
 void onOtaStart();
@@ -1042,32 +1040,6 @@ void startCommissionTest(uint8_t test, int32_t val) {
     g_last_commission_keepalive_ms = millis();
 }
 
-void cancelCommissionTest() {
-    auto status = g_body_client.bodyStatus(millis());
-    r2link::CommissionRequest req{};
-    req.operation = 3; // Cancel
-    req.test = 0;
-    req.run_id = g_commission_run_id;
-    req.field = 0;
-    req.wheel = 0;
-    req.value = 0;
-    req.control_epoch = status.value.control_epoch;
-    g_body_client.requestCommission(req, millis());
-}
-
-void saveCommissionProfile() {
-    auto status = g_body_client.bodyStatus(millis());
-    r2link::CommissionRequest req{};
-    req.operation = 5; // Save
-    req.test = 0;
-    req.run_id = g_commission_run_id;
-    req.field = 0;
-    req.wheel = 0;
-    req.value = 0;
-    req.control_epoch = status.value.control_epoch;
-    g_body_client.requestCommission(req, millis());
-}
-
 void acceptCommissionBit(uint8_t bit) {
     auto status = g_body_client.bodyStatus(millis());
     r2link::CommissionRequest req{};
@@ -1194,6 +1166,7 @@ void processCommissioningKeepalive(uint32_t now) {
 
 // Guided commissioning: profile mirror reads, wizard sequencing, radio and audio checks.
 void processCommissioningTools(uint32_t now) {
+    if (!g_body_client.linkUp(now)) g_wheels_raised = false;   // re-confirm after a link loss
     const auto diag = g_body_client.diagnostics(now);
     g_profile_mirror.tick(now, g_body_client.linkUp(now), diag.value, diag.rx_ms);
     const auto cs = g_body_client.commissionStatus(now);

@@ -36,6 +36,14 @@ static BodyRcState rc(std::initializer_list<std::pair<int, uint16_t>> set, bool 
     s.channels[5] = s.channels[7] = s.channels[8] = 1000; s.channels[4] = 1000; s.channels[6] = 1000;
     for (auto& kv : set) s.channels[kv.first] = kv.second; return s;
 }
+// Models the Endpoint's ordinary request slots: a send fails while `cap` are in flight.
+struct SlotSink : ICommissionSink {
+    std::vector<r2link::CommissionRequest> sent; uint16_t seq = 0; size_t inflight = 0, cap = 6;
+    bool sendCommission(const r2link::CommissionRequest& r, uint32_t, uint16_t& s) override {
+        if (inflight >= cap) return false;
+        ++inflight; sent.push_back(r); s = ++seq; return true;
+    }
+};
 struct Reader : IFieldReader {
     std::vector<std::pair<uint8_t, uint8_t>> asked; bool ok = true;
     bool requestRead(uint8_t f, uint8_t w, uint32_t) override { if (ok) asked.push_back({f, w}); return ok; }
@@ -111,16 +119,18 @@ class DomeCommissioningTests(unittest.TestCase):
     Sink s; CommissionWizard w(s); w.tick(0, status(0, 0, 0), true, 4);
     const uint8_t bits[] = {1, 2, 3};
     assert(w.acceptAndSave(bits, 3, 10));
-    assert(s.sent.size() == 4 && s.sent[0].operation == 6 && s.sent[0].value == 1 && s.sent[2].value == 3);
+    assert(s.sent.size() == 1 && s.sent[0].operation == 6 && s.sent[0].value == 1);   // one in flight
+    w.tick(11, status(0, 0, 0), true, 4);
+    assert(s.sent.size() == 1);                                           // waits for the reply
+    for (uint16_t q = 1; q <= 3; ++q) {
+        w.onCompletion(done(q, r2link::Result::Accepted));
+        w.tick(11 + q, status(0, 0, 0), true, 4);
+        assert(s.sent.size() == size_t(q + 1) && w.state() == CommissionWizard::State::Running);
+    }
+    assert(s.sent[1].value == 2 && s.sent[2].value == 3);
     assert(s.sent[3].operation == 5 && s.sent[3].control_epoch == 4);
-    for (uint16_t q = 1; q <= 3; ++q) w.onCompletion(done(q, r2link::Result::Accepted));
-    assert(w.state() == CommissionWizard::State::Running);
     w.onCompletion(done(4, r2link::Result::Accepted));
     assert(w.state() == CommissionWizard::State::Done);
-    Sink r; CommissionWizard v(r); v.tick(0, status(0, 0, 0), true, 4);
-    v.acceptAndSave(bits, 3, 10);
-    v.onCompletion(done(2, r2link::Result::Inhibited));
-    assert(v.state() == CommissionWizard::State::Failed && v.lastResult() == uint8_t(r2link::Result::Inhibited));
     Sink n; CommissionWizard u(n); u.tick(0, status(0, 0, 0), true, 4);
     assert(u.nudgeNeutral(5, 1500, 10));
     assert(n.sent[0].operation == 4 && n.sent[0].field == 0 && n.sent[0].value == 1505);
@@ -187,6 +197,7 @@ class DomeCommissioningTests(unittest.TestCase):
     Sink s; CommissionWizard w(s); w.tick(0, status(0, 0, 0), true, 4);
     assert(w.startNeutral(10));
     const uint32_t run = s.sent[0].run_id;
+    assert(!w.canNudge(500, 1500) && w.canNudge(-5, 1500) && w.canNudge(100, 1500) && !w.canNudge(-101, 1500));
     assert(!w.nudgeNeutral(500, 1500, 20) && s.sent.size() == 1);        // out of range: nothing sent
     assert(w.nudgeNeutral(-5, 1500, 20));
     assert(s.sent.size() == 4 && s.sent[1].operation == 3 && s.sent[1].run_id == run);
@@ -194,6 +205,7 @@ class DomeCommissioningTests(unittest.TestCase):
     assert(w.state() == CommissionWizard::State::Running && w.currentTest() == 1);
     Sink t; CommissionWizard x(t); x.tick(0, status(0, 0, 0), true, 4);
     assert(x.startWheelTest(7, 0, true, 10));
+    assert(!x.canNudge(5, 1500));                                          // checked before any dome stop
     assert(!x.nudgeNeutral(5, 1500, 20) && t.sent.size() == 1);          // other tests cannot be nudged
     t.limit = t.sent.size();
     assert(!x.cancel(30) && x.state() == CommissionWizard::State::Running);
@@ -201,18 +213,77 @@ class DomeCommissioningTests(unittest.TestCase):
     assert(x.cancel(40) && x.state() == CommissionWizard::State::Idle && t.sent.back().operation == 3);
 ''')
 
-    def test_wizard_accept_and_save_checks_capacity_and_midbatch_failure(self):
+    def test_wizard_accept_and_save_paces_through_a_six_slot_endpoint(self):
         self.check(r'''
-    uint8_t bits[13]; for (uint8_t i = 0; i < 13; ++i) bits[i] = i + 1;
+    SlotSink s; s.inflight = 1;                                           // ProfileMirror Read outstanding
+    CommissionWizard w(s); w.tick(0, status(0, 0, 0), true, 4);
+    const uint8_t bits[] = {6, 7, 8, 9, 10, 11};
+    assert(w.acceptAndSave(bits, 6, 10));
+    size_t replied = 0; uint32_t t = 10;
+    while (w.state() == CommissionWizard::State::Running && t < 1000) {
+        ++t; w.tick(t, status(0, 0, 0), true, 4);
+        while (replied < s.sent.size()) {                                 // body answers each request
+            w.onCompletion(done(uint16_t(++replied), r2link::Result::Accepted)); --s.inflight;
+        }
+    }
+    assert(s.sent.size() == 7 && w.state() == CommissionWizard::State::Done);
+    for (uint8_t i = 0; i < 6; ++i) assert(s.sent[i].operation == 6 && s.sent[i].value == bits[i]);
+    assert(s.sent[6].operation == 5);
+''')
+
+    def test_wizard_accept_and_save_sends_save_after_a_refusal_and_fails_after_it(self):
+        self.check(r'''
     Sink s; CommissionWizard w(s); w.tick(0, status(0, 0, 0), true, 4);
-    assert(!w.acceptAndSave(bits, 13, 10) && s.sent.empty());            // 13 Accepts + Save > 13 slots
-    assert(w.state() == CommissionWizard::State::Idle);
-    assert(w.acceptAndSave(bits, 12, 10) && s.sent.size() == 13);
-    Sink t; CommissionWizard x(t); x.tick(0, status(0, 0, 0), true, 4);
-    t.limit = 2;
-    assert(!x.acceptAndSave(bits, 3, 10));
+    const uint8_t bits[] = {6, 7, 8};
+    assert(w.acceptAndSave(bits, 3, 10));
+    w.onCompletion(done(1, r2link::Result::Accepted));  w.tick(11, status(0, 0, 0), true, 4);
+    r2link::Completion refused = done(2, r2link::Result::Inhibited);
+    w.onCompletion(refused);                            w.tick(12, status(0, 0, 0), true, 4);
+    assert(w.state() == CommissionWizard::State::Running && s.sent.size() == 3);   // keeps going
+    w.onCompletion(done(3, r2link::Result::NotReady));  w.tick(13, status(0, 0, 0), true, 4);
+    assert(s.sent.size() == 4 && s.sent[3].operation == 5);               // Save always sent last
+    assert(w.state() == CommissionWizard::State::Running);                // not until Save completes
+    w.onCompletion(done(4, r2link::Result::Accepted));
+    assert(w.state() == CommissionWizard::State::Failed);
+    assert(w.lastResult() == uint8_t(r2link::Result::Inhibited) && w.lastError() == 0);   // first refusal
+    // A refused Save fails even when every Accept landed; a lost reply counts as NotReady.
+    Sink r; CommissionWizard v(r); v.tick(0, status(0, 0, 0), true, 4);
+    const uint8_t one[] = {4};
+    v.acceptAndSave(one, 1, 10);
+    v.onCompletion(done(1, r2link::Result::Accepted)); v.tick(11, status(0, 0, 0), true, 4);
+    r2link::Completion lost = done(2, r2link::Result::Accepted); lost.outcome = r2link::Outcome::TimedOut;
+    v.onCompletion(lost);
+    assert(v.state() == CommissionWizard::State::Failed && v.lastResult() == uint8_t(r2link::Result::NotReady));
+''')
+
+    def test_wizard_accept_and_save_retries_a_busy_sink_within_a_bound(self):
+        self.check(r'''
+    uint8_t bits[13]; for (uint8_t i = 0; i < 13; ++i) bits[i] = i;
+    Sink c; CommissionWizard q(c); q.tick(0, status(0, 0, 0), true, 4);
+    assert(!q.acceptAndSave(bits, 13, 10) && c.sent.empty());           // only 12 acceptance bits exist
+    assert(q.state() == CommissionWizard::State::Idle);
+    SlotSink s; s.inflight = s.cap;                                       // endpoint full
+    CommissionWizard w(s); w.tick(0, status(0, 0, 0), true, 4);
+    assert(w.acceptAndSave(bits, 2, 10) && s.sent.empty());
+    w.tick(500, status(0, 0, 0), true, 4);
+    assert(w.state() == CommissionWizard::State::Running && s.sent.empty());
+    s.inflight = 0;                                                       // a slot frees: retried
+    w.tick(600, status(0, 0, 0), true, 4);
+    assert(s.sent.size() == 1 && s.sent[0].value == 0);
+    w.onCompletion(done(1, r2link::Result::Accepted)); s.inflight = s.cap;
+    w.tick(700, status(0, 0, 0), true, 4);
+    w.tick(2699, status(0, 0, 0), true, 4);
+    assert(w.state() == CommissionWizard::State::Running && s.sent.size() == 1);
+    w.tick(2700, status(0, 0, 0), true, 4);                               // 2000 ms without a slot
+    assert(w.state() == CommissionWizard::State::Failed && w.lastResult() == uint8_t(r2link::Result::NotReady));
+    // A request whose reply never arrives cannot hold the wizard in Running forever.
+    Sink n; CommissionWizard x(n); x.tick(0, status(0, 0, 0), true, 4);
+    x.acceptAndSave(bits, 1, 10);
+    x.tick(2009, status(0, 0, 0), true, 4);
+    assert(x.state() == CommissionWizard::State::Running);
+    x.tick(2010, status(0, 0, 0), true, 4);
     assert(x.state() == CommissionWizard::State::Failed && x.lastResult() == uint8_t(r2link::Result::NotReady));
-    assert(t.sent.size() == 2);
+    assert(x.startNeutral(2020));                                         // usable again
 ''')
 
     def test_radio_check_walks_every_prompt_and_detects_failsafe_frames(self):
