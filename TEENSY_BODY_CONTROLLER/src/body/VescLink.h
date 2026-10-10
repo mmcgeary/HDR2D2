@@ -92,7 +92,8 @@ public:
     // Commissioning mode: a wheel whose vesc_config is accepted (matching
     // firmware, fresh unfaulted telemetry) may take duty up to
     // kCommissionDutyLimit permille and its saved brake before the whole drive
-    // is control-accepted. Normal behaviour is unchanged while disabled.
+    // is control-accepted. While enabled the duty cap applies to every wheel,
+    // control-accepted or not. Normal behaviour is unchanged while disabled.
     static const int16_t kCommissionDutyLimit = 100;
     void setCommissioning(bool enabled) { commissioning_ = enabled; }
     bool commissioningReady(uint32_t now_ms) const;

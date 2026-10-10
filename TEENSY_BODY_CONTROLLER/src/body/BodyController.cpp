@@ -640,27 +640,17 @@ bool BodyController::processCli(const char* line, char* out, size_t out_max, uin
         if (res == r2link::Result::Accepted) {
             snprintf(out, out_max, "OK accepted %s (staged; profile save to apply)\n", name);
         } else {
-            snprintf(out, out_max, "ERROR accept refused code=%u (needs CH6 OFF, CH9 OFF, sticks centred, prerequisites)\n",
+            snprintf(out, out_max, "ERROR accept refused code=%u (needs CH6 OFF, sticks centred, no test running, prerequisites)\n",
                      static_cast<unsigned>(res));
         }
         return true;
     }
 
     if (std::strncmp(line, "profile set ", 12) == 0) {
-        const bool ch6_off = rc_snapshot_.channels[5] < 1250;
-        const bool ch9_off = rc_snapshot_.channels[8] < 1250;
-        const bool neutral = (drive_.intent() == r2link::DriveIntent::Stationary) &&
-                             (dome_.owner() == r2link::DomeOwner::None || dome_.owner() == r2link::DomeOwner::Manual);
-
-        if (!ch6_off || !ch9_off || !neutral) {
-            snprintf(out, out_max, "ERROR gate closed (requires CH6 OFF, CH9 OFF, neutral)\n");
-            return true;
-        }
-
         char field_name[32] = {0};
-        int32_t val = 0;
+        long val = 0;
         int wheel = 0;
-        const int n = sscanf(line + 12, "%31s %ld %d", field_name, (long*)&val, &wheel);
+        const int n = sscanf(line + 12, "%31s %ld %d", field_name, &val, &wheel);
         if (n < 2) {
             snprintf(out, out_max, "ERROR usage: profile set FIELD VALUE [WHEEL]\n");
             return true;
@@ -678,11 +668,24 @@ bool BodyController::processCli(const char* line, char* out, size_t out_max, uin
             return true;
         }
 
-        const FieldResult res = setField(profile_, kCliFields[field_idx].id, static_cast<uint8_t>(wheel), val);
-        if (res == FieldResult::Ok) {
-            snprintf(out, out_max, "OK set %s=%ld\n", field_name, (long)val);
+        // Same path and gates as the wireless SetField: refused while a test runs or
+        // brakes out, and needs fresh radio, CH6 OFF, sticks centred and no motion lock.
+        // CH9 (auto dome) is not used.
+        r2link::CommissionRequest req{};
+        req.operation = static_cast<uint8_t>(CommissionOp::SetField);
+        req.field = kCliFields[field_idx].id;
+        req.wheel = static_cast<uint8_t>(wheel);
+        req.value = static_cast<int32_t>(val);
+        req.control_epoch = control_epoch_;
+        const r2link::Result res = calibration_.handleRequest(req, now_ms);
+        if (res == r2link::Result::Accepted) {
+            snprintf(out, out_max, "OK set %s=%ld (staged; profile save to apply)\n", field_name, val);
+        } else if (res == r2link::Result::Busy) {
+            snprintf(out, out_max, "ERROR busy (a commissioning test is running)\n");
+        } else if (res == r2link::Result::Inhibited) {
+            snprintf(out, out_max, "ERROR gate closed (requires CH6 OFF, sticks centred, no motion lock)\n");
         } else {
-            snprintf(out, out_max, "ERROR setField failed code=%u\n", static_cast<unsigned>(res));
+            snprintf(out, out_max, "ERROR value refused code=%u (field, wheel or range)\n", static_cast<unsigned>(res));
         }
         return true;
     }

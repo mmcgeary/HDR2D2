@@ -285,8 +285,9 @@ bool VescLink::brakePermitted() const {
 }
 bool VescLink::dutyPermitted(uint32_t now) const {
     const VescSample s = sample(now);
-    const bool commission = commissioning_ && profile_.config_accepted_ &&
-        duty_ >= -kCommissionDutyLimit && duty_ <= kCommissionDutyLimit;
+    // In commissioning mode the 100 permille cap holds even for a control-accepted wheel.
+    if (commissioning_ && (duty_ < -kCommissionDutyLimit || duty_ > kCommissionDutyLimit)) return false;
+    const bool commission = commissioning_ && profile_.config_accepted_;
     return (profile_.control_accepted_ || commission) && s.valid && !s.fault && uint32_t(now - demand_ms_) <= 20;
 }
 bool VescLink::queryDue(uint32_t now) const {

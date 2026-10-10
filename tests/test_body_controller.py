@@ -292,6 +292,47 @@ assert(g.controller.processCli("profile accept no_such_bit", buf, sizeof buf, g.
 assert(std::strstr(buf, "ERROR unknown") != nullptr);
 ''')
 
+    def test_cli_profile_set_uses_the_commissioning_gates_without_ch9(self):
+        self.run_lock_rig(r'''
+LockRig g; g.connect(); g.run(10);
+char buf[256];
+auto rcWith = [&](uint16_t ch6, uint16_t ch9) {
+    body::RcSnapshot rc{};
+    for (auto& c : rc.channels) c = 1500;
+    rc.channels[5] = ch6; rc.channels[8] = ch9;
+    rc.valid = true; rc.sample_ms = g.now; rc.sample_counter = g.now; rc.flags = 1;
+    g.controller.updateRc(rc, g.now);
+};
+// CH9 ON (auto dome switch) does not matter for a field edit.
+rcWith(1000, 2000);
+assert(g.controller.processCli("profile set servo_neutral 1510", buf, sizeof buf, g.now));
+assert(std::strstr(buf, "OK set") != nullptr);
+assert(g.controller.profile().servo_neutral == 1510);
+// CH6 ON: refused by the commissioning stationary gate.
+rcWith(2000, 1000);
+assert(g.controller.processCli("profile set servo_neutral 1520", buf, sizeof buf, g.now));
+assert(std::strstr(buf, "ERROR gate closed") != nullptr && std::strstr(buf, "CH9") == nullptr);
+assert(g.controller.profile().servo_neutral == 1510);
+// Out of range: refused, value unchanged.
+rcWith(1000, 1000);
+assert(g.controller.processCli("profile set servo_neutral 1700", buf, sizeof buf, g.now));
+assert(std::strstr(buf, "ERROR") != nullptr && g.controller.profile().servo_neutral == 1510);
+// A running test: Busy.
+r2link::CommissionRequest begin{}; begin.operation = 1; begin.test = 1; begin.run_id = 31;
+begin.control_epoch = g.controller.status().control_epoch;
+r2link::Frame f{}; r2link::ErrorCounters e{};
+assert(r2link::encode(begin, f, e) == r2link::Status::Ok);
+assert(g.controller.handle(f, g.now) == r2link::Result::Accepted);
+assert(g.controller.calibration().status().state == uint8_t(body::CommissionState::Running));
+assert(g.controller.processCli("profile set servo_neutral 1530", buf, sizeof buf, g.now));
+assert(std::strstr(buf, "ERROR busy") != nullptr);
+assert(g.controller.profile().servo_neutral == 1510);
+// The accept refusal no longer asks for CH9 either.
+rcWith(2000, 1000);
+assert(g.controller.processCli("profile accept vesc_config_left", buf, sizeof buf, g.now));
+assert(std::strstr(buf, "ERROR") != nullptr && std::strstr(buf, "CH9") == nullptr);
+''')
+
     def test_wheel_test_drives_only_the_tested_vesc_with_low_duty(self):
         self.run_lock_rig(r'''
 LockRig g; g.run(10);

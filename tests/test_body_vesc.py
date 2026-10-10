@@ -582,6 +582,19 @@ class VescTests(unittest.TestCase):
     assert(m.sample(1).fw_known && !m.commissioningReady(1));
 ''')
 
+    def test_commissioning_mode_caps_duty_even_for_a_control_accepted_wheel(self):
+        self.check(r'''
+    Port q; VescLink l(q, 0);
+    l.setProfile(VescProfile::fromSaved(saved(), 0)); l.tick(0);     // fully accepted
+    feed(q, l, wire({0, 42, 19}), 1); l.tick(100); feed(q, l, wire(values()), 101);
+    q.tx.clear(); l.setDuty(150); l.tick(102); assert(count(q.tx, 5) == 1);   // normal drive: no cap
+    l.setCommissioning(true);
+    q.tx.clear(); l.setDuty(150); l.tick(103); assert(count(q.tx, 5) == 0);   // over 100 permille
+    q.tx.clear(); l.setDuty(-101); l.tick(104); assert(count(q.tx, 5) == 0);
+    q.tx.clear(); l.setDuty(-100); l.tick(105); assert(count(q.tx, 5) == 1);
+    q.tx.clear(); l.setDuty(100); l.tick(106); assert(count(q.tx, 5) == 1);
+''')
+
     def test_main_target_serial_pins_and_capture_diagnostic_only(self):
         source = (BODY / "main.cpp").read_text()
         controller = (BODY / "body/BodyController.cpp").read_text()
