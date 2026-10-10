@@ -61,6 +61,12 @@ flowchart TB
     end
 ```
 
+> [!WARNING]
+> **Single Hall Sensor vs. Approved Dual Hall Architecture:**
+> The diagram above reflects the **historical single-ESP32 sketch** (`ASTROPIXELS_UNIFIED_BRAIN.ino`), which only used a **single Hall sensor** on GPIO 19.
+> 
+> The **approved build** uses **two KY-003 Hall sensors** (Front 0° on GPIO 19 and Rear 180° on GPIO 18 via Lonely Binary dome shifter CH2/CH3) with one ring magnet. This eliminates ambiguous 180° stalls and provides verified timing and direction tracking. See [Dome Wiring Diagram](DOME_WIRING_DIAGRAM.md) and [System Architecture](SYSTEM_ARCHITECTURE.md) for the authoritative dual-sensor schematics.
+
 ---
 
 ## 2. MicroSD Card Audio Directory & Sound Pools
