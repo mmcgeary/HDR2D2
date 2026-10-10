@@ -1215,6 +1215,19 @@ ChecklistInput checklistInput() {
 }
 
 
+// Heap on the serial console: once the first loop runs, then every 30 s. "min" is the
+// lowest free heap since boot (so it captures page loads in between) and "largest" the
+// biggest single block Wi-Fi and the web server can still allocate.
+void processHeapReport(uint32_t now) {
+    static bool reported = false;
+    static uint32_t last_ms = 0;
+    if (reported && now - last_ms < 30000) return;
+    reported = true;
+    last_ms = now;
+    Serial.printf("[HEAP] free=%u min=%u largest=%u\n", unsigned(ESP.getFreeHeap()),
+                  unsigned(ESP.getMinFreeHeap()), unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)));
+}
+
 void processRandomHolos() {
     // This scheduler owns random motion; library LED effects remain independent.
     CommandEvent::process(F("HPA198"));
@@ -1494,6 +1507,7 @@ void loop() {
     processCommissioningKeepalive(now);
     processCommissioningTools(now);
     processStartupSound(now);
+    processHeapReport(now);
 
     // 3. Dual Hall sensors publish
     processHallSensors(now);

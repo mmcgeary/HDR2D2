@@ -3,8 +3,9 @@
 
 /////////////////////////////////////////////////////////////////////////
 
-WSVG rseriesSVG(
-R"RAW(
+// The logo markup stays in flash and one shared element emits it, so the pages that
+// show it keep no RAM copy (a WSVG holds its markup on the heap, once per page array).
+static const char kRseriesSVG[] = R"RAW(
 <svg version="1.0" xmlns="http://www.w3.org/2000/svg"
  width="64.000000pt" height="64.000000pt" viewBox="0 0 64.000000 64.000000"
  preserveAspectRatio="xMidYMid meet">
@@ -39,6 +40,17 @@ l57 24 1155 -3 1155 -2 55 -26z"/>
 -188 262 -337 331 -135 63 -157 66 -605 71 l-408 5 0 -2499z"/>
 </g>
 </svg>
-)RAW");
+)RAW";
+
+class RseriesLogo : public WDynamic {
+public:
+    void emitBody(Print& out) const override {
+        out.print("<p>");
+        out.print(kRseriesSVG);
+        out.println("</p>");
+    }
+} sRseriesLogo;
+
+WDynamicElement rseriesSVG(sRseriesLogo);
 
 #endif
