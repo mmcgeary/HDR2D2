@@ -12,6 +12,8 @@ PRELUDE = r'''
 #include "Messages.h"
 #include "ProfileMirror.h"
 #include "CommissionWizard.h"
+#include "RadioCheck.h"
+#include "AudioCheck.h"
 struct Sink : ICommissionSink {
     std::vector<r2link::CommissionRequest> sent; uint16_t seq = 0; size_t limit = size_t(-1);
     bool sendCommission(const r2link::CommissionRequest& r, uint32_t, uint16_t& s) override {
@@ -25,6 +27,11 @@ static r2link::CommissionStatus status(uint32_t run, uint8_t test, uint8_t state
 static r2link::Completion done(uint16_t seq, r2link::Result r) {
     r2link::Completion c{}; c.type = r2link::MessageType::CommissionRequest; c.sequence = seq;
     c.outcome = r2link::Outcome::Replied; c.result = uint8_t(r); return c;
+}
+static BodyRcState rc(std::initializer_list<std::pair<int, uint16_t>> set, bool valid = true) {
+    BodyRcState s{}; s.valid = valid; for (auto& c : s.channels) c = 1500;
+    s.channels[5] = s.channels[7] = s.channels[8] = 1000; s.channels[4] = 1000; s.channels[6] = 1000;
+    for (auto& kv : set) s.channels[kv.first] = kv.second; return s;
 }
 struct Reader : IFieldReader {
     std::vector<std::pair<uint8_t, uint8_t>> asked; bool ok = true;
@@ -204,6 +211,60 @@ class DomeCommissioningTests(unittest.TestCase):
     assert(x.state() == CommissionWizard::State::Failed && x.lastResult() == uint8_t(r2link::Result::NotReady));
     assert(t.sent.size() == 2);
 ''')
+
+    def test_radio_check_walks_every_prompt_and_detects_failsafe_frames(self):
+        self.check(r'''
+    RadioCheck r; r.start(0); uint32_t t = 0;
+    auto feed = [&](BodyRcState s) { t += 20; r.tick(s, t); };
+    feed(rc({{1, 1900}}));                      // right stick up
+    feed(rc({{0, 1900}}));                      // right stick right
+    feed(rc({{3, 1900}}));                      // left stick right
+    feed(rc({{5, 1900}}));                      // SwA down
+    feed(rc({{4, 1000}})); feed(rc({{4, 1500}})); feed(rc({{4, 2000}}));   // SwC three positions
+    feed(rc({{7, 1900}}));                      // SwB down
+    feed(rc({{8, 1900}}));                      // SwD down
+    feed(rc({{6, 1000}})); feed(rc({{6, 2000}}));                          // knob sweep
+    assert(r.step() == 8 && r.state() == RadioCheck::State::Prompting);    // failsafe prompt
+    // Switches already in failsafe positions must not pass on their own.
+    for (int i = 0; i < 100; ++i) feed(rc({}));
+    assert(r.state() == RadioCheck::State::Prompting);
+    feed(rc({{5, 1900}, {7, 1900}, {8, 1900}}));                           // armed first
+    for (int i = 0; i < 60; ++i) feed(rc({}));                             // TX off: failsafe frames
+    assert(r.state() == RadioCheck::State::Passed && r.failsafe() == RadioCheck::Failsafe::FrameValues);
+''', sources=[ASTRO / "RadioCheck.cpp"])
+
+    def test_radio_check_reports_missing_frames_bad_values_and_timeouts(self):
+        self.check(r'''
+    { RadioCheck r; r.start(0); r.tick(rc({}), 20000);
+      assert(r.state() == RadioCheck::State::Failed && r.step() == 0); }
+    auto toFailsafe = [](RadioCheck& r, uint32_t& t) {
+        const std::initializer_list<std::pair<int, uint16_t>> steps[] = {
+            {{1, 1900}}, {{0, 1900}}, {{3, 1900}}, {{5, 1900}}, {{4, 1000}}, {{4, 1500}}, {{4, 2000}},
+            {{7, 1900}}, {{8, 1900}}, {{6, 1000}}, {{6, 2000}}};
+        for (auto& s : steps) { t += 20; r.tick(rc(s), t); }
+        t += 20; r.tick(rc({{5, 1900}, {7, 1900}, {8, 1900}}), t);
+    };
+    { RadioCheck r; r.start(0); uint32_t t = 0; toFailsafe(r, t);
+      for (int i = 0; i < 20; ++i) { t += 20; r.tick(rc({}, false), t); }
+      assert(r.state() == RadioCheck::State::Passed && r.failsafe() == RadioCheck::Failsafe::NoFrames); }
+    { RadioCheck r; r.start(0); uint32_t t = 0; toFailsafe(r, t);
+      for (int i = 0; i < 60; ++i) { t += 20; r.tick(rc({{3, 1800}}), t); }   // CH4 held off-centre
+      assert(r.state() == RadioCheck::State::Failed && r.failsafe() == RadioCheck::Failsafe::BadValues); }
+''', sources=[ASTRO / "RadioCheck.cpp"])
+
+    def test_audio_check(self):
+        self.check(r'''
+    { AudioCheck a; a.begin(7, true, 100);
+      r2link::Event ev{}; ev.kind = uint8_t(r2link::EventKind::PlaybackStarted);
+      ev.request_type = uint8_t(r2link::MessageType::AudioRequest); ev.request_seq = 7;
+      a.onEvent(ev); assert(a.state() == AudioCheck::State::Passed); }
+    { AudioCheck a; a.begin(7, true, 100); a.tick(3200); assert(a.state() == AudioCheck::State::Failed); }
+    { AudioCheck a; a.begin(0, false, 100); assert(a.state() == AudioCheck::State::Failed); }
+    { AudioCheck a; a.begin(7, true, 100);
+      r2link::Completion c{}; c.type = r2link::MessageType::AudioRequest; c.sequence = 7;
+      c.outcome = r2link::Outcome::Replied; c.result = uint8_t(r2link::Result::NotReady);
+      a.onCompletion(c); assert(a.state() == AudioCheck::State::Failed); }
+''', sources=[ASTRO / "AudioCheck.cpp"])
 
 
 if __name__ == "__main__":
