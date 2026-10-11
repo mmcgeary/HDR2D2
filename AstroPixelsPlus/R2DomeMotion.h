@@ -126,6 +126,7 @@ public:
             fBraking = false;
             fGoDir = 0;
             fWasHeld = false;
+            fReqEase = -1.0f;
         }
 
         int8_t dir = 0;
@@ -137,7 +138,7 @@ public:
             dir = 1;
             accelerate = true;
             fCruise = req.cruiseDps;
-            fEase = easeFor(dir, req, speeds);
+            fEase = requestEase(dir, req, speeds);
         }
         else if (req.kind == kDomeGoTo && known && !fArrived)
         {
@@ -151,9 +152,9 @@ public:
             bool awaitingMagnet = speeds.known() && isMagnetAngle(target) && !speeds.atMagnet(target, fCfg.arriveDeg);
             int8_t moving = fMoveDir != 0 ? fMoveDir : direction();
             // Slow enough to stop here: the pulse is down at the final-approach speed.
-            bool slow = moving == 0 || offsetUs() <= slowOffsetUs(moving, speeds);
+            bool slow = !nearOrPast || moving == 0 || offsetUs() <= slowOffsetUs(moving, speeds);
             fCruise = req.cruiseDps;
-            fEase = easeFor(remaining >= 0.0f ? 1 : -1, req, speeds);
+            fEase = requestEase(remaining >= 0.0f ? 1 : -1, req, speeds);
             // A slow finish brakes to reach the final speed where the slow zone starts.
             float brakeAt = fabsf(remaining) - (req.slowFinish ? fCfg.slowZoneDeg : 0.0f);
             bool brakeDue = fBraking || brakeAt <= fCruise * fEase * rampDistance(fFrac) + 0.5f;
@@ -245,24 +246,6 @@ public:
 
     bool arrived() const { return fArrived; }
 
-    // The ease time for a request: at least the time the step limit needs to
-    // follow the sine ramp up to the cruise speed (the ramp is steepest in the
-    // middle, pi/2 times its average slope).
-    float easeFor(int8_t dir, const DomeRequest& req, const DomeTracker& speeds) const
-    {
-        float span = float(speeds.offsetForSpeed(dir, req.cruiseDps)) - float(fCfg.minMoveOffsetUs);
-        float slewEase = span > 0.0f ? (kPi / 2.0f) * span / (fCfg.maxStepUs / 0.02f) : 0.0f;
-        return req.easeS > slewEase ? req.easeS : slewEase;
-    }
-
-    // Largest pulse offset that counts as the final-approach speed.
-    uint16_t slowOffsetUs(int8_t dir, const DomeTracker& speeds) const
-    {
-        uint16_t off = speeds.offsetForSpeed(dir, fCfg.finalDps);
-        if (off < fCfg.minMoveOffsetUs)
-            off = fCfg.minMoveOffsetUs;
-        return uint16_t(off + uint16_t(fCfg.maxStepUs));
-    }
     bool manual() const { return fManual; }
     uint16_t neutral() const { return fNeutral; }
 
@@ -280,6 +263,33 @@ public:
     }
 
 private:
+    // The ease time for a request: at least the time the step limit needs to
+    // follow the sine ramp up to the cruise speed (the ramp is steepest in the
+    // middle, pi/2 times its average slope).
+    float easeFor(int8_t dir, const DomeRequest& req, const DomeTracker& speeds) const
+    {
+        float span = float(speeds.offsetForSpeed(dir, req.cruiseDps)) - float(fCfg.minMoveOffsetUs);
+        float slewEase = span > 0.0f ? (kPi / 2.0f) * span / (fCfg.maxStepUs / 0.02f) : 0.0f;
+        return req.easeS > slewEase ? req.easeS : slewEase;
+    }
+
+    // easeFor() once per request.
+    float requestEase(int8_t dir, const DomeRequest& req, const DomeTracker& speeds)
+    {
+        if (fReqEase < 0.0f)
+            fReqEase = easeFor(dir, req, speeds);
+        return fReqEase;
+    }
+
+    // Largest pulse offset that counts as the final-approach speed.
+    uint16_t slowOffsetUs(int8_t dir, const DomeTracker& speeds) const
+    {
+        uint16_t off = speeds.offsetForSpeed(dir, fCfg.finalDps);
+        if (off < fCfg.minMoveOffsetUs)
+            off = fCfg.minMoveOffsetUs;
+        return uint16_t(off + uint16_t(fCfg.maxStepUs));
+    }
+
     Config fCfg;
     bool fHaveTime = false;
     uint32_t fLastMs = 0;
@@ -292,6 +302,7 @@ private:
     float fFrac = 0.0f;
     float fCruise = 0.0f;
     float fEase = 0.5f;
+    float fReqEase = -1.0f;
     int8_t fMoveDir = 0;
     int8_t fGoDir = 0;
     bool fBraking = false;
