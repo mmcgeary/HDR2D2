@@ -149,17 +149,21 @@ public:
             // A target on a magnet (front, for every return) is only reached when
             // that magnet has actually been passed.
             bool awaitingMagnet = speeds.known() && isMagnetAngle(target) && !speeds.atMagnet(target, fCfg.arriveDeg);
-            if (speeds.held() || (nearOrPast && awaitingMagnet))
+            fCruise = req.cruiseDps;
+            fEase = req.easeS;
+            // A slow finish brakes to reach the final speed where the slow zone starts.
+            float brakeAt = fabsf(remaining) - (req.slowFinish ? fCfg.slowZoneDeg : 0.0f);
+            bool brakeDue = fBraking || brakeAt <= fCruise * fEase * rampDistance(fFrac) + 0.5f;
+            if ((speeds.held() && (nearOrPast || brakeDue)) || (nearOrPast && awaitingMagnet))
             {
                 // The estimate ran ahead of the real dome: it is short of the next
-                // magnet. Creep on until a magnet confirms where the dome is; the
-                // move then carries on from the true position.
+                // magnet. Far from the target that changes nothing (the real dome
+                // is further back still). Near it, creep on until a magnet confirms
+                // where the dome is; the move then carries on from the true position.
                 dir = speeds.travelDir();
                 fGoDir = 0;
                 fBraking = true;
                 fWasHeld = true;
-                fCruise = req.cruiseDps;
-                fEase = req.easeS;
                 approach = true;
             }
             else if (nearOrPast)
@@ -183,11 +187,7 @@ public:
                     fBraking = false;
                 }
                 fGoDir = dir;
-                fCruise = req.cruiseDps;
-                fEase = req.easeS;
                 // Once braking starts it continues to the target (no re-acceleration).
-                // A slow finish brakes to reach the final speed where the slow zone starts.
-                float brakeAt = fabsf(remaining) - (req.slowFinish ? fCfg.slowZoneDeg : 0.0f);
                 if (!fBraking && brakeAt <= fCruise * fEase * rampDistance(fFrac) + 0.5f)
                     fBraking = true;
                 accelerate = !fBraking;

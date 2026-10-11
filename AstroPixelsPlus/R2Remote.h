@@ -76,8 +76,8 @@ public:
         ledcAttachPin(R2_DOME_SERVO_PIN, R2_DOME_LEDC_CHANNEL);
         ledcWrite(R2_DOME_LEDC_CHANNEL, 0);
         fSavedVolume = preferences.getInt(PREFERENCE_MARCSOUND_VOLUME, MARC_SOUND_VOLUME);
-        float speeds[2][r2::kSpeedBands];
-        if (preferences.getBytes(PREFERENCE_R2_DOME_SPEEDS, speeds, sizeof(speeds)) == sizeof(speeds))
+        r2::DomeSpeeds speeds;
+        if (preferences.getBytes(PREFERENCE_R2_DOME_SPEEDS, &speeds, sizeof(speeds)) == sizeof(speeds))
         {
             fTracker.importSpeeds(speeds);
             fTracker.markSaved();
@@ -250,9 +250,9 @@ private:
         }
         if (fTracker.dirty() && now - fSpeedsSavedMs >= R2_SPEED_SAVE_INTERVAL_MS)
         {
-            float speeds[2][r2::kSpeedBands];
+            r2::DomeSpeeds speeds;
             fTracker.exportSpeeds(speeds);
-            preferences.putBytes(PREFERENCE_R2_DOME_SPEEDS, speeds, sizeof(speeds));
+            preferences.putBytes(PREFERENCE_R2_DOME_SPEEDS, &speeds, sizeof(speeds));
             fTracker.markSaved();
             fSpeedsSavedMs = now;
         }

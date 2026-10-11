@@ -159,6 +159,33 @@ class HeldEstimateTest(unittest.TestCase):
             CHECK(peakAfter > tracker.offsetForSpeed(1, 30));               // back up toward cruise, not creeping
         """)
 
+    def test_profile_stays_monotonic_when_the_estimate_runs_ahead(self):
+        # Spec §11: the velocity profile is monotonic up and down. Only the seek
+        # speed is learned, so the estimate runs about 20% fast at cruise and is
+        # held short of each magnet. The cruise must carry on (and get learned).
+        run(r"""
+            DomeTracker tracker; DomeMotion m; r2sim::SimDome dome(-100, 0.35f, 15);
+            uint32_t nowUs = 1000, nowMs = 0;
+            while (!tracker.known() || dome.angle < 10.0f) dome.step(tracker, nowUs, 20000, 1, 40);
+            for (int i = 0; i < 10; i++) { nowMs += 20; m.update(nowMs, true, 1500, domeHold(), tracker.known(), tracker.angle(), tracker); dome.step(tracker, nowUs, 20000, m.direction(), m.offsetUs()); }
+            DomeRequest req = domeGoTo(130, 45, 0.6f);
+            uint16_t peak = 0, prev = 0; bool down = false; int rises = 0; bool sawHeld = false;
+            for (int i = 0; i < 4000 && !m.arrived(); i++) {
+                nowMs += 20; m.update(nowMs, true, 1500, req, tracker.known(), tracker.angle(), tracker);
+                dome.step(tracker, nowUs, 20000, m.direction(), m.offsetUs());
+                uint16_t o = m.offsetUs();
+                if (tracker.held()) sawHeld = true;
+                if (o > peak) peak = o;
+                if (o + 10 < peak) down = true;
+                if (down && o > prev + 4) rises++;   // a learned speed shifts the offset by a µs or two
+                prev = o;
+            }
+            CHECK(m.arrived());
+            CHECK(sawHeld);
+            CHECK(rises == 0);
+            CHECK_NEAR(tracker.speedDps(1, peak) / dome.speed(peak), 1.0, 0.05);
+        """)
+
     def test_return_to_front_ends_on_the_front_magnet(self):
         run(r"""
             DomeTracker tracker; DomeMotion m; r2sim::SimDome dome(-50, 0.35f, 15);

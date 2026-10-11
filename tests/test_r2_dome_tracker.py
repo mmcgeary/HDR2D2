@@ -56,21 +56,64 @@ class SpeedModelTest(unittest.TestCase):
             for (int dps = 5; dps < 140; dps += 5) { uint16_t o = t.offsetForSpeed(1, float(dps)); CHECK(o >= prev); prev = o; }
         """)
 
+    def test_unlearned_offsets_follow_the_learned_line(self):
+        # Spec §4: bands with no measurement interpolate between learned
+        # neighbours. Outside them the line runs to the learned zero-speed offset
+        # (the servo deadband), not through zero.
+        run(r"""
+            DomeTracker t; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t now = 1000;
+            for (int i = 0; i < 2000; i++) dome.step(t, now, 20000, 1, 60);    // learn 60 us
+            for (int i = 0; i < 1000; i++) dome.step(t, now, 20000, 1, 160);   // learn 160 us
+            const uint16_t offs[] = {45, 80, 110, 140, 200, 250};
+            for (uint16_t o : offs) CHECK_NEAR(t.speedDps(1, o) / dome.speed(o), 1.0, 0.08);
+        """)
+
+    def test_unlearned_direction_uses_the_other_direction(self):
+        run(r"""
+            DomeTracker t; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t now = 1000;
+            for (int i = 0; i < 2000; i++) dome.step(t, now, 20000, 1, 60);
+            for (int i = 0; i < 1000; i++) dome.step(t, now, 20000, 1, 160);
+            CHECK_NEAR(t.speedDps(-1, 110) / dome.speed(110), 1.0, 0.08);
+        """)
+
+    def test_bands_one_direction_lacks_come_from_the_other(self):
+        # Clockwise has only the seek speed; anticlockwise has learned more.
+        run(r"""
+            DomeTracker t; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t now = 1000;
+            for (int i = 0; i < 4000; i++) dome.step(t, now, 20000, 1, 40);
+            for (int i = 0; i < 2000; i++) dome.step(t, now, 20000, -1, 60);
+            for (int i = 0; i < 1000; i++) dome.step(t, now, 20000, -1, 160);
+            CHECK_NEAR(t.speedDps(1, 40) / dome.speed(40), 1.0, 0.05);
+            CHECK_NEAR(t.speedDps(1, 122) / dome.speed(122), 1.0, 0.08);
+        """)
+
+    def test_speed_is_kept_with_the_offset_it_was_measured_at(self):
+        # Learned at 40 us, in the band 40-49: 45 us is faster than 40 us.
+        run(r"""
+            DomeTracker t; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t now = 1000;
+            for (int i = 0; i < 4000; i++) dome.step(t, now, 20000, 1, 40);
+            for (int i = 0; i < 1000; i++) dome.step(t, now, 20000, 1, 140);
+            CHECK_NEAR(t.speedDps(1, 40) / dome.speed(40), 1.0, 0.05);
+            CHECK_NEAR(t.speedDps(1, 48) / dome.speed(48), 1.0, 0.08);
+        """)
+
     def test_import_sanitises_corrupt_speeds(self):
         run(r"""
             DomeTracker t;
-            float table[2][kSpeedBands];
-            for (int d = 0; d < 2; d++) for (int b = 0; b < kSpeedBands; b++) table[d][b] = NAN;
-            table[0][3] = -5.0f;
-            table[0][5] = 1e9f;
-            table[0][8] = 30.0f;            // offsets 100-109
+            DomeSpeeds table;
+            for (int d = 0; d < 2; d++) for (int b = 0; b < kSpeedBands; b++) table.dps[d][b] = table.atUs[d][b] = NAN;
+            table.dps[0][3] = -5.0f; table.atUs[0][3] = 52;
+            table.dps[0][5] = 1e9f;  table.atUs[0][5] = 72;
+            table.dps[0][6] = 20.0f; table.atUs[0][6] = 500;     // offset outside its band
+            table.dps[0][7] = 25.0f;                             // offset NaN
+            table.dps[0][8] = 30.0f; table.atUs[0][8] = 105;     // offsets 100-109: valid
             t.importSpeeds(table);
             CHECK_NEAR(t.speedDps(1, 105), 30, 0.01);
             float far = t.speedDps(1, 200);
             CHECK(far == far);              // not NaN
-            CHECK_NEAR(far, 30.0 * 200 / 105, 0.5);
-            CHECK_NEAR(t.speedDps(1, 50), 30.0 * 50 / 105, 0.5);
-            CHECK_NEAR(t.speedDps(-1, 100), 50, 0.01);   // anticlockwise row all invalid: default
+            CHECK_NEAR(far, 30.0 * (200 - 20) / (105 - 20), 0.5);  // one speed: a line from the default zero-speed offset
+            CHECK_NEAR(t.speedDps(1, 50), 30.0 * (50 - 20) / (105 - 20), 0.5);
+            CHECK_NEAR(t.speedDps(-1, 105), 30, 0.01);   // anticlockwise row all invalid: uses clockwise
         """)
 
 
@@ -109,8 +152,9 @@ class TrackingTest(unittest.TestCase):
             double worst = 0;
             for (int i = 0; i < 700; i++) { dome.step(t, now, 20000, 1, 100); double e = std::fabs(wrapDeg(t.angle() - dome.angle)); if (e > worst) worst = e; }
             CHECK(worst < 3.0);
-            float table[2][kSpeedBands]; t.exportSpeeds(table);
-            CHECK(table[0][8] > 0);
+            DomeSpeeds table; t.exportSpeeds(table);
+            CHECK(table.dps[0][8] > 0);
+            CHECK_NEAR(table.atUs[0][8], 100, 0.01);
             t.markSaved();
             CHECK(!t.dirty());
         """)

@@ -17,8 +17,18 @@ static const float kFrontPairDeg = 5.0f;
 static const uint8_t kMagnetCount = 13;
 // Magnet positions in clockwise order from front, 0-360 degrees.
 static const float kMagnetDeg[kMagnetCount] = {0, 5, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330};
-// Learned speeds are kept for servo offsets 20-309 us in 10 us bands.
+// Learned speeds are kept for servo offsets 20-309 us in 10 us bands (the
+// last band takes everything above 300 us).
 static const uint8_t kSpeedBands = 29;
+
+// Learned dome speeds, as saved in preferences. For each direction (0
+// clockwise, 1 anticlockwise) and band: the speed measured, in degrees per
+// second, and the servo offset it was measured at. 0 = not learned.
+struct DomeSpeeds
+{
+    float dps[2][kSpeedBands];
+    float atUs[2][kSpeedBands];
+};
 
 inline float wrapDeg(float a)
 {
@@ -70,12 +80,13 @@ public:
         float overdueFactor;   // learned travel beyond this many gaps without a blip = lost
         float unlearnedOverdueFactor; // the same before the speed is learned
         float defaultDpsPerUs; // speed estimate before anything is learned
+        float zeroSpeedUs;     // offset where the dome stops, until learned speeds show it
         float alpha;           // learning rate
     };
 
     static Config defaults()
     {
-        Config c = {8000, 0.4f, 2.5f, 2.5f, 6.0f, 0.5f, 0.3f};
+        Config c = {8000, 0.4f, 2.5f, 2.5f, 6.0f, 0.5f, 20.0f, 0.3f};
         return c;
     }
 
@@ -83,7 +94,7 @@ public:
     {
         for (uint8_t d = 0; d < 2; d++)
             for (uint8_t b = 0; b < kSpeedBands; b++)
-                fSpeed[d][b] = fSaved[d][b] = 0.0f;
+                fSpeeds.dps[d][b] = fSpeeds.atUs[d][b] = fSaved[d][b] = 0.0f;
     }
 
     // The Hall sensor's level, read just before the loop's time: true while it
@@ -212,22 +223,47 @@ public:
         fLearnable = false;
     }
 
+    // Speed at an offset: straight lines between the learned speeds, and
+    // beyond them a line to the offset where the dome stops. A band one
+    // direction hasn't learned uses the other direction's speed: a dome turns
+    // much the same both ways.
     float speedDps(int8_t dir, uint16_t offsetUs) const
     {
-        int b = band(offsetUs);
-        if (b < 0 || dir == 0)
+        if (band(offsetUs) < 0 || dir == 0)
             return 0.0f;
-        const float* row = fSpeed[dir > 0 ? 0 : 1];
-        if (row[b] > 0.0f)
-            return row[b];
-        for (int d = 1; d < kSpeedBands; d++)
+        uint8_t d = dir > 0 ? 0 : 1;
+        float off = float(offsetUs);
+        int lo = -1, hi = -1;
+        float vLo = 0.0f, atLo = 0.0f, vHi = 0.0f, atHi = 0.0f;
+        for (int b = 0; b < kSpeedBands; b++)
         {
-            if (b - d >= 0 && row[b - d] > 0.0f)
-                return row[b - d] * float(offsetUs) / float(bandCentre(b - d));
-            if (b + d < kSpeedBands && row[b + d] > 0.0f)
-                return row[b + d] * float(offsetUs) / float(bandCentre(b + d));
+            float v, at;
+            if (!point(d, b, v, at))
+                continue;
+            if (at <= off)
+            {
+                lo = b;
+                vLo = v;
+                atLo = at;
+            }
+            else if (hi < 0)
+            {
+                hi = b;
+                vHi = v;
+                atHi = at;
+            }
         }
-        return fCfg.defaultDpsPerUs * float(offsetUs);
+        if (lo < 0 && hi < 0)
+            return fCfg.defaultDpsPerUs * off;
+        if (lo >= 0 && hi >= 0)
+            return vLo + (vHi - vLo) * (off - atLo) / (atHi - atLo);
+        float v = lo >= 0 ? vLo : vHi;
+        float at = lo >= 0 ? atLo : atHi;
+        float zero = zeroSpeedUs(d);
+        if (zero > at - 1.0f)
+            zero = at - 1.0f;
+        float speed = v * (off - zero) / (at - zero);
+        return speed > 0.0f ? speed : 0.0f;
     }
 
     // Smallest offset expected to give at least dps (0 for no movement).
@@ -241,19 +277,23 @@ public:
         return 308;
     }
 
-    void exportSpeeds(float out[2][kSpeedBands]) const
-    {
-        for (uint8_t d = 0; d < 2; d++)
-            for (uint8_t b = 0; b < kSpeedBands; b++)
-                out[d][b] = fSpeed[d][b];
-    }
+    void exportSpeeds(DomeSpeeds& out) const { out = fSpeeds; }
 
-    // Values that aren't a plausible speed (NaN, <= 0, >= 1000 deg/s) are ignored.
-    void importSpeeds(const float in[2][kSpeedBands])
+    // A band whose speed isn't plausible (NaN, <= 0, >= 1000 deg/s) or whose
+    // offset lies outside the band is ignored.
+    void importSpeeds(const DomeSpeeds& in)
     {
         for (uint8_t d = 0; d < 2; d++)
             for (uint8_t b = 0; b < kSpeedBands; b++)
-                fSpeed[d][b] = (in[d][b] > 0.0f && in[d][b] < 1000.0f) ? in[d][b] : 0.0f;
+            {
+                float v = in.dps[d][b];
+                float at = in.atUs[d][b];
+                float lo = float(20 + 10 * b);
+                float hi = b == kSpeedBands - 1 ? 1000.0f : lo + 10.0f;
+                bool ok = v > 0.0f && v < 1000.0f && at >= lo && at < hi;
+                fSpeeds.dps[d][b] = ok ? v : 0.0f;
+                fSpeeds.atUs[d][b] = ok ? at : 0.0f;
+            }
     }
 
     bool dirty() const { return fDirty; }
@@ -262,13 +302,13 @@ public:
     {
         for (uint8_t d = 0; d < 2; d++)
             for (uint8_t b = 0; b < kSpeedBands; b++)
-                fSaved[d][b] = fSpeed[d][b];
+                fSaved[d][b] = fSpeeds.dps[d][b];
         fDirty = false;
     }
 
 private:
     Config fCfg;
-    float fSpeed[2][kSpeedBands];
+    DomeSpeeds fSpeeds;
     float fSaved[2][kSpeedBands];
     bool fDirty = false;
 
@@ -299,12 +339,47 @@ private:
         return b >= kSpeedBands ? kSpeedBands - 1 : b;
     }
 
-    static uint16_t bandCentre(int b) { return uint16_t(25 + 10 * b); }
-
     bool learned(int8_t dir, uint16_t offsetUs) const
     {
         int b = band(offsetUs);
-        return b >= 0 && dir != 0 && fSpeed[dir > 0 ? 0 : 1][b] > 0.0f;
+        return b >= 0 && dir != 0 && fSpeeds.dps[dir > 0 ? 0 : 1][b] > 0.0f;
+    }
+
+    // The learned speed for band b in direction d, or failing that the other
+    // direction's. False when neither has learned it.
+    bool point(uint8_t d, int b, float& v, float& at) const
+    {
+        if (fSpeeds.dps[d][b] <= 0.0f)
+            d = uint8_t(1 - d);
+        v = fSpeeds.dps[d][b];
+        at = fSpeeds.atUs[d][b];
+        return v > 0.0f;
+    }
+
+    // Where the line through the lowest learned speed and one learned at least
+    // 40 us above it reaches zero: the servo deadband. The default until then.
+    float zeroSpeedUs(uint8_t d) const
+    {
+        bool haveLow = false;
+        float vLow = 0.0f, atLow = 0.0f;
+        for (int b = 0; b < kSpeedBands; b++)
+        {
+            float v, at;
+            if (!point(d, b, v, at))
+                continue;
+            if (!haveLow)
+            {
+                haveLow = true;
+                vLow = v;
+                atLow = at;
+            }
+            else if (at - atLow >= 40.0f && v > vLow)
+            {
+                float zero = atLow - vLow * (at - atLow) / (v - vLow);
+                return zero < 0.0f ? 0.0f : zero;
+            }
+        }
+        return fCfg.zeroSpeedUs;
     }
 
     void learn(int8_t dir, uint16_t offsetUs, float dps)
@@ -313,10 +388,20 @@ private:
         if (b < 0 || !(dps > 0.0f && dps < 1000.0f))
             return;
         uint8_t d = dir > 0 ? 0 : 1;
-        float old = fSpeed[d][b];
-        fSpeed[d][b] = old > 0.0f ? old + fCfg.alpha * (dps - old) : dps;
+        float& v = fSpeeds.dps[d][b];
+        float& at = fSpeeds.atUs[d][b];
+        if (v > 0.0f)
+        {
+            v += fCfg.alpha * (dps - v);
+            at += fCfg.alpha * (float(offsetUs) - at);
+        }
+        else
+        {
+            v = dps;
+            at = float(offsetUs);
+        }
         float saved = fSaved[d][b];
-        if (saved <= 0.0f || fabsf(fSpeed[d][b] - saved) > 0.1f * saved)
+        if (saved <= 0.0f || fabsf(v - saved) > 0.1f * saved)
             fDirty = true;
     }
 
