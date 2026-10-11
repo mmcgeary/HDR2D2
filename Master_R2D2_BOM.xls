@@ -413,7 +413,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">FlySky FS-i6X 10-Channel 2.4GHz AFHDS 2A</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Right stick drive via Elevon mix on CH1/CH2. CH4 dome, CH5 VrA mood, CH6 VrB volume, CH7 SwA random dome, CH8 SwB play sound, CH9 SwC random sounds/holos, CH10 spare. Failsafe: CH1/2/4 centre, SwA up. See CONTROLLER_GUIDE.md.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Right stick drive via Elevon mix on CH1/CH2. CH4 dome, CH5 SwA random dome, CH6 SwB play sound, CH7 VrA mood, CH8 VrB volume, CH9 SwC random sounds/holos, CH10 spare. Failsafe: CH1/2/4 centre, CH5 up. See TRANSMITTER_SETUP.md.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">37</Data></Cell>
@@ -431,7 +431,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 pack</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Stranded copper 10/12/16/18/20/22AWG; ring lugs matching studs, insulated crimp splices, and ferrules</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Follows wire schedule in POWER_HARNESS_GUIDE.md: 12AWG for motor phases (6x 2m) and VESC power; 22AWG 5-core for motor Halls.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Follows the wire schedule in POWER.md: 12AWG for motor phases (6x 2m) and VESC power; 22AWG 5-core for motor Halls.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">39</Data></Cell>

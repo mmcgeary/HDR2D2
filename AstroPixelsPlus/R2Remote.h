@@ -22,10 +22,11 @@
 #define R2_CH_DRIVE_LEFT 1
 #define R2_CH_DRIVE_RIGHT 2
 #define R2_CH_DOME 4
-#define R2_CH_MOOD 5        // VrA
-#define R2_CH_VOLUME 6      // VrB
-#define R2_CH_RANDOM_DOME 7 // SwA: down = random dome on
-#define R2_CH_PLAY_SOUND 8  // SwB: flip down = play a mood sound
+// Random dome sits on CH5 so the receiver failsafe (CH1-CH6) can switch it off.
+#define R2_CH_RANDOM_DOME 5 // SwA: down = random dome on
+#define R2_CH_PLAY_SOUND 6  // SwB: flip down = play a mood sound
+#define R2_CH_MOOD 7        // VrA
+#define R2_CH_VOLUME 8      // VrB
 #define R2_CH_RANDOM 9      // SwC: up = quiet; middle or down = random sounds and holos
 
 #define R2_RADIO_TIMEOUT_MS 300

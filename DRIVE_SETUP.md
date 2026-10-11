@@ -1,76 +1,81 @@
-# Drive Setup: Receiver → VESC
+# Drive Setup
 
-The feet are driven straight from the FlySky receiver. No board sits in between.
+The feet run straight from the FlySky receiver:
 
-- The transmitter's **Elevon** mix turns the right stick into a left-wheel command (CH1) and a right-wheel command (CH2).
-- Each half of the Flipsky Dual FSESC4.20 reads one of them on its own receiver input (VESC "PPM" app).
+- The transmitter's Elevon mix turns the right stick into a left-wheel signal (CH1) and a right-wheel signal (CH2).
+- Each half of the Flipsky Dual FSESC4.20 reads one of them on its own receiver input. VESC Tool calls this the **PPM** app.
 
-The Dual FSESC4.20 is two separate VESC controllers on one board, joined only by CAN. With the CAN switch **OFF**, each half runs alone.
+The Dual FSESC4.20 is two complete VESC controllers on one board, joined only by CAN. With the CAN switch **OFF**, each half runs on its own.
 
-> **Wheels off the ground** for every step on this page until the final floor test.
+**Keep the wheels off the ground for every step until §6.**
 
-## 1. Prove the factory receiver input first
+## What you need
 
-Do this before soldering anything. It confirms the VESC reads your receiver.
+- VESC Tool on a computer, and a Micro-USB data cable
+- The receiver bound and set up ([Transmitter Setup](TRANSMITTER_SETUP.md) §1–4; leave the Elevon mix off for now)
+- A multimeter
+- A soldering iron, a female servo lead (26AWG) and hot glue
 
-1. Disconnect that half's motor, or lift the wheels.
+## 1. Prove the factory receiver input
+
+This confirms the VESC reads your receiver before you modify anything.
+
+1. Disconnect the motor from half A (the half with the factory receiver lead), or lift that wheel.
 2. Set the CAN switch to **OFF (single)**.
-3. Power the board from the battery. Plug USB into the half with the factory receiver lead.
-4. In VESC Tool: **App Settings → General → App to Use = PPM**. Write the settings.
-5. Open **App Settings → PPM → Mapping**. It shows the pulse width the VESC is receiving.
-6. Plug receiver **CH1** into the factory lead.
-   - For this test only, the lead's 5V can power the receiver.
-   - Use a transmitter model with no mixes yet.
+3. Connect the battery through F1. Plug USB into half A.
+4. VESC Tool: **App Settings → General → App to Use: PPM**. Write the settings.
+5. Open **App Settings → PPM → Mapping**. It shows the incoming pulse width live.
+6. Disconnect the receiver from B-LOGIC. Plug receiver CH1 into the factory lead with its 5V pin in place: for this test the VESC powers the receiver.
 7. Move the right stick left and right.
 
-| You see | Meaning |
+| Result | Meaning |
 | --- | --- |
-| Smooth change, about 1.0 / 1.5 / 2.0 ms | ✅ Works |
-| Value jumps around | Receiver is in PPM output mode. Set it to PWM (see [Controller Guide](CONTROLLER_GUIDE.md)). |
-| Nothing | Check plug orientation and that the receiver is bound |
+| The value follows the stick, 1.0–2.0 ms, 1.5 ms at centre | Input works. Continue. |
+| The value jumps around | Receiver is in PPM output mode. Set PWM ([Transmitter Setup](TRANSMITTER_SETUP.md) §4). |
+| No value | Plug reversed, or receiver not bound |
 
-## 2. Add a receiver lead to the second half
+## 2. Add a receiver lead to half B
 
-The second half has unpopulated receiver pads in the same position as the first half's soldered lead.
+Half B has unpopulated receiver pads in the same position as half A's soldered lead. This modification voids the board's warranty.
 
-1. Disconnect the battery. Remove the heat sink and keep its thermal pad.
-2. **Beep check** with a multimeter on continuity:
-   - New **signal** pad to the factory lead's SIN wire: must **not** beep. If it beeps, the pads are shared; stop and use two single controllers instead.
-   - New **ground** pad to battery negative: must beep.
-3. Solder a servo lead (about 26AWG, female servo plug) to the **signal and ground** pads only. Leave the 5V pad empty.
-4. Strain-relieve the lead (hot glue or a tie-down) so a pull can't lift the pads.
-5. Refit the heat sink with its thermal pad and tighten every screw.
-6. Repeat the test from step 1 on this half's USB port, using receiver **CH2**.
+1. Disconnect the battery. Remove the heat sink. Keep its thermal pad.
+2. Multimeter on continuity:
+   - Half B **signal** pad to half A's SIN wire: **no beep**. If it beeps, the inputs are shared; stop and buy two single Flipsky Mini FSESC4.20 controllers.
+   - Half B **ground** pad to battery negative: **beep**.
+3. Solder the servo lead's signal and ground wires to the matching pads. Leave the 5V pad empty.
+4. Glue the lead down next to the pads so a pull can't lift them.
+5. Refit the heat sink with its thermal pad. Tighten every screw.
+6. Repeat §1 on half B's USB port with receiver CH2.
 
-Expect this to void the board's warranty.
+## 3. Final lead wiring
 
-## 3. Final receiver lead wiring
+1. Remove the 5V (red) pin from both receiver leads and insulate it. The receiver runs from the body 5V supply ([Wiring](WIRING.md) §1).
+2. Half A lead → receiver CH1. Half B lead → receiver CH2.
 
-- On **both** leads, remove the red (5V) pin and insulate it. The receiver is powered by the body 5V supply.
-- Factory lead → receiver CH1. New lead → receiver CH2.
+## 4. Motor wiring and detection
 
-## 4. VESC Tool settings, each half separately
+Each motor's three phase wires go to its half's phase outputs. Its Hall lead goes to that half's SENSE connector:
 
-Connect USB to one half at a time. CAN switch OFF.
-
-### Motor detection
-
-Run the **FOC wizard** in **sensored (Hall)** mode with the wheels clear.
-
-Motor Hall wiring, motor to VESC SENSE connector:
-
-| VESC pin | Motor wire |
+| SENSE pin | Motor wire |
 | --- | --- |
 | GND | Black |
 | H3 | Green |
 | H2 | Blue |
 | H1 | Yellow |
-| TMP | Not used, insulated |
+| TMP | — (insulated) |
 | 5V | Red |
 
-### Current and voltage limits
+For each half, over its own USB port:
 
-The 12.8V 20Ah pack's continuous limit is 20A. The lights, sound and servos use about 5–6A, which leaves about 10–11A for both wheels together.
+1. Run the **FOC setup wizard**. Select **sensored (Hall)**.
+2. Let it detect resistance, inductance, flux linkage and the Hall table.
+3. Write the configuration.
+
+## 5. VESC Tool settings
+
+Set these on **each half**, over its own USB port.
+
+### Motor and battery limits
 
 | Setting | Value |
 | --- | --- |
@@ -78,44 +83,52 @@ The 12.8V 20Ah pack's continuous limit is 20A. The lights, sound and servos use 
 | Motor Current Max Brake | −6 to −8A |
 | Battery Current Max | 5.0–5.5A |
 | Battery Current Max Regen | −2.5 to −3.0A |
-| Battery Voltage Cutoff Start / End | 11.5V / 10.5V |
+| Battery Voltage Cutoff Start | 11.5V |
+| Battery Voltage Cutoff End | 10.5V |
+
+These limits keep both wheels together under 11A from the battery, inside its 20A rating with the dome running ([Power](POWER.md) §6).
 
 ### PPM app
 
 | Setting | Value |
 | --- | --- |
 | App to Use | PPM |
-| Control Type | Duty Cycle. PID Speed holds better on slopes; try it later if needed. |
-| Mapping | Run the mapping with the transmitter's final mix active: full forward, full back, centre |
-| Deadband | About 10% |
+| Control Type | Duty Cycle |
+| Deadband | 10% |
 | Safe Start | On |
-| Timeout | About 300ms, with a brake current of about 3A |
-| Multiple VESCs over CAN | **Off** |
+| Timeout | 300 ms |
+| Timeout Brake Current | 3A |
+| Multiple VESCs over CAN | Off |
 
-If a wheel turns the wrong way, use **Invert Motor Direction** for that half.
+### Mapping
+
+1. Turn on the Elevon mix ([Transmitter Setup](TRANSMITTER_SETUP.md) §5).
+2. On each half, run **PPM → Mapping**: move the right stick around its full range (every edge and corner), then centre it. Write.
+3. If a wheel rolls backwards on forward stick, set **Invert Motor Direction** on that half. If turning is reversed, swap the CH1 and CH2 leads at the receiver.
 
 ### Settings record
 
 | | Half A (left) | Half B (right) |
 | --- | --- | --- |
 | Firmware version | | |
+| Motor Current Max / Brake | | |
+| Battery Current Max / Regen | | |
 | Control type / deadband | | |
 | Timeout / brake current | | |
-| Battery current max / regen | | |
-| Motor current max / brake | | |
-| Direction inverted? | | |
+| Direction inverted | | |
 
-## 5. Tests before the floor
+## 6. Safety tests
 
-All with the wheels in the air:
+Wheels off the ground for tests 1–6.
 
-1. **Steering:**
-   - Stick forward: both wheels forward.
-   - Stick right: left wheel forward, right wheel back (or slower).
-   - Fix with transmitter channel Reverse or VESC Invert.
-2. **Power-up with stick pushed:** hold the stick forward and power on. Neither wheel may move until the stick has been centred (safe start).
-3. **Transmitter off** with a wheel turning: both wheels must stop. This is the receiver failsafe at work.
-4. **Pull each receiver lead** in turn with a wheel turning: that wheel must brake within about 0.3s. This is the VESC timeout.
-5. **Master cutoff:** everything stops.
+| # | Test | Pass |
+| --- | --- | --- |
+| 1 | Stick forward, back, left, right | Wheels follow the stick in the right directions |
+| 2 | Hold the stick forward and power on | Neither wheel moves until the stick returns to centre |
+| 3 | Drive both wheels, switch the transmitter off | Both wheels stop |
+| 4 | Drive both wheels, unplug half A's receiver lead | Wheel A brakes within 0.3 s |
+| 5 | Repeat test 4 for half B | Wheel B brakes within 0.3 s |
+| 6 | Master cutoff off with both wheels turning | Everything stops |
+| 7 | First floor drive: open space, slow, a helper at the master cutoff | Drives and stops under control |
 
-Then do a slow floor test in an open space with a helper beside the master cutoff.
+All seven must pass before normal driving.
