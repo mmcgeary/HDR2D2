@@ -14,6 +14,31 @@ static uint16_t tick(DomeMotion& m, const DomeTracker& model, uint32_t& nowMs, f
     angle += float(m.direction()) * model.speedDps(m.direction(), m.offsetUs()) * 0.02f;
     return pulse;
 }
+
+// Turns the simulated dome until the tracker knows where it is and has learned
+// speeds both ways at 60 and 220 us.
+static void learnDome(DomeTracker& t, r2sim::SimDome& d, uint32_t& nowUs)
+{
+    const uint16_t offs[] = {60, 220};
+    for (int dir = 1; dir >= -1; dir -= 2)
+        for (uint16_t o : offs)
+            for (int i = 0; i < 2000; i++) d.step(t, nowUs, 20000, int8_t(dir), o);
+}
+
+// One loop pass on the simulated dome.
+static void pass(DomeMotion& m, DomeTracker& t, r2sim::SimDome& d, uint32_t& nowMs, uint32_t& nowUs, const DomeRequest& req)
+{
+    nowMs += 20;
+    m.update(nowMs, true, 1500, req, t.known(), t.angle(), t);
+    d.step(t, nowUs, 20000, m.direction(), m.offsetUs());
+}
+
+// Runs a request until it arrives, then holds for a second.
+static void moveAndSettle(DomeMotion& m, DomeTracker& t, r2sim::SimDome& d, uint32_t& nowMs, uint32_t& nowUs, const DomeRequest& req)
+{
+    for (int i = 0; i < 3000 && !m.arrived(); i++) pass(m, t, d, nowMs, nowUs, req);
+    for (int i = 0; i < 50; i++) pass(m, t, d, nowMs, nowUs, domeHold());
+}
 """
 
 
@@ -184,6 +209,40 @@ class HeldEstimateTest(unittest.TestCase):
             CHECK(sawHeld);
             CHECK(rises == 0);
             CHECK_NEAR(tracker.speedDps(1, peak) / dome.speed(peak), 1.0, 0.05);
+        """)
+
+    def test_fast_moves_stop_on_target(self):
+        # Happy's cruise and ease, and a wiggle step, need bigger steps than the
+        # 10 us per 20 ms limit to follow their ramp: the ease stretches to fit.
+        run(r"""
+            DomeTracker t; DomeMotion m; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t nowUs = 1000, nowMs = 0;
+            learnDome(t, dome, nowUs);
+            CHECK(t.known());
+            moveAndSettle(m, t, dome, nowMs, nowUs, domeGoTo(-30, 45, 0.6f));
+            moveAndSettle(m, t, dome, nowMs, nowUs, domeGoTo(100, 75, 0.35f));
+            CHECK_NEAR(dome.angle, 100, 3.0);
+            moveAndSettle(m, t, dome, nowMs, nowUs, domeGoTo(110, 80, 0.2f));
+            CHECK_NEAR(dome.angle, 110, 3.0);
+            moveAndSettle(m, t, dome, nowMs, nowUs, domeGoTo(70, 67.5f, 0.25f));   // a double-take at 1.5 x General
+            CHECK_NEAR(dome.angle, 70, 3.0);
+        """)
+
+    def test_no_arrival_at_speed(self):
+        # The target changes to just ahead of a dome turning at 75 deg/s: it must
+        # brake and come back, not call it arrived and coast on.
+        run(r"""
+            DomeTracker t; DomeMotion m; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t nowUs = 1000, nowMs = 0;
+            learnDome(t, dome, nowUs);
+            moveAndSettle(m, t, dome, nowMs, nowUs, domeGoTo(-60, 45, 0.6f));
+            DomeRequest far = domeGoTo(120, 75, 0.35f);
+            while (t.angle() < 30.0f) pass(m, t, dome, nowMs, nowUs, far);
+            float near = t.angle() + 2.0f;
+            DomeRequest req = domeGoTo(near, 75, 0.35f);
+            pass(m, t, dome, nowMs, nowUs, req);
+            pass(m, t, dome, nowMs, nowUs, req);
+            CHECK(!m.arrived());
+            moveAndSettle(m, t, dome, nowMs, nowUs, req);
+            CHECK_NEAR(dome.angle, near, 3.0);
         """)
 
     def test_return_to_front_ends_on_the_front_magnet(self):
