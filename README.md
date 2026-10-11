@@ -2,6 +2,8 @@
 
 This build turns the 2024 Home Depot R2-D2 animatronic into a remote-controlled droid with AstroPixels lights, sound, a turning dome and powered feet.
 
+**Build hub:** [mmcgeary.github.io/HDR2D2](https://mmcgeary.github.io/HDR2D2/) has the wiring reference, the drive visualizer and links to every guide.
+
 ## Two versions
 
 This repository holds two designs:
@@ -85,7 +87,8 @@ flowchart LR
 | [`tests/`](tests/) | PC tests for the firmware logic: `python3 -m unittest discover tests` |
 | [`docs/astropixels/`](docs/astropixels/) | AstroPixels reference documentation |
 | [`docs/images/`](docs/images/) | Transmitter layout image and the Flipsky wiring sheet |
-| [`index.html`](index.html), `app.js`, `styles.css` | Foot-drive clearance visualizer |
+| [`index.html`](index.html) | Home page of the [GitHub Pages site](https://mmcgeary.github.io/HDR2D2/): links to the tools and guides |
+| [`drive_visualizer.html`](drive_visualizer.html), `drive_visualizer.js`, `drive_visualizer.css` | Foot-drive layout visualizer |
 | [`Razor_Hub_Motor_Slotted_Mount.stl`](Razor_Hub_Motor_Slotted_Mount.stl), [`generate_slotted_mount_stl.py`](generate_slotted_mount_stl.py) | Printable hub motor mount and its generator |
 | [`mechanical/tekno-pop-motor-mounts-wip/`](mechanical/tekno-pop-motor-mounts-wip/) | Work-in-progress motor mounts. Check fit before final assembly. |
 
