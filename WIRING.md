@@ -2,6 +2,8 @@
 
 This guide covers every signal connection. Power, fuses and wire sizes are in [Power](POWER.md).
 
+The interactive [wiring reference](wiring_reference.html) shows every wire, power and signal, as a clickable diagram with a printable wire schedule. Open it in a browser.
+
 ## Overview
 
 There are three signal paths:
