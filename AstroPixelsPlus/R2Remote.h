@@ -97,6 +97,8 @@ public:
 
         // One time for the whole pass: blips up to it, then the update and the
         // new command, so the tracker sees events in the order they happened.
+        // The sensor level is read right before it.
+        bool overMagnet = digitalRead(R2_DOME_HALL_PIN) == LOW;
         uint32_t nowUs = micros();
         fBlipTail = r2::drainBlips(sBlipUs, sBlipHead, fBlipTail, nowUs, fTracker);
         fTracker.update(nowUs);
@@ -117,6 +119,7 @@ public:
 
         uint16_t pulse = fMotion.update(now, fRadio, fIbus.channel(R2_CH_DOME), out.dome, fTracker.known(),
                                         fTracker.angle(), fTracker);
+        fTracker.setSensor(overMagnet);
         fTracker.setCommand(nowUs, fMotion.direction(), fMotion.offsetUs());
         if (pulse != fDomePulse)
         {

@@ -86,6 +86,10 @@ public:
                 fSpeed[d][b] = fSaved[d][b] = 0.0f;
     }
 
+    // The Hall sensor's level, read just before the loop's time: true while it
+    // is over a magnet. Call before setCommand().
+    void setSensor(bool overMagnet) { fOverMagnet = overMagnet; }
+
     // The servo command now in force. direction: +1 clockwise, -1 anticlockwise,
     // 0 stopped. offsetUs = |pulse - neutral|.
     void setCommand(uint32_t nowUs, int8_t direction, uint16_t offsetUs)
@@ -271,6 +275,7 @@ private:
     bool fKnown = false;
     bool fLearnable = false;
     bool fJustReversed = false;
+    bool fOverMagnet = false;
     float fLastMagnet = 0.0f;
     float fTravelDeg = 0.0f;
     float fPrevTravelDeg = 0.0f;
@@ -332,7 +337,9 @@ private:
         fHaveTime = true;
     }
 
-    // Direction flipped between magnets: the magnet ahead becomes the one behind.
+    // Direction flipped. Between magnets, the magnet ahead becomes the one
+    // behind. Over the magnet just reported, the sensor stays low as the dome
+    // backs off it: no new blip, so that magnet stays the last one passed.
     void reverse()
     {
         fPrevTravelDeg = 0.0f;
@@ -340,7 +347,7 @@ private:
         fSteady = false;
         fLearnable = false;
         fJustReversed = true;
-        if (!fKnown)
+        if (!fKnown || fOverMagnet)
         {
             fTravelDeg = 0.0f;
             return;

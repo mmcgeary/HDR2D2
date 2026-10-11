@@ -197,6 +197,45 @@ class TrackingTest(unittest.TestCase):
             CHECK(std::fabs(wrapDeg(t.angle() - dome.angle)) < 3.0f);
         """)
 
+    def test_reversal_while_over_a_magnet(self):
+        # A real sensor reads low across an arc around each magnet and blips once,
+        # entering it. The dome stops inside the arc of the magnet it just
+        # reported, then turns back: that magnet gives no new blip.
+        run(r"""
+            DomeTracker t; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t now = 1000;
+            dome.arcDeg = 1.0f;
+            for (int i = 0; i < 1300; i++) dome.step(t, now, 20000, 1, 100);      // learn, ends near -47
+            while (!(dome.sensorLow() && dome.angle > 55 && dome.angle < 65)) dome.step(t, now, 20000, 1, 40);
+            for (int i = 0; i < 25; i++) dome.step(t, now, 20000, 0, 0);         // rest on magnet 60
+            CHECK(t.known());
+            while (dome.angle > -40.0f) { dome.step(t, now, 20000, -1, 100); CHECK(t.known()); }
+            CHECK(std::fabs(wrapDeg(t.angle() - dome.angle)) < 3.0f);
+        """)
+
+    def test_reversal_on_the_front_magnet(self):
+        # The common case: a return to front stops just after the front blip.
+        run(r"""
+            DomeTracker t; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t now = 1000;
+            dome.arcDeg = 1.0f;
+            for (int i = 0; i < 1300; i++) dome.step(t, now, 20000, 1, 100);      // ends near -47
+            while (!(dome.sensorLow() && dome.angle > -2 && dome.angle < 2)) dome.step(t, now, 20000, 1, 40);
+            for (int i = 0; i < 25; i++) dome.step(t, now, 20000, 0, 0);
+            CHECK_NEAR(t.angle(), 0.0, 0.5);
+            while (dome.angle > -70.0f) { dome.step(t, now, 20000, -1, 100); CHECK(t.known()); }
+            CHECK(std::fabs(wrapDeg(t.angle() - dome.angle)) < 3.0f);
+        """)
+
+    def test_stop_over_a_magnet_then_carry_on(self):
+        run(r"""
+            DomeTracker t; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t now = 1000;
+            dome.arcDeg = 1.0f;
+            for (int i = 0; i < 1300; i++) dome.step(t, now, 20000, 1, 100);
+            while (!(dome.sensorLow() && dome.angle > 55 && dome.angle < 65)) dome.step(t, now, 20000, 1, 40);
+            for (int i = 0; i < 25; i++) dome.step(t, now, 20000, 0, 0);
+            while (dome.angle < 140.0f) { dome.step(t, now, 20000, 1, 100); CHECK(t.known()); }
+            CHECK(std::fabs(wrapDeg(t.angle() - dome.angle)) < 3.0f);
+        """)
+
     def test_estimate_held_short_of_next_magnet(self):
         run(r"""
             DomeTracker t;
