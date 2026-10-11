@@ -7,7 +7,7 @@ This folder is stock [reeltwo/AstroPixelsPlus](https://github.com/reeltwo/AstroP
 | `R2Logic.h` | iBUS decoding, switches, dials, volume |
 | `R2Mood.h` | Mood profiles: every behaviour number, one row per mood |
 | `R2Eyes.h` | Holo eyes: leading front eye, independent top and rear eyes, per-axis direction flips |
-| `R2DomeTracker.h` | Dome angle from the body magnet ring, learned dome speeds |
+| `R2DomeTracker.h` | Dome angle from the body magnet ring, learned dome speeds, reading the magnet blips in order |
 | `R2DomeMotion.h` | Eased dome moves, stick pass-through |
 | `R2Attention.h` | When R2 looks, where, what it says, SwB gestures, levels and interruptions |
 | `R2Remote.h` | Connects the modules to the ESP32 pins, the DFPlayer, the holo servos and saved settings |
@@ -51,7 +51,7 @@ Before the first iBUS frame, R2 runs at Aware in the General mood and the dome r
 | --- | --- |
 | 16 | iBUS in (Serial2, 115200) |
 | 4 | Dome servo out (LEDC channel 15, 50 Hz) |
-| 5 | Dome Hall sensor over the body magnet ring: active low, internal pull-up, falling-edge interrupt timestamps each magnet |
+| 5 | Dome Hall sensor over the body magnet ring: active low, internal pull-up. A falling-edge interrupt timestamps each magnet; the loop also reads the level, so a dome that reverses over a magnet keeps its count. |
 | 18 / 19 | DFPlayer serial (Serial1, 9600), stock |
 
 ## Build and flash
@@ -94,7 +94,7 @@ Stock serial commands still work. Examples:
 | Holo servo ranges | Servo table (`servoSettings`) in `AstroPixelsPlus.ino` |
 | Holo direction | `kEyeFlipH` / `kEyeFlipV` in `R2Eyes.h` |
 | Stick deadband, final approach speed, step limit | `DomeMotion::defaults()` in `R2DomeMotion.h` |
-| Front-pair gap ratio, overdue factor, default speed | `DomeTracker::defaults()` in `R2DomeTracker.h` |
+| Front-pair gap ratio, gap growth limit, overdue factors, default speed and zero-speed offset, learning rate | `DomeTracker::defaults()` in `R2DomeTracker.h` |
 | Gap between sounds, pause after the stick or driving, seek timeout | `kSoundGapMs`, `kResumeMs`, `kSeekTimeoutMs` in `R2Attention.h` |
 | Mood bank sizes | `MP3_BANK1_SOUNDS` … `MP3_BANK5_SOUNDS` in `MarcduinoSound.h` |
 
@@ -104,7 +104,15 @@ Stock serial commands still work. Examples:
 python3 -m unittest discover tests
 ```
 
-The tests compile the `R2*.h` modules with the PC's C++ compiler. They cover iBUS decoding, switches and dials, moods, the holo eyes, the magnet tracker against a simulated dome, eased dome motion, the attention planner's sequences and priorities, and a 30-minute virtual droid run per mood that checks every motion and tracking rule.
+The tests compile the `R2*.h` modules with the PC's C++ compiler. They cover iBUS decoding, switches and dials, moods, the holo eyes, the magnet tracker against a simulated dome, eased dome motion, and the attention planner's sequences and priorities.
+
+The virtual droid test runs R2Remote's loop for 30 simulated minutes per level and mood, Mixed included. The simulated dome has a Hall arc around each magnet, a speed lag and a servo deadband, and the run includes stick turns, driving, SwB, a Still flip and radio loss. It checks:
+- tracking within 5° once speeds are learned,
+- every return resting within 3° of front,
+- no lost position, the 10 µs step limit and the 4-second sound gap,
+- Still and Aware never moving the dome on their own.
+
+`R2Remote.h` itself (pins, interrupt, servo output, saved settings) runs only on the droid.
 
 ## Wi-Fi
 
@@ -127,7 +135,7 @@ Settings saved through the web page or Marcduino commands:
 | Sound random min / max | Ignored: each mood sets its own timing |
 | Sound volume | Used at power-on. The VrB dial replaces it once the radio is heard. |
 | Sound startup track | Used |
-| Learned dome speeds | Saved by R2Remote under the key r2speeds, at most every 5 minutes |
+| Learned dome speeds | Saved by R2Remote under the key r2speeds (a speed and the servo offset it was measured at, per band), at most every 5 minutes |
 | Sound player, sound serial | Ignored: always DFPlayer on Serial1 |
 | Random sound on/off | Ignored: SwC controls chatter |
 | Marcduino serial baud, pass-through, JawaLite pass-through | Ignored: Serial2 carries iBUS |

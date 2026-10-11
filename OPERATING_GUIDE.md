@@ -22,8 +22,10 @@ How to drive R2 and use the dome, sounds and lights. One-time setup is in [Trans
 | Level | What R2 does |
 | --- | --- |
 | **Still** (up) | Nothing on its own. Holos centred, no random sounds, the dome moves only with the stick. For tight spaces and people up close. |
-| **Aware** (middle) | Looks around with its holos and talks. The dome stays facing front. |
+| **Aware** (middle) | Looks around with its holos and talks. The dome moves only with the stick. |
 | **Alive** (down) | Looks around with its dome too. The front holo glances toward something a moment before the dome turns to it. |
+
+Moving SwC out of Alive during a look finishes the look facing front. A dome you turned with the stick stays where you left it.
 
 Losing the transmitter signal puts R2 in Still.
 
@@ -37,7 +39,7 @@ The mood sets what R2 says and how it moves.
 | Chat | Sociable. Looks often end in a comment. |
 | Happy | Lively. Frequent, brisk looks; holos roam widely. |
 | Sad | Withdrawn. Rare, slow looks; holos low; quiet. |
-| Whistle | Attentive. Looks often end with a glance back toward front. |
+| Whistle | Attentive. Looks often include a glance back toward front. |
 | Mixed | Changes to a different mood every 1–3 minutes. |
 
 ## SwB
@@ -51,8 +53,10 @@ The mood sets what R2 says and how it moves.
 | General | A glance to one side and back |
 | Chat | A turn partway toward front |
 | Happy | A quick left-right wiggle |
-| Sad | A slow half-turn away, then back |
+| Sad | A slow 45° turn away, then back |
 | Whistle | Turns to face front |
+
+Every gesture ends with the dome facing front.
 
 ## Power on
 
@@ -63,7 +67,7 @@ The mood sets what R2 says and how it moves.
 5. Set SwC to the level you want.
 
 - The wheels stay still until the right stick has been centred after power-on.
-- At power-on the dome doesn't know where it's pointing. In Alive, its first move is a slow turn until it passes the front magnets.
+- At power-on the dome doesn't know where it's pointing. In Alive, R2's first look starts with a slow clockwise turn until the dome passes the front magnets.
 
 ## Power off
 

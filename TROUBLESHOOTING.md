@@ -27,7 +27,8 @@ Find the symptom, then work down its checks in order.
 | Dome creeps with the stick centred | Set CH4 subtrim ([Transmitter Setup](TRANSMITTER_SETUP.md) §6) |
 | R2 never looks around | SwC down (Alive). Both sticks centred and no driving for 3 seconds. Looks come every 6–75 seconds, depending on mood. |
 | R2 never looks around although SwC is down and the sticks are centred | CH4 subtrim is more than 80 µs from centre, so the firmware reads the stick as pushed. Reduce the subtrim; adjust the servo's own neutral instead. |
-| The dome turns for 20 seconds, then stops looking around | The front magnets aren't being found. Check the sensor LED blinks at every magnet, the gap is 5 mm or less, all magnets face the same way up, and the extra magnet is 5° clockwise of front. Check shifter HV3 → LV3 → GPIO5. Flip SwC up and down to retry. |
+| The dome turns slowly for about 22 seconds, does it again at the next look, then stops moving on its own | The front magnets aren't being found. Check the sensor LED blinks at every magnet, the gap is 5 mm or less, all magnets face the same way up, and the extra magnet is 5° clockwise of front. Check shifter HV3 → LV3 → GPIO5. Flip SwC up and back down to retry. |
+| The dome turns a slow circle between looks now and then | It lost count of the magnets and is finding front again. Check every magnet is glued firmly and faces the same way up, the gap is 5 mm or less, and the sensor LED gives exactly one blink per magnet when you turn the dome by hand. |
 | The dome turns the wrong way for its looks | Stick-right must turn the dome clockwise. Reverse CH4 ([Transmitter Setup](TRANSMITTER_SETUP.md) §6). |
 | Looks stop short of front or past it | A magnet is loose or missing. Check all 13 against the template. |
 

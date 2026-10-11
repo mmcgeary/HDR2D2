@@ -60,7 +60,7 @@ Wi-Fi is off. The droid needs no Wi-Fi to run. To use the stock web page or Wi-F
 - a sad mood aims them low,
 - and a look toward R2's right turns the front holo to the right.
 
-**Ranges.** Each holo servo's range is its row in the servo table in `AstroPixelsPlus/AstroPixelsPlus.ino`: 1000–2000 µs. That's inside stock AstroPixelsPlus's 800–2200 µs, which ReelTwo's own holo code drives to both ends. R2's moods use at most the middle 80% of it.
+**Ranges.** Each holo servo's range is its row in the servo table in `AstroPixelsPlus/AstroPixelsPlus.ino`: 1000–2000 µs. That's inside stock AstroPixelsPlus's 800–2200 µs, which ReelTwo's own holo code drives to both ends. R2's looks can reach both ends of it.
 
 | Problem | Fix |
 | --- | --- |
@@ -109,22 +109,22 @@ Before the receiver is heard, the firmware sends the dome servo no pulses, so th
 ## 7. Behaviour
 
 1. Set the mood dial (VrA) to General. Flip SwC down (Alive), both sticks centred.
-2. The dome turns slowly clockwise until it passes the front magnets, then stops facing front.
-3. Within 35 seconds R2 looks around:
+2. Within 35 seconds R2 starts its first look. The dome doesn't know where it is yet, so it first turns slowly clockwise until it passes the front magnets. Then:
    - the front holo glances one way,
    - the dome follows smoothly,
    - it holds for a few seconds,
    - and comes back to front.
-4. Push the left stick: the dome follows the stick immediately. Let go: 3 seconds later R2 carries on.
-5. Push the right stick (driving): the dome returns to front.
-6. Flip SwB down: R2 makes a sound and a glance.
-7. Turn VrA to Happy: looks come more often and faster. Turn it to Sad: slow and rare.
-8. Flip SwC to the middle (Aware): the dome stops at front; the holos keep looking around.
-9. Flip SwC up (Still): everything rests.
+3. Push the left stick: the dome follows the stick immediately. Let go: 3 seconds later R2 carries on.
+4. Push the right stick (driving) during a look: the dome returns to front.
+5. Flip SwB down: R2 makes a sound and a glance, and ends facing front.
+6. Turn VrA to Happy: looks come more often and faster. Turn it to Sad: slow and rare.
+7. Flip SwC to the middle (Aware): a look in progress finishes facing front, then the dome stays put; the holos keep looking around.
+8. Flip SwC up (Still): everything rests.
 
 | Problem | Fix |
 | --- | --- |
-| The dome turns for 20 seconds, then stops looking around | The front magnets aren't being found. Check §5, then flip SwC up and down to retry. |
+| The dome turns slowly for about 22 seconds, does it again at the next look, then stops moving on its own | The front magnets aren't being found. Check §5, then flip SwC up and back down to retry. |
+| The dome turns a slow circle between looks now and then | It lost count of the magnets. Check every magnet is glued firmly, faces the same way up, and sits 5 mm or less from the sensor, and that §5's check gives exactly one blink per magnet. |
 | The dome stops short of front or past it | A magnet is loose or missing. Check all 13 against the template. |
 | Looks are too fast or too big | Edit that mood's row in `AstroPixelsPlus/R2Mood.h` (`domeCruiseDps`, `lookAngleDeg`), rebuild and reflash. |
 

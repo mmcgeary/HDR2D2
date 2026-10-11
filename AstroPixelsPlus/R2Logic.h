@@ -1,7 +1,7 @@
 #pragma once
 
-// Hardware-free logic for the FlySky remote features: iBUS decoding, the
-// dome state machine, dials, switches and random timers. Everything here is
+// Hardware-free logic for the FlySky remote features: iBUS decoding, sticks,
+// switches, dials, volume, random timers and mood sounds. Everything here is
 // plain C++ so it can be unit-tested on a PC (see tests/test_r2_logic.py).
 // R2Remote.h connects it to the ESP32 pins, sound player and servos.
 
@@ -152,7 +152,7 @@ private:
 };
 
 ////////////////////////////////
-// Repeating random timer used for chatter and holo twitches.
+// Repeating random timer, used for lone remarks.
 
 class RandomTimer
 {

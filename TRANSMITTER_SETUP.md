@@ -92,7 +92,7 @@ The failsafe sets what the receiver outputs when it loses the transmitter.
 | CH1 | Right stick centred | Left wheel stops |
 | CH2 | Right stick centred | Right wheel stops |
 | CH4 | Left stick centred | Dome stops |
-| CH5 | SwC up | R2 goes Still; the dome returns to front and stops |
+| CH5 | SwC up | R2 goes Still. A look in progress finishes facing front; otherwise the dome stops. |
 
 Test it with the wheels off the ground. Drive both wheels and the dome, then switch the transmitter off. Wheels and dome must stop.
 

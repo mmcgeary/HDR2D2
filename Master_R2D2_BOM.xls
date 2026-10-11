@@ -176,7 +176,7 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">10</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Drive Subsystem</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Magnet Ring</Data></Cell>
-    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="Pending"><Data ss:Type="String">To order: 12 more (1 acquired)</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">13</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Neodymium disc magnets, 6x2mm or 10x2mm</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Glued on the body top surface on one circle, same face up: 12 every 30 degrees plus one 5 degrees clockwise of front. Print the template with tools/magnet_template.py. See DOME_SETUP.md section 5.</Data></Cell>
