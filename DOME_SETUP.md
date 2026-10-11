@@ -36,7 +36,9 @@ Work through the sections in order. Each one is tested before the next is added.
 5. Type `#APZERO` and press Enter. This clears settings left by earlier firmware. The module restarts.
 6. Disconnect USB. Refit the module to the AstroPixels board with all power off.
 
-Do the first flash over USB. Later updates also go over USB, with the module removed.
+Updates go the same way: module out, USB, flash.
+
+Wi-Fi is off. The droid needs no Wi-Fi to run. To use the stock web page or Wi-Fi updates, type `#APWIFI1` in the serial monitor; `#APWIFI0` turns it off again. The access point is `AstroPixels` with the published password `Astromech`: change it on the web page's **WiFi** tab the first time you turn Wi-Fi on.
 
 ## 2. Lights
 
@@ -73,9 +75,11 @@ Never plug USB into the ESP32 while it sits in a powered AstroPixels board.
 
 ## 5. Front Hall sensor
 
-1. Mount the KY-003 sensor on the dome's inner rim, facing down.
-2. Mount a small neodymium magnet on the body's top ring, so it sits directly under the sensor when the dome faces front.
-3. Set the gap to 5 mm or less.
+The sensor turns with the dome. The magnet stays still on the body.
+
+1. Mount the KY-003 sensor on the underside of the dome, facing down, at a point that passes over the body's top edge.
+2. Glue the neodymium disc magnet (6×2mm or 10×2mm) to the body directly under the sensor when the dome faces front.
+3. Set the gap between sensor and magnet to 5 mm or less.
 4. The sensor responds to one pole of the magnet. If it doesn't switch, turn the magnet over.
 
 **Check:** the sensor module has an LED. Turn the dome by hand: the LED lights only when the dome faces front.

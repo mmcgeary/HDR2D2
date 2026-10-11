@@ -179,7 +179,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Neodymium Disc Magnet (~6x2mm or 10x2mm)</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Glued to stationary center post base for 0° Home alignment</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Glued to the body directly under the front Hall sensor when the dome faces front; 5 mm gap or less. See DOME_SETUP.md section 5.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">11</Data></Cell>
@@ -296,7 +296,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">16GB / 32GB MicroSD Card (FAT32)</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Preferred Plus firmware: /01/001.mp3 through /01/255.mp3; random chatter banks1-4, explicit reserved macro tracks. See Plus README, not legacy mood-pool layout.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">FAT32, 32GB or less. Sounds in /mp3 named 0001.mp3, 0002.mp3 ... by bank: number = (bank - 1) x 25 + position. Start-up sound 0255.mp3. See SOUND_SETUP.md.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">24</Data></Cell>
@@ -436,11 +436,11 @@
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">39</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Wiring &amp; Hardware</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Keyed Signal Harness Connectors</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Signal Leads &amp; Connectors</Data></Cell>
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">6 pcs</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Matching COMM TX/RX/GND pigtails, receiver connectors and labelled detachable UART harnesses</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">VESC receiver leads: signal + GND only, 5V pin removed. Keep PCA servo factory plugs. Short 22AWG signal leads with strain relief.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Female servo leads (26AWG) and receiver/servo connectors</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">One female servo lead soldered to the VESC half-B receiver pads (signal + GND). Both VESC receiver leads: 5V pin removed. Keep PCA servo factory plugs. Short 22AWG signal leads with strain relief.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">40</Data></Cell>
@@ -457,8 +457,8 @@
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Programming Cable</Data></Cell>
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 set</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Data Micro-USB for Teensy4.1/VESC; data cable matching actual ESP32 socket</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Micro-USB for VESC Tool; data cable for ESP32. ESP32 flashed removed from the AstroPixels board.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Data Micro-USB cable for VESC Tool; data cable matching the ESP32 socket</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">VESC Tool over each half's USB port. ESP32 flashed with the module removed from the AstroPixels board.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">42</Data></Cell>
@@ -508,11 +508,11 @@
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">47</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Commissioning Measurement Tools</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Measurement Tools</Data></Cell>
     <Cell ss:StyleID="Pending"><Data ss:Type="String">Verify availability</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 set</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Digital multimeter and DC-capable clamp meter or inline wattmeter</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Multimeter continuity/voltage plus USB diagnostics, VESC Tool and handheld display. No oscilloscope or logic analyzer. Total20A budget measurement requires rated inline/DC clamp meter; never DMM current mode across battery.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Multimeter for continuity, voltage and the half-B pad checks. DC-capable clamp meter or inline wattmeter for the 20A budget; never put a multimeter in current mode across the battery.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">48</Data></Cell>

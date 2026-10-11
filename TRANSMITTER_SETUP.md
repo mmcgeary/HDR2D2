@@ -58,13 +58,13 @@ In PPM mode, CH1 carries every channel at once and the VESC can't read it.
 
 1. **Functions setup → Elevon:** On.
 2. Set **ELE** (forward/back) to **100%** and **AIL** (turning) to **50%**.
-3. With the wheels off the ground ([Drive Setup](DRIVE_SETUP.md) §5), check:
+3. With the wheels off the ground ([Drive Setup](DRIVE_SETUP.md) §6), check:
    - Stick forward: both wheels roll forward.
    - Stick right: the left wheel runs faster than the right.
-4. Fix directions:
-   - A wheel rolls backwards on forward stick: invert that half in VESC Tool.
-   - Turning is reversed: swap the CH1 and CH2 leads at the receiver.
-5. Raise AIL for sharper turns, lower it for gentler ones.
+4. Wheel direction is set in VESC Tool ([Drive Setup](DRIVE_SETUP.md) §4). With that done, fix the mix:
+   - A wheel rolls backwards on forward stick: **Functions setup → Reverse** that channel (CH1 left, CH2 right).
+   - Turning is reversed: set **AIL** to **−50%**.
+5. Raise the AIL value (keeping its sign) for sharper turns, lower it for gentler ones.
 
 ## 6. Dome neutral (CH4 subtrim)
 

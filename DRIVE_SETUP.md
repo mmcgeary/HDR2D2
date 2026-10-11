@@ -52,7 +52,9 @@ Half B has unpopulated receiver pads in the same position as half A's soldered l
 1. Remove the 5V (red) pin from both receiver leads and insulate it. The receiver runs from the body 5V supply ([Wiring](WIRING.md) §1).
 2. Half A lead → receiver CH1. Half B lead → receiver CH2.
 
-## 4. Motor wiring and detection
+## 4. Motor wiring, detection and wheel direction
+
+Half A drives the left wheel. Half B drives the right wheel.
 
 Each motor's three phase wires go to its half's phase outputs. Its Hall lead goes to that half's SENSE connector:
 
@@ -68,8 +70,13 @@ Each motor's three phase wires go to its half's phase outputs. Its Hall lead goe
 For each half, over its own USB port:
 
 1. Run the **FOC setup wizard**. Select **sensored (Hall)**.
-2. Let it detect resistance, inductance, flux linkage and the Hall table.
-3. Write the configuration.
+2. Let it detect resistance, inductance, flux linkage and the Hall table. Write the configuration.
+3. **Set the wheel direction:**
+   1. In VESC Tool's realtime control panel, set **Duty** to 0.05 and press its run button. Watch the wheel.
+   2. If it rolls backwards (relative to the droid's front), press stop and turn on **Motor Settings → General → Invert Motor Direction**. Write, and run it again to confirm.
+   3. Press stop.
+
+After this step, a positive command rolls each wheel forward. All wheel direction is set here, in VESC Tool.
 
 ## 5. VESC Tool settings
 
@@ -104,31 +111,40 @@ These limits keep both wheels together under 11A from the battery, inside its 20
 
 1. Turn on the Elevon mix ([Transmitter Setup](TRANSMITTER_SETUP.md) §5).
 2. On each half, run **PPM → Mapping**: move the right stick around its full range (every edge and corner), then centre it. Write.
-3. If a wheel rolls backwards on forward stick, set **Invert Motor Direction** on that half. If turning is reversed, swap the CH1 and CH2 leads at the receiver.
+3. Check with the stick:
+   - Forward: both wheels roll forward. The wheel directions are already set (§4), so a wheel rolling backwards here means its channel is reversed by the mix. Reverse that channel on the transmitter (**Functions setup → Reverse**: CH1 for the left wheel, CH2 for the right) and re-run its mapping.
+   - Right: the left wheel runs faster than the right. If it's the other way round, set **AIL** to **−50%** in the Elevon menu ([Transmitter Setup](TRANSMITTER_SETUP.md) §5).
 
 ### Settings record
 
 | | Half A (left) | Half B (right) |
 | --- | --- | --- |
 | Firmware version | | |
+| Invert Motor Direction | | |
 | Motor Current Max / Brake | | |
 | Battery Current Max / Regen | | |
 | Control type / deadband | | |
 | Timeout / brake current | | |
-| Direction inverted | | |
 
 ## 6. Safety tests
 
-Wheels off the ground for tests 1–6.
+Wheels off the ground for tests 1–7.
 
 | # | Test | Pass |
 | --- | --- | --- |
 | 1 | Stick forward, back, left, right | Wheels follow the stick in the right directions |
-| 2 | Hold the stick forward and power on | Neither wheel moves until the stick returns to centre |
-| 3 | Drive both wheels, switch the transmitter off | Both wheels stop |
-| 4 | Drive both wheels, unplug half A's receiver lead | Wheel A brakes within 0.3 s |
-| 5 | Repeat test 4 for half B | Wheel B brakes within 0.3 s |
-| 6 | Master cutoff off with both wheels turning | Everything stops |
-| 7 | First floor drive: open space, slow, a helper at the master cutoff | Drives and stops under control |
+| 2 | Run both wheels at half stick, then let the stick spring back to centre | Both wheels stop within 1 s. They don't coast. |
+| 3 | Hold the stick forward and power on | Neither wheel moves until the stick returns to centre |
+| 4 | Drive both wheels, switch the transmitter off | Both wheels stop |
+| 5 | Drive both wheels, unplug half A's receiver lead | Wheel A brakes within 0.3 s |
+| 6 | Repeat test 5 for half B | Wheel B brakes within 0.3 s |
+| 7 | Master cutoff off with both wheels turning | Everything stops |
+| 8 | First floor drive: open space, slow, a helper at the master cutoff | Drives and stops under control. Releasing the stick stops the droid. |
 
-All seven must pass before normal driving.
+All eight must pass before normal driving.
+
+If test 2 fails (the wheels coast):
+
+1. Set **Control Type** to **PID Speed** on both halves.
+2. Set **PID Max ERPM** to the ERPM VESC Tool shows at full stick.
+3. Re-run the mapping and repeat all tests.

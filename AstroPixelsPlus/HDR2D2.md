@@ -18,8 +18,11 @@ Every change in a stock file is marked with a `HDR2D2` comment. `git diff a242c7
 | `AstroPixelsPlus.ino` | Marcduino serial input and pass-through off; Serial2 carries iBUS |
 | `AstroPixelsPlus.ino` | Holo servos not assigned to the holo lights; `R2Remote` moves them |
 | `AstroPixelsPlus.ino` | Stock random sound off; `R2Remote` plays mood chatter |
+| `AstroPixelsPlus.ino` | Wi-Fi and the ESP-NOW droid remote off by default |
+| `AstroPixelsPlus.ino` | Dome servo pin held low from the first line of `setup()` |
 | `AstroPixelsPlus.ino` | Calls `r2Remote.setup()` and `r2Remote.loop()` |
 | `MarcduinoSound.h` | DFPlayer plays `/mp3/NNNN.mp3` by number (`playMp3Folder`), not by copy order |
+| `MarcduinoSound.h` | DFPlayer ACKs off after start-up: each command takes 10 ms and never waits for a reply |
 | `platformio.ini` | Library versions pinned |
 
 ## Behaviour
@@ -32,7 +35,7 @@ Every change in a stock file is marked with a `HDR2D2` comment. `git diff a242c7
 | VrA | CH7 | Mood: mixed, general, chat, happy, sad, whistle (six equal dial zones) |
 | VrB | CH8 | Volume 0–30. Saved 3 seconds after the last change. |
 | SwC | CH9 | Up: chatter and holo twitches off, holos centred. Middle or down: on. |
-| Right stick | CH1, CH2 | Read only to detect driving (±100 µs from centre) |
+| Right stick | CH1, CH2 | Read only to detect driving: more than 40 µs from centre, inside the VESC's 10% deadband |
 
 The channel numbers are the `R2_CH_*` defines at the top of `R2Remote.h`.
 
@@ -57,13 +60,15 @@ The channel numbers are the `R2_CH_*` defines at the top of `R2Remote.h`.
 
 Random chatter and holo twitches run, as in stock. The dome servo receives no pulses.
 
+The front Hall sensor is read every loop and also latched by a falling-edge interrupt, so a pass over the magnet is never missed.
+
 ## Pins
 
 | GPIO | Use |
 | --- | --- |
 | 16 | iBUS in (Serial2, 115200) |
 | 4 | Dome servo out (LEDC channel 15, 50 Hz) |
-| 5 | Front Hall sensor in, active low, internal pull-up |
+| 5 | Front Hall sensor in, active low, internal pull-up, falling-edge interrupt |
 | 18 / 19 | DFPlayer serial (Serial1, 9600), stock |
 
 ## Build and flash
@@ -107,7 +112,7 @@ Stock serial commands still work. Examples:
 | Turn duration | `turnMinMs` / `turnMaxMs` | 400–1500 ms |
 | Look duration | `lookMinMs` / `lookMaxMs` | 1000–4000 ms |
 | Seek timeout | `seekTimeoutMs` | 20000 ms |
-| Chatter interval | `MARC_SOUND_RANDOM_MIN` / `MAX` in `AstroPixelsPlus.ino` | 5–30 s |
+| Chatter interval | `MARC_SOUND_RANDOM_MIN` / `MAX` in `AstroPixelsPlus.ino`, or the web page's random min/max | 5–30 s |
 | Holo twitch interval | `fHoloTwitch` in `R2Remote.h` | 1.5–4.5 s |
 | Holo twitch travel | `updateHolos()` in `R2Remote.h` | 1350–1650 µs |
 | Mood bank sizes | `MP3_BANK1_SOUNDS` … `MP3_BANK5_SOUNDS` in `MarcduinoSound.h` | 19, 18, 7, 4, 3 |
@@ -120,10 +125,33 @@ python3 -m unittest discover tests
 
 The tests compile `R2Logic.h` with the PC's C++ compiler. They cover iBUS decoding and resync, switches and dials, volume hysteresis, random timers, mood selection and every dome state transition.
 
+## Wi-Fi
+
+Wi-Fi, the web page, OTA updates and the ESP-NOW droid remote are off by default. Nothing in the droid needs them.
+
+| Command (serial monitor) | Effect |
+| --- | --- |
+| `#APWIFI1` | Wi-Fi on (access point `AstroPixels`, password `Astromech`). The board restarts. |
+| `#APWIFI0` | Wi-Fi off. The board restarts. |
+| `#APREMOTE1` / `#APREMOTE0` | ESP-NOW droid remote on / off |
+
+Change the Wi-Fi password on the web page's **WiFi** tab the first time you turn Wi-Fi on.
+
+## Stock settings
+
+Settings saved through the web page or Marcduino commands:
+
+| Setting | Status |
+| --- | --- |
+| Sound random min / max | Used: sets the chatter interval |
+| Sound volume | Used at power-on. The VrB dial replaces it once the radio is heard. |
+| Sound startup track | Used |
+| Sound player, sound serial | Ignored: always DFPlayer on Serial1 |
+| Random sound on/off | Ignored: SwC controls chatter |
+| Marcduino serial baud, pass-through, JawaLite pass-through | Ignored: Serial2 carries iBUS |
+
 ## Stock features not used
 
 - Marcduino serial input (Serial2 carries iBUS)
 - Dome panel servos
 - Holo servo commands such as `*RD` (`R2Remote` owns the holo servos)
-
-Wi-Fi, the web page and the droid remote are stock and still present. `#APWIFI0` turns Wi-Fi off.

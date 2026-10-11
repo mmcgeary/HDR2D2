@@ -9,9 +9,11 @@ Find the symptom, then work down its checks in order.
 | Neither wheel moves | Master cutoff on, F1 intact. Transmitter on and bound. Right stick centred once after power-on (safe start). |
 | One wheel never moves | That half's receiver lead is plugged into receiver CH1 or CH2. That half's App to Use is PPM. Repeat [Drive Setup](DRIVE_SETUP.md) §1 on it. |
 | Wheels move without stick input | Re-run PPM mapping on both halves. Raise the deadband to 15%. |
-| Stick forward spins the droid in place | One wheel is reversed. Invert Motor Direction on that half in VESC Tool. |
-| Stick forward drives backwards | Invert Motor Direction on both halves |
-| Stick right turns left | Swap the CH1 and CH2 leads at the receiver |
+| A wheel rolls backwards at a positive VESC Tool duty | Invert Motor Direction on that half ([Drive Setup](DRIVE_SETUP.md) §4) |
+| Stick forward spins the droid in place | One channel is reversed by the mix. Reverse CH1 (left) or CH2 (right) on the transmitter. |
+| Stick forward drives backwards | Reverse both CH1 and CH2 on the transmitter |
+| Stick right turns left | Set AIL to −50% in the Elevon menu |
+| Wheels coast after the stick is released | Set Control Type to PID Speed ([Drive Setup](DRIVE_SETUP.md) §6) |
 | Wheels keep turning with the transmitter off | Failsafe not set. Set it ([Transmitter Setup](TRANSMITTER_SETUP.md) §7) and retest. |
 | Droid slows or stops on a long drive | Battery below 11.5V: the VESC voltage cutoff is acting. Charge it. |
 | F1 blows | Battery Current Max set too high. Set 5.0–5.5A per half. |

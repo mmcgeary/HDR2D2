@@ -34,11 +34,12 @@ Guide: [Drive Setup](DRIVE_SETUP.md)
 - [ ] Half B reads receiver CH2 in VESC Tool
 - [ ] 5V pins removed from both receiver leads
 - [ ] FOC Hall detection done on both halves
+- [ ] Wheel direction set in VESC Tool: positive duty rolls each wheel forward
 - [ ] Current, voltage and PPM settings written on both halves; settings record filled in
 - [ ] Elevon mix on; PPM mapping done on both halves
 - [ ] Failsafe set: CH1, CH2, CH4 centred, CH5 (SwA) up
-- [ ] Safety tests 1–6 passed
-- [ ] Floor test 7 passed
+- [ ] Safety tests 1–7 passed, including centre-stick braking (test 2)
+- [ ] Floor test 8 passed
 
 ## Stage 4: Dome electronics
 

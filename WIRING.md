@@ -51,7 +51,7 @@ The receiver's output mode is **PWM** with serial **i-BUS** ([Transmitter Setup]
 | Half B | Lead soldered to the second half's pads ([Drive Setup](DRIVE_SETUP.md) §2) | CH2 |
 
 - Remove the 5V (red) pin from both leads and insulate it. The receiver is powered from B-LOGIC.
-- A wheel rolling backwards is fixed in VESC Tool (Invert Motor Direction). Reversed turning is fixed by swapping the CH1 and CH2 leads.
+- CH1 always goes to half A (left wheel) and CH2 to half B (right wheel). Wheel direction is set in VESC Tool, never by swapping leads.
 
 ### DFPlayer
 
