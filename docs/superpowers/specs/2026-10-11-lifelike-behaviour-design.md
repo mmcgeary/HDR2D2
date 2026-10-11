@@ -126,10 +126,11 @@ Behaviour:
 
 Each holo has a horizontal and a vertical servo. A holo position is (h, v), each from −1 to +1.
 
-Per-servo calibration table, in `R2Eyes.h`:
-- `min`, `centre`, `max` in µs.
-- Default 1200 / 1500 / 1800 until calibrated on the droid.
-- Positions map piecewise-linearly: −1 → min, 0 → centre, +1 → max.
+Servo ranges:
+- They come from the servo table in `AstroPixelsPlus.ino`: 1000–2000 µs, inside stock AstroPixelsPlus's 800–2200 µs.
+- Eye positions map onto that range with ReelTwo's `moveTo(num, startDelay, moveTime, pos)`, pos 0..1, the same way ReelTwo's HoloLights does: 0 = right / up, 1 = left / down.
+- `kEyeFlipH` / `kEyeFlipV` in `R2Eyes.h` flip an axis for a mechanism mounted the other way round.
+- No calibration step.
 
 Every holo move:
 - Both servos of a holo move together, with the same start delay and duration.
@@ -260,7 +261,7 @@ Removed:
 | --- | --- |
 | `OPERATING_GUIDE.md` | Controls (SwC levels, SwA spare), behaviour description, moods |
 | `TRANSMITTER_SETUP.md` | Channel map (CH5 = SwC, CH9 = SwA), failsafe (CH5 Up), CH4 direction check |
-| `DOME_SETUP.md` | Magnet ring and sensor mounting, holo calibration, behaviour tests per level |
+| `DOME_SETUP.md` | Magnet ring and sensor mounting, holo range check, behaviour tests per level |
 | `WIRING.md`, `wiring_reference.html` | Hall sensor location note (no wiring change) |
 | `AstroPixelsPlus/HDR2D2.md` | New modules, state descriptions, tuning tables |
 | `Master_R2D2_BOM.xls` | 13 magnets |
@@ -280,13 +281,12 @@ Unit tests, run on the PC (`python3 -m unittest discover tests`):
 | --- | --- |
 | Tracker | A simulated dome passes simulated magnets in both directions at changing speeds. The angle error stays below 5° after the first front pass. Front is detected both ways. A missed magnet makes the position unknown. Bounce is dropped. Speed learning converges. |
 | Motion | The velocity profile is monotonic up and down. It stops within 3° of target. Command steps stay ≤ 10µs per update. The ±135° clamp and the short-way rule hold. The stick passes through. No pulses before radio. |
-| Eyes | Both axes always share a duration. Positions stay within calibration. Still centres everything. Chameleon timers are independent. The front-eye lead precedes the dome start. |
+| Eyes | Both axes always share a duration. Positions stay within −1..+1. Still centres everything. Chameleon timers are independent. The front-eye lead precedes the dome start. |
 | Mood | Every row is complete. Ranges are ordered min ≤ max. Mixed switches within 1–3 minutes. |
 | Attention | Deterministic random gives the expected look sequence. Each interruption gets the right priority. The 4s sound gap holds. SwB works at every level. |
 | Virtual droid | 30 simulated minutes per mood and level, checking every invariant. |
 
 Hardware tuning on the droid:
-- holo calibration table,
 - mood numbers,
 - the 0.4 front-gap ratio,
 - the 40µs servo deadband.
@@ -295,7 +295,7 @@ Hardware tuning on the droid:
 
 Each step is committed with its tests and works on its own.
 
-1. **Holos:** `R2Eyes.h`, the calibration table, eased moves, chameleon eyes. Mood is read from the dial with fixed defaults.
+1. **Holos:** `R2Eyes.h`, eased moves, chameleon eyes. Mood is read from the dial with fixed defaults.
 2. **Dome:** `R2DomeTracker.h` and `R2DomeMotion.h`, replacing `DomeBrain`, with the existing simple random looks running on the new motion.
 3. **Behaviour:** `R2Mood.h`, `R2Attention.h`, the sound link, SwB gestures, SwC levels on CH5.
 4. **Docs, parts list and magnet template.**

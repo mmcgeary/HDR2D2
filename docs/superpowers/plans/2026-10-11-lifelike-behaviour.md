@@ -15,7 +15,8 @@
 ## Global Constraints
 
 - Logic headers are C++11, header-only, in namespace `r2`. They include only `<stdint.h>`, `<math.h>` and other `R2*.h` files. No Arduino calls.
-- Aggregate-initialised structs (`Range`, `MoodProfile`, `EyePos`, `EyeMove`, `ServoCal`, `DomeRequest`) have no default member initialisers (C++11 aggregate rule).
+- Aggregate-initialised structs (`Range`, `MoodProfile`, `EyePos`, `EyeMove`, `DomeRequest`) have no default member initialisers (C++11 aggregate rule).
+- Holo servo ranges come only from the servo table in `AstroPixelsPlus.ino` (1000–2000 µs, inside stock AstroPixelsPlus's 800–2200 µs). Eye moves use ReelTwo's `servoDispatch.moveTo(num, startDelay, moveTime, float pos)` with pos 0..1 across that range, as ReelTwo's own holo code does. No calibration step.
 - Random numbers come only through `r2::RandomFn` (`uint32_t (*)(uint32_t lo, uint32_t hi)`, returns `[lo, hi)`).
 - Angle convention: 0° = front, positive = clockwise seen from above, range −180..+180.
 - Magnets: 12 at 30° spacing from 0°, plus one at +5°.
@@ -43,7 +44,7 @@
 | --- | --- | --- |
 | `tests/r2_cpp.py` (create) | Shared helper: compile and run a C++ test body against the firmware headers | 1 |
 | `AstroPixelsPlus/R2Mood.h` (create) | Mood profile table, `pick`/`chance`, Mixed mood selector | 1 |
-| `AstroPixelsPlus/R2Eyes.h` (create) | Eye positions, servo calibration, `ChameleonEye`, `LeadingEye` | 1 |
+| `AstroPixelsPlus/R2Eyes.h` (create) | Eye positions, mapping to ReelTwo servo positions, `ChameleonEye`, `LeadingEye` | 1 |
 | `AstroPixelsPlus/R2Remote.h` (modify) | Task 1: holos via eyes. Task 5: full rewrite for tracker, motion, attention, levels | 1, 5 |
 | `tests/test_r2_mood.py`, `tests/test_r2_eyes.py` (create) | Mood and eye tests | 1 |
 | `AstroPixelsPlus/R2DomeTracker.h` (create) | Magnet blips → dome angle, front detection, speed learning | 2 |
@@ -83,12 +84,11 @@
   - `const MoodProfile& r2::moodProfile(uint8_t mood)`
   - `class r2::MoodSelector { uint8_t update(uint8_t dialMood, uint32_t nowMs, RandomFn); uint8_t active() const; }`
   - `struct r2::EyePos { float h; float v; }`
-  - `struct r2::ServoCal { uint16_t minUs, centreUs, maxUs; }`
   - `struct r2::EyeMove { bool pending; uint32_t durationMs; EyePos to; }`
   - `enum r2::EyeCue : uint8_t { kCueNone, kCueLook, kCueReturn, kCueFlick }`
   - `enum r2::Eye : uint8_t { kFrontEye, kRearEye, kTopEye }`
-  - `r2::kEyeServoH[3]`, `r2::kEyeServoV[3]`, `r2::kEyeCal[6]`
-  - `uint16_t r2::eyePulse(const ServoCal&, float)`
+  - `r2::kEyeServoH[3]`, `r2::kEyeServoV[3]`, `r2::kEyeFlipH[3]`, `r2::kEyeFlipV[3]`
+  - `float r2::eyeServoPos(float pos, bool flip)`: eye position −1..+1 to a ReelTwo servo position 0..1
   - `uint32_t r2::eyeMoveDuration(EyePos, EyePos, float speed)`
   - `class r2::ChameleonEye { EyeMove update(uint32_t nowMs, bool active, const MoodProfile&, float rangeScale, float holdScale, RandomFn); EyeMove moveTo(uint32_t nowMs, EyePos to, float speed, uint32_t holdMs); EyePos position() const; bool due(uint32_t nowMs) const; }`
   - `class r2::LeadingEye { EyeMove update(uint32_t nowMs, bool active, const MoodProfile&, EyeCue cue, int8_t side, bool calm, RandomFn); bool looking() const; EyePos position() const; }`
@@ -387,18 +387,16 @@ def run(body):
 
 
 class PulseAndDurationTest(unittest.TestCase):
-    def test_eye_pulse_maps_and_clamps(self):
+    def test_eye_servo_position_follows_reeltwo(self):
         run(r"""
-            ServoCal cal = {1200, 1500, 1800};
-            CHECK(eyePulse(cal, -1) == 1200);
-            CHECK(eyePulse(cal, 0) == 1500);
-            CHECK(eyePulse(cal, 1) == 1800);
-            CHECK(eyePulse(cal, 0.5f) == 1650);
-            CHECK(eyePulse(cal, -0.5f) == 1350);
-            CHECK(eyePulse(cal, 2) == 1800);
-            ServoCal lopsided = {1100, 1500, 1700};
-            CHECK(eyePulse(lopsided, -0.5f) == 1300);
-            CHECK(eyePulse(lopsided, 0.5f) == 1600);
+            // ReelTwo HoloLights: 0 = right / up, 1 = left / down. Eyes: +h = right, +v = up.
+            CHECK_NEAR(eyeServoPos(1, false), 0.0, 0.0001);
+            CHECK_NEAR(eyeServoPos(-1, false), 1.0, 0.0001);
+            CHECK_NEAR(eyeServoPos(0, false), 0.5, 0.0001);
+            CHECK_NEAR(eyeServoPos(0.5f, false), 0.25, 0.0001);
+            CHECK_NEAR(eyeServoPos(0.5f, true), 0.75, 0.0001);
+            CHECK_NEAR(eyeServoPos(2, false), 0.0, 0.0001);
+            CHECK_NEAR(eyeServoPos(-3, true), 0.0, 0.0001);
         """)
 
     def test_move_duration_grows_with_distance_and_mood_speed(self):
@@ -565,13 +563,6 @@ struct EyePos
     float v;
 };
 
-struct ServoCal
-{
-    uint16_t minUs;
-    uint16_t centreUs;
-    uint16_t maxUs;
-};
-
 // One move for one eye. pending = false means no new move this update.
 struct EyeMove
 {
@@ -598,25 +589,23 @@ enum Eye : uint8_t
 static const uint8_t kEyeServoH[3] = {0, 2, 4};
 static const uint8_t kEyeServoV[3] = {1, 3, 5};
 
-// Safe range of each holo servo, by PCA9685 channel. Set on the droid
-// (DOME_SETUP.md section 3) so no holo reaches its mechanical stop.
-static const ServoCal kEyeCal[6] = {
-    {1200, 1500, 1800}, {1200, 1500, 1800},
-    {1200, 1500, 1800}, {1200, 1500, 1800},
-    {1200, 1500, 1800}, {1200, 1500, 1800},
-};
+// Set an axis to true if that holo's mechanism is mounted the other way round
+// (it looks left when it should look right, or up when it should look down).
+static const bool kEyeFlipH[3] = {false, false, false};
+static const bool kEyeFlipV[3] = {false, false, false};
 
 inline float clampUnit(float x)
 {
     return x < -1.0f ? -1.0f : (x > 1.0f ? 1.0f : x);
 }
 
-// Position -1..+1 to a pulse: -1 = min, 0 = centre, +1 = max.
-inline uint16_t eyePulse(const ServoCal& cal, float pos)
+// Eye position (-1..+1; +h = R2's right, +v = up) to a ReelTwo servo position
+// (0..1 across the servo table's start..end pulses). ReelTwo's HoloLights uses
+// 0 = right / up and 1 = left / down, and treats that whole range as safe.
+inline float eyeServoPos(float pos, bool flip)
 {
-    pos = clampUnit(pos);
-    float span = pos < 0.0f ? float(cal.centreUs - cal.minUs) : float(cal.maxUs - cal.centreUs);
-    return uint16_t(float(cal.centreUs) + pos * span + 0.5f);
+    float p = (1.0f - clampUnit(pos)) / 2.0f;
+    return flip ? 1.0f - p : p;
 }
 
 // Bigger moves take longer; the mood's holo speed scales the time.
@@ -800,7 +789,7 @@ private:
 - [ ] **Step 9: Run the eye tests to verify they pass**
 
 Run: `python3 -m unittest discover tests -p "test_r2_eyes.py" -v`
-Expected: 10 tests, OK. If `test_look_return_and_adjust` fails on the look's v value, check that `lowest` gives `signedFraction = -1`, so v = −0.2. The test only checks h.
+Expected: 10 tests, OK.
 
 - [ ] **Step 10: Drive the holos from the eyes in `R2Remote.h`**
 
@@ -861,10 +850,8 @@ and add after `r2::VolumeDial fVolumeDial;`:
     {
         if (!move.pending)
             return;
-        uint8_t h = r2::kEyeServoH[eye];
-        uint8_t v = r2::kEyeServoV[eye];
-        servoDispatch.moveToPulse(h, 0, move.durationMs, r2::eyePulse(r2::kEyeCal[h], move.to.h));
-        servoDispatch.moveToPulse(v, 0, move.durationMs, r2::eyePulse(r2::kEyeCal[v], move.to.v));
+        servoDispatch.moveTo(r2::kEyeServoH[eye], 0, move.durationMs, r2::eyeServoPos(move.to.h, r2::kEyeFlipH[eye]));
+        servoDispatch.moveTo(r2::kEyeServoV[eye], 0, move.durationMs, r2::eyeServoPos(move.to.v, r2::kEyeFlipV[eye]));
     }
 ```
 
@@ -3144,10 +3131,8 @@ private:
     {
         if (!move.pending)
             return;
-        uint8_t h = r2::kEyeServoH[eye];
-        uint8_t v = r2::kEyeServoV[eye];
-        servoDispatch.moveToPulse(h, 0, move.durationMs, r2::eyePulse(r2::kEyeCal[h], move.to.h));
-        servoDispatch.moveToPulse(v, 0, move.durationMs, r2::eyePulse(r2::kEyeCal[v], move.to.v));
+        servoDispatch.moveTo(r2::kEyeServoH[eye], 0, move.durationMs, r2::eyeServoPos(move.to.h, r2::kEyeFlipH[eye]));
+        servoDispatch.moveTo(r2::kEyeServoV[eye], 0, move.durationMs, r2::eyeServoPos(move.to.v, r2::kEyeFlipV[eye]));
     }
 
     void playSound(uint8_t bank)
@@ -3669,19 +3654,22 @@ The firmware uses the centred CH4 value as the dome's stop point, for both the s
 
 ```markdown
 1. Power off. Plug one holo servo into its PCA9685 channel ([Wiring](WIRING.md) §3). Fit D-SERVO (5A).
-2. Power on. With no radio connected, R2 is Aware: the holos move to a point, hold, and move on.
-3. Check the servo moves without binding or buzzing at either end of its travel.
-4. Add the other five servos one at a time and repeat.
+2. Power on. With no radio connected, R2 is Aware: the holo moves to a point, holds, and moves on.
+3. Add the other five servos one at a time.
+4. Set the mood dial to Happy (the widest holo movement) and SwC to the middle. Watch each holo for a minute.
 
-**Setting each servo's range.** `kEyeCal` in `AstroPixelsPlus/R2Eyes.h` holds the minimum, centre and maximum pulse for each PCA9685 channel. The default is 1200 / 1500 / 1800 µs. For each servo:
+**Pass:** no holo touches a mechanical stop, buzzes or binds. For each holo:
 
-1. Turn Wi-Fi on: module out of the board, USB, serial monitor, `#APWIFI1`. Refit the module with power off.
-2. Power on with the transmitter on and SwC up (Still), so R2 leaves the holos alone.
-3. Connect a phone to the `AstroPixels` Wi-Fi. Open a TCP terminal app to `192.168.4.1`, port `2000`.
-4. Send `:SQ<channel>,<pulse>` followed by Enter, for example `:SQ0,1700`, and watch the holo.
-5. Find the pulse just short of each mechanical stop, and the pulse that centres the holo.
-6. Enter those three values in that channel's row of `kEyeCal`, rebuild and reflash.
-7. Turn Wi-Fi off again with `#APWIFI0` when calibration is done.
+- the top and rear holos wander on their own,
+- a sad mood aims them low,
+- and a look toward R2's right turns the front holo to the right.
+
+**Ranges.** Each holo servo's range is its row in the servo table in `AstroPixelsPlus/AstroPixelsPlus.ino`: 1000–2000 µs. That's inside stock AstroPixelsPlus's 800–2200 µs, which ReelTwo's own holo code drives to both ends. R2's moods use at most the middle 80% of it.
+
+| Problem | Fix |
+| --- | --- |
+| A holo touches its stop | Narrow that servo's row in the servo table, for example `{2, 1100, 1900, HOLO_HSERVO}`, rebuild and reflash |
+| A holo looks the wrong way (left instead of right, or up when sad) | Set that eye's axis to `true` in `kEyeFlipH` / `kEyeFlipV` in `AstroPixelsPlus/R2Eyes.h` (order: front, rear, top), rebuild and reflash |
 ```
 
 2. Replace the body of **§4 Radio link (iBUS)** steps 3–4 and the pass line with:
@@ -3775,7 +3763,7 @@ The output goes low each time the sensor passes a magnet in the body's magnet ri
    In the **Holos and radio** table, replace the row starting `| Holo servo buzzes or binds |` with:
 
 ```markdown
-| Holo servo buzzes or binds | Its range in `kEyeCal` (`AstroPixelsPlus/R2Eyes.h`) reaches a mechanical stop. Narrow it ([Dome Setup](DOME_SETUP.md) §3). |
+| Holo servo buzzes or binds | Its range in the servo table in `AstroPixelsPlus/AstroPixelsPlus.ino` reaches a mechanical stop. Narrow that row ([Dome Setup](DOME_SETUP.md) §3). |
 ```
 
 4. **`BRING_UP.md`.** In Stage 4, replace the iBUS line with:
@@ -3818,7 +3806,7 @@ The output goes low each time the sensor passes a magnet in the body's magnet ri
 | --- | --- |
 | `R2Logic.h` | iBUS decoding, switches, dials, volume |
 | `R2Mood.h` | Mood profiles: every behaviour number, one row per mood |
-| `R2Eyes.h` | Holo eyes: servo ranges (`kEyeCal`), leading front eye, independent top and rear eyes |
+| `R2Eyes.h` | Holo eyes: leading front eye, independent top and rear eyes, per-axis direction flips |
 | `R2DomeTracker.h` | Dome angle from the body magnet ring, learned dome speeds |
 | `R2DomeMotion.h` | Eased dome moves, stick pass-through |
 | `R2Attention.h` | When R2 looks, where, what it says, SwB gestures, levels and interruptions |
@@ -3858,7 +3846,8 @@ Before the first iBUS frame, R2 runs at Aware in the General mood and the dome r
 | Setting | Location |
 | --- | --- |
 | Every behaviour number per mood (look interval, angle, speed, holds, chances, holo range and speed) | `kMoodProfiles` in `R2Mood.h` |
-| Holo servo ranges | `kEyeCal` in `R2Eyes.h` |
+| Holo servo ranges | Servo table (`servoSettings`) in `AstroPixelsPlus.ino` |
+| Holo direction | `kEyeFlipH` / `kEyeFlipV` in `R2Eyes.h` |
 | Stick deadband, final approach speed, step limit | `DomeMotion::defaults()` in `R2DomeMotion.h` |
 | Front-pair gap ratio, overdue factor, default speed | `DomeTracker::defaults()` in `R2DomeTracker.h` |
 | Gap between sounds, pause after the stick or driving, seek timeout | `kSoundGapMs`, `kResumeMs`, `kSeekTimeoutMs` in `R2Attention.h` |
