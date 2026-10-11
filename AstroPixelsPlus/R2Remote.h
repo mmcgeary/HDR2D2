@@ -5,12 +5,13 @@
 //   - the dome servo (stick, plus random moves homed on the front Hall sensor)
 //   - mood sounds (a dial picks the mood, a switch plays one, random chatter)
 //   - volume (a dial)
-//   - random holoprojector servo movement
+//   - holoprojector eyes: smooth moves, front eye roams gently, top and rear wander independently
 // Driving never passes through here: the VESCs read the receiver directly.
 //
 // Include after MarcduinoSound.h, servoDispatch and preferences are declared.
 
 #include "R2Logic.h"
+#include "R2Eyes.h"
 
 #define R2_IBUS_SERIAL Serial2
 #define R2_IBUS_RX_PIN 16
@@ -70,7 +71,8 @@ public:
         // The stock web page's random-sound interval settings still apply.
         fChatter.setRange(preferences.getInt(PREFERENCE_MARCSOUND_RANDOM_MIN, MARC_SOUND_RANDOM_MIN),
                           preferences.getInt(PREFERENCE_MARCSOUND_RANDOM_MAX, MARC_SOUND_RANDOM_MAX));
-        centreHolos();
+        for (uint8_t i = 0; i < 6; i++)
+            servoDispatch.setServoEasingMethod(i, Easing::SineEaseInOut);
     }
 
     void loop()
@@ -103,8 +105,10 @@ private:
     r2::DomeBrain fDome{r2Random};
     r2::EdgeTrigger fPlaySwitch;
     r2::VolumeDial fVolumeDial;
+    r2::LeadingEye fFrontEye;
+    r2::ChameleonEye fRearEye;
+    r2::ChameleonEye fTopEye;
     r2::RandomTimer fChatter{MARC_SOUND_RANDOM_MIN, MARC_SOUND_RANDOM_MAX};
-    r2::RandomTimer fHoloTwitch{1500, 4500};
 
     bool fRadioSeen = false;
     bool fRadio = false;
@@ -117,7 +121,6 @@ private:
     bool fDriving = false;
     bool fPlayRequested = false;
     uint8_t fMood = 0;
-    bool fHolosMoving = true;
 
     int fVolumeLevel = -1;
     uint32_t fVolumeChangedMs = 0;
@@ -202,18 +205,21 @@ private:
 
     void updateHolos(uint32_t now)
     {
-        bool wasOn = fHolosMoving;
-        fHolosMoving = fRandomOn;
-        if (wasOn && !fHolosMoving)
-            centreHolos();
-        if (fHoloTwitch.update(now, fHolosMoving, r2Random))
-            servoDispatch.moveToPulse(r2Random(0, 6), 300, r2Random(1350, 1651));
+        const r2::MoodProfile& mood = r2::moodProfile(fMood);
+        float range = fDriving ? 0.7f : 1.0f;
+        float hold = fDriving ? 1.5f : 1.0f;
+        applyEyeMove(r2::kFrontEye, fFrontEye.update(now, fRandomOn, mood, r2::kCueNone, 0, fDriving, r2Random));
+        applyEyeMove(r2::kRearEye, fRearEye.update(now, fRandomOn, mood, range, hold, r2Random));
+        applyEyeMove(r2::kTopEye, fTopEye.update(now, fRandomOn, mood, range, hold, r2Random));
     }
 
-    void centreHolos()
+    // Both servos of an eye start together and take the same time.
+    static void applyEyeMove(uint8_t eye, const r2::EyeMove& move)
     {
-        for (uint8_t i = 0; i < 6; i++)
-            servoDispatch.moveToPulse(i, 300, 1500);
+        if (!move.pending)
+            return;
+        servoDispatch.moveTo(r2::kEyeServoH[eye], 0, move.durationMs, r2::eyeServoPos(move.to.h, r2::kEyeFlipH[eye]));
+        servoDispatch.moveTo(r2::kEyeServoV[eye], 0, move.durationMs, r2::eyeServoPos(move.to.v, r2::kEyeFlipV[eye]));
     }
 
     // Saves the dial's volume for the next power-up once it has settled.
