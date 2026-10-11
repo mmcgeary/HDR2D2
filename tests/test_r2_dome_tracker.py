@@ -292,6 +292,66 @@ class BlipEdgeCaseTest(unittest.TestCase):
             CHECK_NEAR(t.angle(), 15.0, 0.5);
         """)
 
+    def test_blip_read_after_a_later_update(self):
+        # The loop can read a blip after it has already updated the tracker past
+        # the blip's time: the interrupt fired between the read and the update.
+        run(r"""
+            DomeTracker t; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t now = 1000;
+            dome.lateBlips = true;
+            for (int i = 0; i < 1300; i++) dome.step(t, now, 20000, 1, 100);
+            CHECK(t.known());
+            double worst = 0; bool lost = false;
+            for (int i = 0; i < 1300; i++) {
+                dome.step(t, now, 20000, 1, 100);
+                if (!t.known()) lost = true;
+                else { double e = std::fabs(wrapDeg(t.angle() - dome.angle)); if (e > worst) worst = e; }
+            }
+            CHECK(!lost);
+            CHECK(worst < 3.0);
+        """)
+
+    def test_stalled_dome_that_frees_does_not_fake_front(self):
+        run(r"""
+            DomeTracker t; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t now = 1000;
+            for (int i = 0; i < 1300; i++) dome.step(t, now, 20000, 1, 100);
+            dome.dpsPerUs = 0.0f;                                            // jammed
+            for (int i = 0; i < 250; i++) dome.step(t, now, 20000, 1, 100);
+            CHECK(!t.known());
+            dome.dpsPerUs = 0.35f;                                           // free again
+            while (!t.known()) dome.step(t, now, 20000, 1, 100);
+            CHECK(std::fabs(wrapDeg(t.angle() - dome.angle)) < 3.0f);        // found at the real front pair
+        """)
+
+    def test_drain_feeds_blips_in_order_up_to_now(self):
+        run(r"""
+            DomeTracker t;
+            t.setCommand(0, 1, 100);                                     // 50 deg/s by default
+            volatile uint32_t ring[8] = {1000000, 2000000, 2100000, 3100000, 0, 0, 0, 0};
+            uint8_t tail = drainBlips(ring, 4, 0, 2500000, t);           // the 3.1 s blip is after now
+            CHECK(tail == 3);
+            CHECK(t.known());
+            CHECK_NEAR(t.angle(), 5.0, 0.01);
+            t.setCommand(2500000, 1, 100);
+            tail = drainBlips(ring, 4, tail, 3200000, t);
+            CHECK(tail == 4);
+            CHECK_NEAR(t.angle(), 30.0, 0.01);
+            t.update(3200000);
+            CHECK_NEAR(t.angle(), 30.0 + 0.1 * t.speedDps(1, 100), 0.5);
+        """)
+
+    def test_drain_overflow_drops_position(self):
+        run(r"""
+            DomeTracker t;
+            t.setCommand(0, 1, 100);
+            t.onBlip(1000000); t.onBlip(2000000); t.onBlip(2100000);     // known at 5
+            volatile uint32_t ring[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+            uint8_t tail = drainBlips(ring, 9, 0, 9000000, t);           // 9 stored, 8 kept: one lost
+            CHECK(tail == 9);
+            CHECK(!t.known());
+            t.onBlip(9600000); t.onBlip(10200000);                       // ordinary 30 deg gaps
+            CHECK(!t.known());                                           // no false front from the lost stretch
+        """)
+
     def test_missing_short_gap_at_pair_marks_unknown(self):
         run(r"""
             DomeTracker t;

@@ -14,9 +14,12 @@ struct SimDome
     uint16_t deadbandUs;  // offsets at or below this don't move the dome
     bool magnetPresent[r2::kMagnetCount];
     uint32_t blips;       // blips reported so far
+    bool lateBlips;       // hand each blip over on the next step, after the tracker was updated past it
+    uint32_t pending[8];
+    uint8_t pendingCount;
 
     SimDome(float startDeg, float dpsPerUsReal, uint16_t deadband)
-        : angle(startDeg), dpsPerUs(dpsPerUsReal), deadbandUs(deadband), blips(0)
+        : angle(startDeg), dpsPerUs(dpsPerUsReal), deadbandUs(deadband), blips(0), lateBlips(false), pendingCount(0)
     {
         for (uint8_t i = 0; i < r2::kMagnetCount; i++)
             magnetPresent[i] = true;
@@ -31,6 +34,9 @@ struct SimDome
     // magnet pass to the tracker at the slice it happens in. Ends with update().
     void step(r2::DomeTracker& tracker, uint32_t& nowUs, uint32_t stepUs, int8_t dir, uint16_t offsetUs)
     {
+        for (uint8_t i = 0; i < pendingCount; i++)
+            tracker.onBlip(pending[i]);
+        pendingCount = 0;
         tracker.setCommand(nowUs, dir, offsetUs);
         float v = speed(offsetUs);
         for (uint32_t s = 0; s < stepUs; s += 1000)
@@ -51,7 +57,10 @@ struct SimDome
                 if (crossed)
                 {
                     blips++;
-                    tracker.onBlip(nowUs + s + 1000);
+                    if (lateBlips && pendingCount < 8)
+                        pending[pendingCount++] = nowUs + s + 1000;
+                    else
+                        tracker.onBlip(nowUs + s + 1000);
                 }
             }
         }

@@ -44,7 +44,8 @@ static uint32_t r2Random(uint32_t lo, uint32_t hi)
     return hi > lo ? lo + esp_random() % (hi - lo) : lo;
 }
 
-// Magnet blips: the interrupt stores the time of each, the loop reads them in order.
+// Magnet blips: the interrupt stores the time of each, the loop reads them in
+// order with r2::drainBlips().
 static volatile uint32_t sBlipUs[8];
 static volatile uint8_t sBlipHead = 0;
 
@@ -94,12 +95,11 @@ public:
         uint8_t mood = fMoods.update(fDialMood, now, r2Random);
         const r2::MoodProfile& profile = r2::moodProfile(mood);
 
-        while (fBlipTail != sBlipHead)
-        {
-            fTracker.onBlip(sBlipUs[fBlipTail & 7]);
-            fBlipTail = uint8_t(fBlipTail + 1);
-        }
-        fTracker.update(micros());
+        // One time for the whole pass: blips up to it, then the update and the
+        // new command, so the tracker sees events in the order they happened.
+        uint32_t nowUs = micros();
+        fBlipTail = r2::drainBlips(sBlipUs, sBlipHead, fBlipTail, nowUs, fTracker);
+        fTracker.update(nowUs);
 
         r2::AttentionInputs in;
         in.nowMs = now;
@@ -117,7 +117,7 @@ public:
 
         uint16_t pulse = fMotion.update(now, fRadio, fIbus.channel(R2_CH_DOME), out.dome, fTracker.known(),
                                         fTracker.angle(), fTracker);
-        fTracker.setCommand(micros(), fMotion.direction(), fMotion.offsetUs());
+        fTracker.setCommand(nowUs, fMotion.direction(), fMotion.offsetUs());
         if (pulse != fDomePulse)
         {
             fDomePulse = pulse;

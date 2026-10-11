@@ -66,6 +66,7 @@ public:
     {
         uint32_t bounceUs;     // blips closer than this to the last one are dropped
         float frontGapRatio;   // travel below this fraction of the previous gap = front pair
+        float maxGapGrowth;    // a previous gap longer than this many times the one before it was a stall or lost blips
         float overdueFactor;   // learned travel beyond this many gaps without a blip = lost
         float unlearnedOverdueFactor; // the same before the speed is learned
         float defaultDpsPerUs; // speed estimate before anything is learned
@@ -74,7 +75,7 @@ public:
 
     static Config defaults()
     {
-        Config c = {8000, 0.4f, 2.5f, 6.0f, 0.5f, 0.3f};
+        Config c = {8000, 0.4f, 2.5f, 2.5f, 6.0f, 0.5f, 0.3f};
         return c;
     }
 
@@ -108,16 +109,21 @@ public:
         advance(tUs);
         float travel = fTravelDeg;
         float prevTravel = fPrevTravelDeg;
+        float prevPrevTravel = fPrevPrevTravelDeg;
         bool steady = fSteady && fHaveBlip && fDir != 0;
         uint32_t gapUs = tUs - fLastBlipUs;
         fHaveBlip = true;
         fLastBlipUs = tUs;
         fTravelDeg = 0.0f;
+        fPrevPrevTravelDeg = prevTravel;
         fPrevTravelDeg = travel;
         fSteady = true;
         if (fLastDir == 0)
             return;
-        if (prevTravel > 0.0f && travel < fCfg.frontGapRatio * prevTravel)
+        // The previous gap is a baseline only if it was an ordinary gap: one far
+        // longer than the gap before it was a stall or lost blips.
+        bool baseline = prevTravel > 0.0f && (prevPrevTravel <= 0.0f || prevTravel <= fCfg.maxGapGrowth * prevPrevTravel);
+        if (baseline && travel < fCfg.frontGapRatio * prevTravel)
         {
             if (fKnown)
             {
@@ -268,6 +274,7 @@ private:
     float fLastMagnet = 0.0f;
     float fTravelDeg = 0.0f;
     float fPrevTravelDeg = 0.0f;
+    float fPrevPrevTravelDeg = 0.0f;
 
     int8_t fDir = 0;
     int8_t fLastDir = 0;
@@ -315,6 +322,10 @@ private:
 
     void advance(uint32_t nowUs)
     {
+        // A blip can be read after the tracker was updated past its time. Time
+        // never runs backwards here.
+        if (fHaveTime && int32_t(nowUs - fLastUs) <= 0)
+            return;
         if (fHaveTime && fDir != 0)
             fTravelDeg += speedDps(fDir, fOffset) * float(nowUs - fLastUs) * 1e-6f;
         fLastUs = nowUs;
@@ -325,6 +336,7 @@ private:
     void reverse()
     {
         fPrevTravelDeg = 0.0f;
+        fPrevPrevTravelDeg = 0.0f;
         fSteady = false;
         fLearnable = false;
         fJustReversed = true;
@@ -339,5 +351,29 @@ private:
         fTravelDeg = gap - t;
     }
 };
+
+// Feeds the tracker the blip times the interrupt stored, oldest first, up to
+// nowUs. ring keeps the last 8 times; head counts every blip stored and tail
+// every blip read. A blip after nowUs waits for the next call, so blips and
+// commands reach the tracker in time order. More than 8 waiting means some
+// were overwritten: the position becomes unknown. Returns the new tail.
+inline uint8_t drainBlips(const volatile uint32_t ring[8], uint8_t head, uint8_t tail, uint32_t nowUs,
+                          DomeTracker& tracker)
+{
+    if (uint8_t(head - tail) > 8)
+    {
+        tracker.markUnknown();
+        return head;
+    }
+    while (tail != head)
+    {
+        uint32_t t = ring[tail & 7];
+        if (int32_t(t - nowUs) > 0)
+            break;
+        tracker.onBlip(t);
+        tail = uint8_t(tail + 1);
+    }
+    return tail;
+}
 
 } // namespace r2
