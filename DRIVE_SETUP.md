@@ -5,7 +5,7 @@ The feet run straight from the FlySky receiver:
 - The transmitter's Elevon mix turns the right stick into a left-wheel signal (CH1) and a right-wheel signal (CH2).
 - Each half of the Flipsky Dual FSESC4.20 reads one of them on its own receiver input. VESC Tool calls this the **PPM** app.
 
-The Dual FSESC4.20 is two complete VESC controllers on one board, joined only by CAN. With the CAN switch **OFF**, each half runs on its own.
+The Dual FSESC4.20 is two complete VESC controllers on one board, joined only by CAN. With the CAN switch **OFF**, each half runs on its own. Every connector and pin is described in [VESC 4.20 Pinout](VESC_PINOUT.md).
 
 **Keep the wheels off the ground for every step until §6.**
 

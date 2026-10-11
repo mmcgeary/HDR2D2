@@ -59,6 +59,7 @@ flowchart LR
 | --- | --- |
 | [Transmitter Setup](TRANSMITTER_SETUP.md) | Model, binding, channels, output mode, Elevon mix, subtrim, failsafe |
 | [Drive Setup](DRIVE_SETUP.md) | VESC receiver inputs, the half-B solder modification, VESC Tool settings, safety tests |
+| [VESC 4.20 Pinout](VESC_PINOUT.md) | Every connector and pin on the FSESC4.20, the dual board's differences, and which pins this build uses |
 | [Dome Setup](DOME_SETUP.md) | Flashing, lights, holo servos, radio link, Hall sensor, dome servo, random dome |
 | [Sound Setup](SOUND_SETUP.md) | SD card layout and numbering, wiring, tests |
 
@@ -82,7 +83,7 @@ flowchart LR
 | [`AstroPixelsPlus/`](AstroPixelsPlus/) | Dome firmware: stock AstroPixelsPlus plus `R2Logic.h` and `R2Remote.h` |
 | [`tests/`](tests/) | PC tests for the firmware logic: `python3 -m unittest discover tests` |
 | [`docs/astropixels/`](docs/astropixels/) | AstroPixels reference documentation |
-| [`docs/images/`](docs/images/) | Transmitter layout image |
+| [`docs/images/`](docs/images/) | Transmitter layout image and the Flipsky wiring sheet |
 | [`index.html`](index.html), `app.js`, `styles.css` | Foot-drive clearance visualizer |
 | [`Razor_Hub_Motor_Slotted_Mount.stl`](Razor_Hub_Motor_Slotted_Mount.stl), [`generate_slotted_mount_stl.py`](generate_slotted_mount_stl.py) | Printable hub motor mount and its generator |
 | [`mechanical/tekno-pop-motor-mounts-wip/`](mechanical/tekno-pop-motor-mounts-wip/) | Work-in-progress motor mounts. Check fit before final assembly. |
