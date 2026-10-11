@@ -48,7 +48,7 @@ Guide: [Dome Setup](DOME_SETUP.md)
 - [ ] Firmware flashed; `#APZERO` done
 - [ ] D-LOGIC (3A) fitted: logics, PSIs and holo LEDs work
 - [ ] D-SERVO (5A) fitted: six holo servos added one at a time, none binding
-- [ ] iBUS through slip ring CH3: SwC stops and starts the holo twitching
+- [ ] iBUS through slip ring CH3: SwC up centres the holos, SwC middle sets them moving
 
 ## Stage 5: Sound
 
@@ -65,13 +65,15 @@ Guide: [Sound Setup](SOUND_SETUP.md)
 
 Guide: [Dome Setup](DOME_SETUP.md)
 
-- [ ] Front Hall sensor and magnet mounted: sensor LED lights only at front
+- [ ] Magnet ring glued from the printed template: 13 magnets, same face up
+- [ ] Dome sensor mounted: its LED blinks 13 times per turn, twice close together at front
 - [ ] Dome servo signal through slip ring CH6; B-SERVO (5A) fitted
-- [ ] Left stick turns the dome
+- [ ] Stick right turns the dome clockwise seen from above
 - [ ] CH4 subtrim set: no creep with the stick centred
-- [ ] Random dome: seeks front, turns away, returns to front
-- [ ] Stick overrides random dome; driving brings the dome to front
-- [ ] Transmitter off: wheels stop, dome stops, random dome off
+- [ ] Alive: the dome finds front, then looks around and returns to front
+- [ ] Stick overrides the dome; driving brings the dome to front
+- [ ] SwB: sound and gesture in Alive, front-holo flick in Aware
+- [ ] Transmitter off: wheels stop, R2 goes Still
 
 ## Stage 7: Ready
 

@@ -622,8 +622,8 @@
       "note": "HV side = 5V, LV side = ESP32 3.3V. Channel 4 unused."
     },
     "hall": {
-      "name": "Front Hall sensor (KY-003)",
-      "area": "Dome underside, over the body edge",
+      "name": "Dome Hall sensor (KY-003)",
+      "area": "Dome underside, over the body magnet ring",
       "x": 3170,
       "y": 640,
       "ports": [
@@ -636,7 +636,7 @@
         "-",
         "S"
       ],
-      "note": "Output low at the magnet. Magnet on the body directly under it when the dome faces front; gap 5mm or less."
+      "note": "Output low at each magnet. Body magnet ring: 12 magnets every 30 degrees plus one 5 degrees clockwise of front. Gap 5mm or less."
     },
     "esp": {
       "name": "AstroPixels ESP32",
@@ -1422,7 +1422,7 @@
       "to": "esp:GPIO5 HALL",
       "cat": "control",
       "spec": "22AWG",
-      "note": "AUX3. Low = dome facing front.",
+      "note": "AUX3. Low at each magnet.",
       "kind": "signal",
       "color": "#a7f3d0"
     },

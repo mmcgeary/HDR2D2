@@ -50,20 +50,31 @@ Wi-Fi is off. The droid needs no Wi-Fi to run. To use the stock web page or Wi-F
 ## 3. Holo servos
 
 1. Power off. Plug one holo servo into its PCA9685 channel ([Wiring](WIRING.md) §3). Fit D-SERVO (5A).
-2. Power on. With no radio connected, the holo servos twitch at random every 1.5–4.5 seconds.
-3. Check the servo moves without binding or buzzing at its limits.
-4. Add the other five servos one at a time and repeat.
+2. Power on. With no radio connected, R2 is Aware: the holo moves to a point, holds, and moves on.
+3. Add the other five servos one at a time.
+4. Set the mood dial to Happy (the widest holo movement) and SwC to the middle. Watch each holo for a minute.
 
-The firmware limits holo servos to 1000–2000 µs, and random twitches stay within 1350–1650 µs.
+**Pass:** no holo touches a mechanical stop, buzzes or binds. For each holo:
+
+- the top and rear holos wander on their own,
+- a sad mood aims them low,
+- and a look toward R2's right turns the front holo to the right.
+
+**Ranges.** Each holo servo's range is its row in the servo table in `AstroPixelsPlus/AstroPixelsPlus.ino`: 1000–2000 µs. That's inside stock AstroPixelsPlus's 800–2200 µs, which ReelTwo's own holo code drives to both ends. R2's moods use at most the middle 80% of it.
+
+| Problem | Fix |
+| --- | --- |
+| A holo touches its stop | Narrow that servo's row in the servo table, for example `{2, 1100, 1900, HOLO_HSERVO}`, rebuild and reflash |
+| A holo looks the wrong way (left instead of right, or up when sad) | Set that eye's axis to `true` in `kEyeFlipH` / `kEyeFlipV` in `AstroPixelsPlus/R2Eyes.h` (order: front, rear, top), rebuild and reflash |
 
 ## 4. Radio link (iBUS)
 
 1. Connect the receiver's i-BUS SERVO port through slip ring CH3 to the level shifter ([Wiring](WIRING.md)).
 2. Turn the transmitter on, then the droid.
-3. Flip SwC up: the holo servos stop twitching and centre.
-4. Flip SwC to the middle: the twitching resumes.
+3. Flip SwC up (Still): the holos ease to centre and stop.
+4. Flip SwC to the middle (Aware): the holos start looking around again.
 
-**Pass:** SwC controls the holo servos. That proves the ESP32 is reading the receiver.
+**Pass:** SwC controls the holos. That proves the ESP32 is reading the receiver.
 
 If SwC does nothing:
 
@@ -73,42 +84,49 @@ If SwC does nothing:
 
 Never plug USB into the ESP32 while it sits in a powered AstroPixels board.
 
-## 5. Front Hall sensor
+## 5. Magnet ring and dome sensor
 
-The sensor turns with the dome. The magnet stays still on the body.
+The dome finds its position from 13 magnets on the body and the Hall sensor under the dome.
 
-1. Mount the KY-003 sensor on the underside of the dome, facing down, at a point that passes over the body's top edge.
-2. Glue the neodymium disc magnet (6×2mm or 10×2mm) to the body directly under the sensor when the dome faces front.
-3. Set the gap between sensor and magnet to 5 mm or less.
-4. The sensor responds to one pole of the magnet. If it doesn't switch, turn the magnet over.
+1. Measure the diameter of the circle the magnets will sit on, on the body's top surface under the dome edge.
+2. Print the template: `python3 tools/magnet_template.py <diameter in mm>`. Print the SVG at 100% and check the 100 mm bar with a ruler.
+3. Tape the template on the body with FRONT pointing to R2's front.
+4. Glue a magnet (6×2 mm or 10×2 mm) on each of the 13 marks, all with the same face up. The two marks at FRONT are 0° and 5° clockwise.
+5. Mount the KY-003 sensor on the underside of the dome, facing down, at the same distance from the centre as the magnets. Set the gap to 5 mm or less.
 
-**Check:** the sensor module has an LED. Turn the dome by hand: the LED lights only when the dome faces front.
+**Check:** turn the dome slowly by hand. The sensor's LED blinks at every magnet: 13 blinks per turn, with two close together at front. If it never lights, turn all the magnets over.
 
 ## 6. Dome servo
 
 1. Connect the servo signal through slip ring CH6 ([Wiring](WIRING.md)). Fit B-SERVO (5A).
-2. Set random dome off (SwA up).
+2. Set SwC up (Still).
 3. Power on with the transmitter on.
-4. Move the left stick left and right: the dome follows.
-5. Centre the stick. If the dome creeps, set CH4 subtrim ([Transmitter Setup](TRANSMITTER_SETUP.md) §6).
+4. Push the left stick right: the dome turns clockwise seen from above. If not, reverse CH4 ([Transmitter Setup](TRANSMITTER_SETUP.md) §6).
+5. Centre the stick. If the dome creeps, set CH4 subtrim.
 
 Before the receiver is heard, the firmware sends the dome servo no pulses, so the dome stays still at power-up.
 
-## 7. Random dome
+## 7. Behaviour
 
-1. Point the dome away from front.
-2. Centre both sticks. Flip SwA down.
-3. After 3 seconds the dome turns slowly until the sensor finds front, then stops.
-4. After 4–12 seconds it turns away, pauses for 1–4 seconds, and turns back until it reaches front.
-5. Push the left stick: the dome follows the stick immediately.
-6. Push the right stick (driving): any random move ends and the dome returns to front.
-7. Flip SwA up: random moves stop once the dome is back at front.
+1. Set the mood dial (VrA) to General. Flip SwC down (Alive), both sticks centred.
+2. The dome turns slowly clockwise until it passes the front magnets, then stops facing front.
+3. Within 35 seconds R2 looks around:
+   - the front holo glances one way,
+   - the dome follows smoothly,
+   - it holds for a few seconds,
+   - and comes back to front.
+4. Push the left stick: the dome follows the stick immediately. Let go: 3 seconds later R2 carries on.
+5. Push the right stick (driving): the dome returns to front.
+6. Flip SwB down: R2 makes a sound and a glance.
+7. Turn VrA to Happy: looks come more often and faster. Turn it to Sad: slow and rare.
+8. Flip SwC to the middle (Aware): the dome stops at front; the holos keep looking around.
+9. Flip SwC up (Still): everything rests.
 
 | Problem | Fix |
 | --- | --- |
-| The dome seeks for 20 seconds, then stops and stays stopped | The sensor never saw the magnet. Check §5, then flip SwA up and down to retry. |
-| Dome overshoots front | Lower the return speed, `seekSpeedUs` in `AstroPixelsPlus/R2Logic.h`, and reflash |
-| Random turns too large or too fast | Lower `turnSpeedUs` or `turnMaxMs` in the same file |
+| The dome turns for 20 seconds, then stops looking around | The front magnets aren't being found. Check §5, then flip SwC up and down to retry. |
+| The dome stops short of front or past it | A magnet is loose or missing. Check all 13 against the template. |
+| Looks are too fast or too big | Edit that mood's row in `AstroPixelsPlus/R2Mood.h` (`domeCruiseDps`, `lookAngleDeg`), rebuild and reflash. |
 
 ## 8. Done
 

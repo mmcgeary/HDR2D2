@@ -9,23 +9,61 @@ How to drive R2 and use the dome, sounds and lights. One-time setup is in [Trans
 | Control | What it does |
 | --- | --- |
 | **Right stick** | Drive. Forward/back moves, left/right turns. |
-| **Left stick, left/right** | Turns the dome. Always overrides random dome. |
+| **Left stick, left/right** | Turns the dome. Always overrides R2's own behaviour. |
 | **Left stick, up/down** | Nothing |
-| **SwA** | Down: random dome on. Up: off. |
-| **SwB** | Flip down: play one sound from the current mood |
+| **SwC** (3-position) | Behaviour level. Up: Still. Middle: Aware. Down: Alive. |
+| **SwB** | Flip down: play one sound from the current mood, with a matching gesture |
 | **VrA** | Mood, fully anticlockwise to fully clockwise: mixed, general, chat, happy, sad, whistle |
 | **VrB** | Volume. Fully anticlockwise is silent, fully clockwise is loudest. |
-| **SwC** | Up: quiet (no random chatter, holo servos still). Middle or down: random chatter and holo movement. |
-| **SwD** | Nothing |
+| **SwA, SwD** | Nothing |
+
+## Behaviour levels (SwC)
+
+| Level | What R2 does |
+| --- | --- |
+| **Still** (up) | Nothing on its own. Holos centred, no random sounds, the dome moves only with the stick. For tight spaces and people up close. |
+| **Aware** (middle) | Looks around with its holos and talks. The dome stays facing front. |
+| **Alive** (down) | Looks around with its dome too. The front holo glances toward something a moment before the dome turns to it. |
+
+Losing the transmitter signal puts R2 in Still.
+
+## Moods (VrA)
+
+The mood sets what R2 says and how it moves.
+
+| Mood | Character |
+| --- | --- |
+| General | Calm and curious. Measured looks, few sounds. |
+| Chat | Sociable. Looks often end in a comment. |
+| Happy | Lively. Frequent, brisk looks; holos roam widely. |
+| Sad | Withdrawn. Rare, slow looks; holos low; quiet. |
+| Whistle | Attentive. Looks often end with a glance back toward front. |
+| Mixed | Changes to a different mood every 1–3 minutes. |
+
+## SwB
+
+- Flip SwB down to play one sound from the current mood, at any level. Flip it up, then down again, for another.
+- In **Aware**, the front holo flicks toward front as if addressing whoever's there.
+- In **Alive**, the dome adds a gesture:
+
+| Mood | Gesture |
+| --- | --- |
+| General | A glance to one side and back |
+| Chat | A turn partway toward front |
+| Happy | A quick left-right wiggle |
+| Sad | A slow half-turn away, then back |
+| Whistle | Turns to face front |
 
 ## Power on
 
-1. Transmitter **on**. Right stick centred, SwA up.
+1. Transmitter **on**. Right stick centred, SwC up (Still).
 2. Droid master cutoff **on**.
 3. The start-up sound plays and the logics scroll their start-up text.
 4. Nudge the right stick to confirm both wheels respond.
+5. Set SwC to the level you want.
 
-The wheels stay still until the right stick has been centred after power-on.
+- The wheels stay still until the right stick has been centred after power-on.
+- At power-on the dome doesn't know where it's pointing. In Alive, its first move is a slow turn until it passes the front magnets.
 
 ## Power off
 
@@ -36,32 +74,15 @@ The wheels stay still until the right stick has been centred after power-on.
 
 - The droid drives the moment the right stick moves. There is no arming switch.
 - Releasing the stick brakes the wheels.
-- If the transmitter switches off or goes out of range, the wheels stop and random dome turns off.
+- Driving ends any look and brings the dome back to front. R2 starts looking around again 3 seconds after you stop.
+- If the transmitter switches off or goes out of range, the wheels stop and R2 goes Still.
 - The master cutoff stops everything.
 
 ## Dome
 
-- **Manual:** the left stick turns the dome. Speed follows how far you push.
-- **Random dome (SwA down):** with the left stick centred for 3 seconds, the dome:
-  1. turns a random distance left or right,
-  2. pauses,
-  3. returns to front, then waits 4–12 seconds and repeats.
-- **Driving** ends any random move and brings the dome back to front. New random moves wait until you have stopped driving for 3 seconds.
-- **Finding front:** at power-on, and after you turn the dome with the stick, random dome first turns slowly to find front. Turn the dome only with the stick: the firmware can't detect a dome turned by hand.
-- **Dome stops and won't restart:** it couldn't find front within 20 seconds. Flip SwA up, then down, to retry. If it happens again, see [Troubleshooting](TROUBLESHOOTING.md).
-
-## Sounds
-
-- **Mood (VrA):** chooses which group of sounds plays. "Mixed" draws from all five moods.
-- **SwB:** flip down to play one sound now. Flip up, then down again, for the next one.
-- **Random chatter (SwC middle or down):** a sound from the current mood every 5–30 seconds.
-- **Volume (VrB):** takes effect immediately and is remembered for the next power-on.
-
-## Lights and holos
-
-- Logics, PSIs and holo lights run their AstroPixels patterns all the time.
-- With SwC middle or down, the holo projectors twitch to random positions every 1.5–4.5 seconds.
-- With SwC up, they return to centre and stay there.
+- The left stick turns the dome. Speed follows how far you push. R2 waits 3 seconds after you let go before it looks around again.
+- In Alive, R2 never turns more than 135° from front and comes back to front after every look.
+- **The dome stops looking around and won't restart:** it failed to find the front magnets twice. Flip SwC up to Still and back down to retry. If it happens again, see [Troubleshooting](TROUBLESHOOTING.md).
 
 ## Before each session
 

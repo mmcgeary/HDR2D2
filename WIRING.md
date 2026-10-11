@@ -19,7 +19,7 @@ flowchart LR
     RX -->|"CH2"| VR["VESC half B → right wheel"]
     RX -->|"i-BUS SERVO, ring CH3"| SH["Level shifter (dome)"]
     SH -->|"GPIO16"| ESP["AstroPixels ESP32 (dome)"]
-    HALL["Front Hall sensor"] --> SH
+    HALL["Dome Hall sensor"] --> SH
     ESP -->|"GPIO4 → shifter → ring CH6"| DS["Dome servo (body)"]
     ESP -->|"GPIO19 → ring CH4 → 1k"| DF["DFPlayer (body)"]
     DF -->|"TX → ring CH5 → GPIO18"| ESP
@@ -104,13 +104,13 @@ One Lonely Binary 4-channel board. Its "A" pins are the low-voltage side, its "B
 | LV1 / A1 | ESP32 **GPIO16** |
 | LV2 / A2 | ESP32 **GPIO4** (AUX2, dome servo out) |
 | HV2 / B2 | Slip ring CH6 |
-| HV3 / B3 | Front Hall sensor signal |
+| HV3 / B3 | Dome Hall sensor signal |
 | LV3 / A3 | ESP32 **GPIO5** (AUX3) |
 | Channel 4 | — |
 
 ESP32 pins take 3.3V only. Every 5V signal reaches the ESP32 through this board.
 
-### Front Hall sensor (KY-003)
+### Dome Hall sensor (KY-003)
 
 | Sensor pin | Connects to |
 | --- | --- |
@@ -118,7 +118,7 @@ ESP32 pins take 3.3V only. Every 5V signal reaches the ESP32 through this board.
 | − | Dome ground |
 | S | Shifter HV3 |
 
-The output goes low when the magnet is under it. The firmware reads low as "dome facing front". Mounting is in [Dome Setup](DOME_SETUP.md) §5.
+The output goes low each time the sensor passes a magnet in the body's magnet ring (13 magnets: 12 every 30°, plus one 5° clockwise of front). The firmware counts magnets to know where the dome points. Mounting is in [Dome Setup](DOME_SETUP.md) §5.
 
 ### PCA9685 and holo servos
 
@@ -151,7 +151,7 @@ The front and rear logics, front and rear PSIs and the three holo LED boards plu
 | --- | --- | --- |
 | 16 | Serial2 RX | iBUS in |
 | 4 | AUX2 | Dome servo out |
-| 5 | AUX3 | Front Hall sensor in |
+| 5 | AUX3 | Dome Hall sensor in |
 | 18 | AUX4 | DFPlayer TX in |
 | 19 | AUX5 | DFPlayer RX out |
 | 21, 22 | I2C | PCA9685 |

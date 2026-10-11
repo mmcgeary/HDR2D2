@@ -28,7 +28,7 @@ flowchart LR
     ESP -->|"servo signal via slip ring"| DOME["Dome servo (body)"]
     ESP <-->|"serial via slip ring"| DF["DFPlayer → amp → speaker (body)"]
     ESP --> HOLO["Holo servos, logics, PSIs, holo LEDs"]
-    HALL["Front Hall sensor"] --> ESP
+    HALL["Dome Hall sensor + body magnet ring"] --> ESP
 ```
 
 ## Features
@@ -37,11 +37,11 @@ flowchart LR
 | --- | --- |
 | Drive | Right stick |
 | Dome rotation | Left stick |
-| Random dome moves that return to front | SwA |
-| Play a mood sound | SwB |
-| Mood: mixed, general, chat, happy, sad, whistle | VrA |
+| Behaviour level: Still, Aware, Alive | SwC |
+| R2 looks around: dome, holos and sounds together | SwC down |
+| Play a mood sound, with a gesture | SwB |
+| Mood: sets what R2 says and how it moves | VrA |
 | Volume | VrB |
-| Random chatter and holo movement | SwC |
 | Lights | Always on, stock AstroPixels patterns |
 
 ## Documents
@@ -63,7 +63,7 @@ flowchart LR
 | [Transmitter Setup](TRANSMITTER_SETUP.md) | Model, binding, channels, output mode, Elevon mix, subtrim, failsafe |
 | [Drive Setup](DRIVE_SETUP.md) | VESC receiver inputs, the half-B solder modification, VESC Tool settings, safety tests |
 | [VESC 4.20 Pinout](VESC_PINOUT.md) | Every connector and pin on the FSESC4.20, the dual board's differences, and which pins this build uses |
-| [Dome Setup](DOME_SETUP.md) | Flashing, lights, holo servos, radio link, Hall sensor, dome servo, random dome |
+| [Dome Setup](DOME_SETUP.md) | Flashing, lights, holo servos, radio link, magnet ring, dome servo, behaviour |
 | [Sound Setup](SOUND_SETUP.md) | SD card layout and numbering, wiring, tests |
 
 ### Use

@@ -1,11 +1,16 @@
 # Dome Firmware
 
-This folder is stock [reeltwo/AstroPixelsPlus](https://github.com/reeltwo/AstroPixelsPlus) at commit `09ec5eb` (2026-01-11), plus two files of our own.
+This folder is stock [reeltwo/AstroPixelsPlus](https://github.com/reeltwo/AstroPixelsPlus) at commit `09ec5eb` (2026-01-11), plus these files of our own.
 
 | File | Purpose |
 | --- | --- |
-| `R2Logic.h` | Hardware-free logic: iBUS decoding, dome state machine, switches, dials, mood sound selection. Unit-tested on a PC. |
-| `R2Remote.h` | Connects `R2Logic.h` to the ESP32 pins, the DFPlayer and the holo servos |
+| `R2Logic.h` | iBUS decoding, switches, dials, volume |
+| `R2Mood.h` | Mood profiles: every behaviour number, one row per mood |
+| `R2Eyes.h` | Holo eyes: leading front eye, independent top and rear eyes, per-axis direction flips |
+| `R2DomeTracker.h` | Dome angle from the body magnet ring, learned dome speeds |
+| `R2DomeMotion.h` | Eased dome moves, stick pass-through |
+| `R2Attention.h` | When R2 looks, where, what it says, SwB gestures, levels and interruptions |
+| `R2Remote.h` | Connects the modules to the ESP32 pins, the DFPlayer, the holo servos and saved settings |
 
 ## Changes from stock
 
@@ -29,38 +34,16 @@ Every change in a stock file is marked with a `HDR2D2` comment. `git diff a242c7
 
 | Input | Channel | Behaviour |
 | --- | --- | --- |
-| Left stick X | CH4 | Dome servo follows the stick. Always overrides random dome. |
-| SwA | CH5 | Down: random dome on |
-| SwB | CH6 | Flip down: play one sound from the current mood |
-| VrA | CH7 | Mood: mixed, general, chat, happy, sad, whistle (six equal dial zones) |
-| VrB | CH8 | Volume 0–30. Saved 3 seconds after the last change. |
-| SwC | CH9 | Up: chatter and holo twitches off, holos centred. Middle or down: on. |
-| Right stick | CH1, CH2 | Read only to detect driving: more than 40 µs from centre, inside the VESC's 10% deadband |
+| Left stick X | CH4 | Dome follows the stick. Always overrides behaviour. |
+| SwC | CH5 | Up Still, middle Aware, down Alive |
+| SwB | CH6 | Flip down: a mood sound at any level; a gesture in Aware and Alive |
+| VrA | CH7 | Mood: mixed, general, chat, happy, sad, whistle |
+| VrB | CH8 | Volume 0–30, saved 3 seconds after the last change |
+| Right stick | CH1, CH2 | Read only to detect driving: more than 40 µs from centre |
 
-The channel numbers are the `R2_CH_*` defines at the top of `R2Remote.h`.
+The full design is in `docs/superpowers/specs/2026-10-11-lifelike-behaviour-design.md`.
 
-### Dome state machine (`DomeBrain`)
-
-| State | Output | Leaves when |
-| --- | --- | --- |
-| Idle | Neutral | Random on, sticks quiet 3 s: to At front (sensor active) or Seeking |
-| Seeking | Neutral + 80 µs | Sensor active: At front. 20 s: Fault. Random off: Idle. |
-| At front | Neutral | 4–12 s pause, not driving: Turning away. Random off: Idle. |
-| Turning away | Neutral ± 120 µs, random direction | 0.4–1.5 s: Looking. Random off or driving: Returning. |
-| Looking | Neutral | 1–4 s, random off or driving: Returning |
-| Returning | Neutral ∓ 80 µs (opposite direction) | Sensor active: At front. Timeout (3 × turn time + 5 s): Fault. |
-| Fault | Neutral | Random off: Idle |
-| Manual | Stick value | Stick centred: Idle |
-
-- **Neutral** is the CH4 value whenever the stick is within ±80 µs of centre, so CH4 subtrim sets it.
-- **Radio lost** (no iBUS frame for 300 ms): the firmware keeps sending the last neutral.
-- **Before the first frame:** the firmware sends no pulses.
-
-### Before the radio is heard
-
-Random chatter and holo twitches run, as in stock. The dome servo receives no pulses.
-
-The front Hall sensor is read every loop and also latched by a falling-edge interrupt, so a pass over the magnet is never missed.
+Before the first iBUS frame, R2 runs at Aware in the General mood and the dome receives no pulses.
 
 ## Pins
 
@@ -68,7 +51,7 @@ The front Hall sensor is read every loop and also latched by a falling-edge inte
 | --- | --- |
 | 16 | iBUS in (Serial2, 115200) |
 | 4 | Dome servo out (LEDC channel 15, 50 Hz) |
-| 5 | Front Hall sensor in, active low, internal pull-up, falling-edge interrupt |
+| 5 | Dome Hall sensor over the body magnet ring: active low, internal pull-up, falling-edge interrupt timestamps each magnet |
 | 18 / 19 | DFPlayer serial (Serial1, 9600), stock |
 
 ## Build and flash
@@ -88,8 +71,11 @@ The module prints these messages at 115200 baud. Read them only with the module 
 | Message | Meaning |
 | --- | --- |
 | `[R2] radio OK` / `[R2] radio lost` | iBUS frames started or stopped |
-| `[R2] mood <name>` | VrA moved into a new mood zone |
-| `[R2] dome <state>` | Dome state change |
+| `[R2] level still` / `aware` / `alive` | SwC moved |
+| `[R2] mood <name>` | Active mood changed (`(mixed)` when the dial is on Mixed) |
+| `[R2] behaviour rest` / `looking` / `returning` / `gesture` / `manual` | What the planner is doing |
+| `[R2] dome position found` / `lost` | The magnet count is in step, or was lost |
+| `[R2] dome looks off: ...` | Two seeks failed. SwC to Still resets. |
 
 Stock serial commands still work. Examples:
 
@@ -102,20 +88,15 @@ Stock serial commands still work. Examples:
 
 ## Tuning
 
-| Setting | Location | Default |
-| --- | --- | --- |
-| Dome turn speed | `DomeBrain::Config::turnSpeedUs` in `R2Logic.h` | 120 µs |
-| Dome seek and return speed | `seekSpeedUs` | 80 µs |
-| Stick deadband | `deadbandUs` | 80 µs |
-| Quiet time before random dome | `idleBeforeRandomMs` | 3000 ms |
-| Pause at front | `pauseMinMs` / `pauseMaxMs` | 4000–12000 ms |
-| Turn duration | `turnMinMs` / `turnMaxMs` | 400–1500 ms |
-| Look duration | `lookMinMs` / `lookMaxMs` | 1000–4000 ms |
-| Seek timeout | `seekTimeoutMs` | 20000 ms |
-| Chatter interval | `MARC_SOUND_RANDOM_MIN` / `MAX` in `AstroPixelsPlus.ino`, or the web page's random min/max | 5–30 s |
-| Holo twitch interval | `fHoloTwitch` in `R2Remote.h` | 1.5–4.5 s |
-| Holo twitch travel | `updateHolos()` in `R2Remote.h` | 1350–1650 µs |
-| Mood bank sizes | `MP3_BANK1_SOUNDS` … `MP3_BANK5_SOUNDS` in `MarcduinoSound.h` | 19, 18, 7, 4, 3 |
+| Setting | Location |
+| --- | --- |
+| Every behaviour number per mood (look interval, angle, speed, holds, chances, holo range and speed) | `kMoodProfiles` in `R2Mood.h` |
+| Holo servo ranges | Servo table (`servoSettings`) in `AstroPixelsPlus.ino` |
+| Holo direction | `kEyeFlipH` / `kEyeFlipV` in `R2Eyes.h` |
+| Stick deadband, final approach speed, step limit | `DomeMotion::defaults()` in `R2DomeMotion.h` |
+| Front-pair gap ratio, overdue factor, default speed | `DomeTracker::defaults()` in `R2DomeTracker.h` |
+| Gap between sounds, pause after the stick or driving, seek timeout | `kSoundGapMs`, `kResumeMs`, `kSeekTimeoutMs` in `R2Attention.h` |
+| Mood bank sizes | `MP3_BANK1_SOUNDS` … `MP3_BANK5_SOUNDS` in `MarcduinoSound.h` |
 
 ## Tests
 
@@ -123,7 +104,7 @@ Stock serial commands still work. Examples:
 python3 -m unittest discover tests
 ```
 
-The tests compile `R2Logic.h` with the PC's C++ compiler. They cover iBUS decoding and resync, switches and dials, volume hysteresis, random timers, mood selection and every dome state transition.
+The tests compile the `R2*.h` modules with the PC's C++ compiler. They cover iBUS decoding, switches and dials, moods, the holo eyes, the magnet tracker against a simulated dome, eased dome motion, the attention planner's sequences and priorities, and a 30-minute virtual droid run per mood that checks every motion and tracking rule.
 
 ## Wi-Fi
 
@@ -143,9 +124,10 @@ Settings saved through the web page or Marcduino commands:
 
 | Setting | Status |
 | --- | --- |
-| Sound random min / max | Used: sets the chatter interval |
+| Sound random min / max | Ignored: each mood sets its own timing |
 | Sound volume | Used at power-on. The VrB dial replaces it once the radio is heard. |
 | Sound startup track | Used |
+| Learned dome speeds | Saved by R2Remote under the key r2speeds, at most every 5 minutes |
 | Sound player, sound serial | Ignored: always DFPlayer on Serial1 |
 | Random sound on/off | Ignored: SwC controls chatter |
 | Marcduino serial baud, pass-through, JawaLite pass-through | Ignored: Serial2 carries iBUS |

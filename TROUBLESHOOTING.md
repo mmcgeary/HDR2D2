@@ -25,10 +25,11 @@ Find the symptom, then work down its checks in order.
 | --- | --- |
 | Dome doesn't turn | B-SERVO fuse. Slip ring CH6. Shifter LV2 → HV2. Transmitter on: the servo gets no pulses until the receiver is heard. |
 | Dome creeps with the stick centred | Set CH4 subtrim ([Transmitter Setup](TRANSMITTER_SETUP.md) §6) |
-| Random dome never starts, SwA down and sticks centred | CH4 subtrim is more than 80 µs from centre, so the firmware reads the stick as pushed. Reduce the subtrim; adjust the servo's own neutral instead. |
-| Random dome never starts | SwA down. Both sticks centred for 3 seconds. |
-| Random dome seeks for 20 s, then stops | Sensor doesn't see the magnet. Check the sensor LED lights at front, the gap is 5 mm or less, and the magnet's pole faces the sensor. Check shifter HV3 → LV3 → GPIO5. Flip SwA up and down to retry. |
-| Dome stops past front | Return speed too high: lower `seekSpeedUs` in `AstroPixelsPlus/R2Logic.h` |
+| R2 never looks around | SwC down (Alive). Both sticks centred and no driving for 3 seconds. Looks come every 6–75 seconds, depending on mood. |
+| R2 never looks around although SwC is down and the sticks are centred | CH4 subtrim is more than 80 µs from centre, so the firmware reads the stick as pushed. Reduce the subtrim; adjust the servo's own neutral instead. |
+| The dome turns for 20 seconds, then stops looking around | The front magnets aren't being found. Check the sensor LED blinks at every magnet, the gap is 5 mm or less, all magnets face the same way up, and the extra magnet is 5° clockwise of front. Check shifter HV3 → LV3 → GPIO5. Flip SwC up and down to retry. |
+| The dome turns the wrong way for its looks | Stick-right must turn the dome clockwise. Reverse CH4 ([Transmitter Setup](TRANSMITTER_SETUP.md) §6). |
+| Looks stop short of front or past it | A magnet is loose or missing. Check all 13 against the template. |
 
 ## Sound
 
@@ -46,7 +47,7 @@ Find the symptom, then work down its checks in order.
 | SwC has no effect | The ESP32 isn't reading the receiver. Slip ring CH3. Shifter HV1 → LV1 → GPIO16. Receiver serial set to i-BUS. Common ground through CH2. |
 | One holo servo doesn't move | Its plug on the right PCA9685 channel ([Wiring](WIRING.md) §3). D-SERVO fuse. |
 | No holo servo moves | PCA9685 SDA/SCL/VCC/GND. Address jumpers open (0x40). |
-| Holo servo buzzes or binds | Mechanical stop inside the holo travel. Free the linkage. |
+| Holo servo buzzes or binds | Its range in the servo table in `AstroPixelsPlus/AstroPixelsPlus.ino` reaches a mechanical stop. Narrow that row ([Dome Setup](DOME_SETUP.md) §3). |
 
 ## Lights
 

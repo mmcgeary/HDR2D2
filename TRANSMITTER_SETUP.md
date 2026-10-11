@@ -12,11 +12,11 @@ Menu names are from the stock FS-i6X firmware. Hold **OK** to open the menu, **C
 | CH2 | Right stick (mixed) | VESC half B | Right wheel |
 | CH3 | Left stick up/down | — | Unused |
 | CH4 | Left stick left/right | ESP32 | Dome |
-| CH5 | SwA | ESP32 | Random dome (down = on) |
+| CH5 | SwC | ESP32 | Behaviour level: up Still, middle Aware, down Alive |
 | CH6 | SwB | ESP32 | Play a mood sound (flip down) |
 | CH7 | VrA | ESP32 | Mood |
 | CH8 | VrB | ESP32 | Volume |
-| CH9 | SwC | ESP32 | Random sounds and holos (up = off) |
+| CH9 | SwA | — | Spare |
 | CH10 | SwD | — | Spare |
 
 ## 1. Model
@@ -38,11 +38,11 @@ Menu names are from the stock FS-i6X firmware. Hold **OK** to open the menu, **C
 
 | Channel | Source |
 | --- | --- |
-| CH5 | SwA |
+| CH5 | SwC |
 | CH6 | SwB |
 | CH7 | VrA |
 | CH8 | VrB |
-| CH9 | SwC |
+| CH9 | SwA |
 | CH10 | SwD |
 
 ## 4. Receiver output
@@ -66,13 +66,15 @@ In PPM mode, CH1 carries every channel at once and the VESC can't read it.
    - Turning is reversed: set **AIL** to **−50%**.
 5. Raise the AIL value (keeping its sign) for sharper turns, lower it for gentler ones.
 
-## 6. Dome neutral (CH4 subtrim)
+## 6. Dome direction and neutral (CH4)
 
-1. Power the droid with the dome servo connected and random dome off (SwA up).
-2. Centre the left stick.
-3. If the dome creeps, open **Functions setup → Subtrim → CH4** and adjust until it stops.
+1. Power the droid with the dome servo connected and SwC up (Still).
+2. Push the left stick right. The dome turns clockwise seen from above: R2 turns its head to its right. If it turns the other way, set **Functions setup → Reverse → CH4**.
+3. Centre the left stick. If the dome creeps, open **Functions setup → Subtrim → CH4** and adjust until it stops.
 
-The firmware uses the centred CH4 value as the dome's stop point, for both the stick and random moves. It treats any CH4 value more than 80 µs from 1500 µs as a pushed stick. If random dome never starts after trimming, the trim is too large: reduce it and adjust the servo's own neutral instead.
+The firmware counts the body magnets assuming stick-right is clockwise, so step 2 matters.
+
+The firmware uses the centred CH4 value as the dome's stop point, for both the stick and R2's own looks. It treats any CH4 value more than 80 µs from 1500 µs as a pushed stick. If R2 never looks around after trimming, the trim is too large: reduce it and adjust the servo's own neutral instead.
 
 ## 7. Failsafe
 
@@ -90,7 +92,7 @@ The failsafe sets what the receiver outputs when it loses the transmitter.
 | CH1 | Right stick centred | Left wheel stops |
 | CH2 | Right stick centred | Right wheel stops |
 | CH4 | Left stick centred | Dome stops |
-| CH5 | SwA up | Random dome off; the dome returns to front and stops |
+| CH5 | SwC up | R2 goes Still; the dome returns to front and stops |
 
 Test it with the wheels off the ground. Drive both wheels and the dome, then switch the transmitter off. Wheels and dome must stop.
 

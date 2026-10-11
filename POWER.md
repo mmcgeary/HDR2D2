@@ -43,7 +43,7 @@ Each buck feeds its own distribution block. Every 5V branch is fused at the poin
 | B-SERVO | Dome servo | 5A | 16AWG |
 | B-LOGIC | Receiver, DFPlayer | 2A | 18AWG feed, 20/22AWG to each device |
 | D-SERVO | PCA9685 V+ (six holo servos) | 5A | 16AWG |
-| D-LOGIC | AstroPixels board, front Hall sensor, level shifter HV | 3A | 18AWG feed, 22AWG to sensor and shifter |
+| D-LOGIC | AstroPixels board, dome Hall sensor, level shifter HV | 3A | 18AWG feed, 22AWG to sensor and shifter |
 
 ```text
 BODY buck OUT+ -> body positive group -> B-SERVO 5A -> dome servo +
