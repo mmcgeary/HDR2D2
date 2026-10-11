@@ -18,7 +18,7 @@ static uint16_t tick(DomeMotion& m, const DomeTracker& model, uint32_t& nowMs, f
 
 
 def run(body):
-    run_cpp(["R2Logic.h", "R2DomeTracker.h", "R2DomeMotion.h"], body, HELPERS)
+    run_cpp(["R2Logic.h", "R2DomeTracker.h", "R2DomeMotion.h", "sim_dome.h"], body, HELPERS)
 
 
 class BasicsTest(unittest.TestCase):
@@ -136,6 +136,63 @@ class GoToTest(unittest.TestCase):
             CHECK(m.direction() == 1);
             for (int i = 0; i < 60; i++) p = tick(m, model, now, a, domeSeek(), 1500, true, true);
             CHECK(p == 1500);
+        """)
+
+
+class HeldEstimateTest(unittest.TestCase):
+    def test_speeds_up_again_after_a_held_estimate_clears(self):
+        run(r"""
+            DomeTracker tracker; DomeMotion m; r2sim::SimDome dome(-50, 0.35f, 15);
+            uint32_t nowUs = 1000, nowMs = 0;
+            while (!tracker.known()) { nowMs += 20; m.update(nowMs, true, 1500, domeSeek(), tracker.known(), tracker.angle(), tracker); dome.step(tracker, nowUs, 20000, m.direction(), m.offsetUs()); }
+            DomeRequest req = domeGoTo(120, 45, 0.5f);
+            bool sawHeld = false, cleared = false; uint16_t peakAfter = 0;
+            for (int i = 0; i < 4000 && !m.arrived(); i++) {
+                nowMs += 20; m.update(nowMs, true, 1500, req, tracker.known(), tracker.angle(), tracker);
+                dome.step(tracker, nowUs, 20000, m.direction(), m.offsetUs());
+                if (tracker.held()) sawHeld = true;
+                else if (sawHeld) cleared = true;
+                if (cleared && tracker.angle() < 90.0f && m.offsetUs() > peakAfter) peakAfter = m.offsetUs();
+            }
+            CHECK(sawHeld);
+            CHECK(cleared);
+            CHECK(peakAfter > tracker.offsetForSpeed(1, 30));               // back up toward cruise, not creeping
+        """)
+
+    def test_return_to_front_ends_on_the_front_magnet(self):
+        run(r"""
+            DomeTracker tracker; DomeMotion m; r2sim::SimDome dome(-50, 0.35f, 15);
+            uint32_t nowUs = 1000, nowMs = 0;
+            while (!tracker.known()) { nowMs += 20; m.update(nowMs, true, 1500, domeSeek(), tracker.known(), tracker.angle(), tracker); dome.step(tracker, nowUs, 20000, m.direction(), m.offsetUs()); }
+            DomeRequest req = domeGoTo(-45, 45, 0.6f); int ticks = 0;
+            do { nowMs += 20; m.update(nowMs, true, 1500, req, tracker.known(), tracker.angle(), tracker); dome.step(tracker, nowUs, 20000, m.direction(), m.offsetUs()); }
+            while (!m.arrived() && ticks++ < 4000);
+            req = domeGoTo(0, 45, 0.6f, true); ticks = 0;
+            do { nowMs += 20; m.update(nowMs, true, 1500, req, tracker.known(), tracker.angle(), tracker); dome.step(tracker, nowUs, 20000, m.direction(), m.offsetUs()); }
+            while (!m.arrived() && ticks++ < 4000);
+            CHECK(m.arrived());
+            for (int i = 0; i < 10; i++) { nowMs += 20; m.update(nowMs, true, 1500, req, tracker.known(), tracker.angle(), tracker); dome.step(tracker, nowUs, 20000, m.direction(), m.offsetUs()); }
+            CHECK(std::fabs(dome.angle) < 3.0f);
+            CHECK(tracker.known());
+        """)
+
+    def test_no_arrival_while_estimate_is_held(self):
+        run(r"""
+            // Real dome far slower than the default model: the estimate runs ahead
+            // and parks short of the next magnet. The move must end on the real target.
+            DomeTracker tracker; DomeMotion m; r2sim::SimDome dome(-50, 0.35f, 15);
+            uint32_t nowUs = 1000, nowMs = 0;
+            while (!tracker.known()) { nowMs += 20; uint16_t p = m.update(nowMs, true, 1500, domeSeek(), tracker.known(), tracker.angle(), tracker); (void)p; dome.step(tracker, nowUs, 20000, m.direction(), m.offsetUs()); }
+            int ticks = 0;
+            DomeRequest req = domeGoTo(-43, 20, 1.0f);
+            while (!m.arrived() && ticks++ < 4000) { nowMs += 20; m.update(nowMs, true, 1500, req, tracker.known(), tracker.angle(), tracker); dome.step(tracker, nowUs, 20000, m.direction(), m.offsetUs()); }
+            CHECK(m.arrived());
+            CHECK(std::fabs(dome.angle - (-43.0f)) < 6.0f);
+            req = domeGoTo(2, 20, 1.0f); ticks = 0;
+            do { nowMs += 20; m.update(nowMs, true, 1500, req, tracker.known(), tracker.angle(), tracker); dome.step(tracker, nowUs, 20000, m.direction(), m.offsetUs()); }
+            while (!m.arrived() && ticks++ < 4000);
+            CHECK(m.arrived());
+            CHECK(std::fabs(dome.angle - 2.0f) < 6.0f);
         """)
 
 

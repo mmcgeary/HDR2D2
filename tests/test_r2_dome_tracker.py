@@ -24,6 +24,23 @@ class GeometryTest(unittest.TestCase):
         """)
 
 
+class SimDomeTest(unittest.TestCase):
+    def test_slice_ending_exactly_on_a_magnet_still_blips(self):
+        run(r"""
+            // At 8.75 deg/s from -29.90374, a 1 ms slice ends exactly on -30 after float rounding.
+            DomeTracker t; r2sim::SimDome dome(-29.90374f, 0.35f, 15); uint32_t now = 1000;
+            while (dome.angle > -30.5f) dome.step(t, now, 1000, -1, 40);
+            CHECK(dome.blips == 1);
+        """)
+
+    def test_each_magnet_blips_once_per_pass(self):
+        run(r"""
+            DomeTracker t; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t now = 1000;
+            for (int i = 0; i < 2000; i++) dome.step(t, now, 20000, 1, 100);   // 1190 degrees
+            CHECK(dome.blips == 43 || dome.blips == 44);                       // 13 per turn, 3.3 turns
+        """)
+
+
 class SpeedModelTest(unittest.TestCase):
     def test_default_speed_and_inverse(self):
         run(r"""
@@ -98,20 +115,20 @@ class TrackingTest(unittest.TestCase):
             CHECK(!t.dirty());
         """)
 
-    def test_missing_magnet_resyncs_at_front(self):
+    def test_missing_magnet_drops_position_then_refinds_front(self):
         run(r"""
             DomeTracker t; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t now = 1000;
             for (int i = 0; i < 1300; i++) dome.step(t, now, 20000, 1, 100);
             dome.magnetPresent[4] = false;                                   // 90 degrees gone
-            double worst = 0;
-            for (int i = 0; i < 700; i++) { dome.step(t, now, 20000, 1, 100); if (t.known()) { double e = std::fabs(wrapDeg(t.angle() - dome.angle)); if (e > worst) worst = e; } }
+            double worst = 0; bool lost = false;
+            for (int i = 0; i < 2600; i++) {                                 // about 3 turns
+                dome.step(t, now, 20000, 1, 100);
+                if (!t.known()) lost = true;
+                if (t.known()) { double e = std::fabs(wrapDeg(t.angle() - dome.angle)); if (e > worst) worst = e; }
+            }
+            CHECK(lost);                                                     // the miscount is caught at the pair
             CHECK(worst < 62.0);                                             // never worse than one miscount
-            // carry on past the front pair: back in step
-            bool passedFront = false;
-            for (int i = 0; i < 1400 && !passedFront; i++) { float before = dome.angle; dome.step(t, now, 20000, 1, 100); passedFront = before < 10.0f && dome.angle >= 10.0f; }
-            CHECK(passedFront);
-            CHECK(t.known());
-            CHECK(std::fabs(wrapDeg(t.angle() - dome.angle)) < 3.0f);
+            CHECK(t.known());                                                // found again at a later pair
         """)
 
     def test_stalled_dome_becomes_unknown(self):
@@ -121,6 +138,18 @@ class TrackingTest(unittest.TestCase):
             CHECK(t.known());
             dome.dpsPerUs = 0.0f;                                            // jammed
             for (int i = 0; i < 250; i++) dome.step(t, now, 20000, 1, 100);  // 5 s commanded
+            CHECK(!t.known());
+        """)
+
+    def test_stalled_dome_unknown_even_before_learning(self):
+        run(r"""
+            DomeTracker t;
+            t.setCommand(0, 1, 40);                                      // 20 deg/s by default, never learned
+            t.onBlip(1000000); t.onBlip(2500000); t.onBlip(2750000);     // known at 5
+            CHECK(t.known());
+            t.update(2750000 + 7000000);                                 // 140 deg estimated, no magnet
+            CHECK(t.known());
+            t.update(2750000 + 8000000);                                 // 160 deg: beyond 6 x the 25 deg gap ahead
             CHECK(!t.known());
         """)
 
@@ -147,7 +176,83 @@ class TrackingTest(unittest.TestCase):
         """)
 
 
+    def test_reversal_inside_front_pair_keeps_position(self):
+        run(r"""
+            DomeTracker t; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t now = 1000;
+            for (int i = 0; i < 1300; i++) dome.step(t, now, 20000, 1, 100);     // learn, ends near -47
+            while (!(dome.angle > 1.0f && dome.angle < 4.0f)) dome.step(t, now, 20000, 1, 40);  // creep to just past 0
+            for (int i = 0; i < 25; i++) dome.step(t, now, 20000, 0, 0);       // rest inside the pair
+            CHECK(t.known());
+            while (dome.angle > -40.0f) { dome.step(t, now, 20000, -1, 100); CHECK(t.known()); }
+            CHECK(std::fabs(wrapDeg(t.angle() - dome.angle)) < 3.0f);
+        """)
+
+    def test_reversal_just_past_the_pair_keeps_position(self):
+        run(r"""
+            DomeTracker t; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t now = 1000;
+            for (int i = 0; i < 1300; i++) dome.step(t, now, 20000, 1, 100);
+            while (!(dome.angle > 5.2f && dome.angle < 6.0f)) dome.step(t, now, 20000, 1, 40);   // just past the pair
+            CHECK(t.known());
+            while (dome.angle > -40.0f) { dome.step(t, now, 20000, -1, 100); CHECK(t.known()); }
+            CHECK(std::fabs(wrapDeg(t.angle() - dome.angle)) < 3.0f);
+        """)
+
+    def test_estimate_held_short_of_next_magnet(self):
+        run(r"""
+            DomeTracker t;
+            t.setCommand(0, 1, 100);
+            t.onBlip(1000000); t.onBlip(2000000); t.onBlip(2100000);   // known at 5, next magnet 30
+            CHECK(!t.held());
+            t.update(2500000);                                           // 20 deg of 25
+            CHECK(!t.held());
+            t.update(3000000);                                           // 45 deg estimated: held at 29
+            CHECK(t.held());
+            CHECK_NEAR(t.angle(), 29.0, 0.01);
+            CHECK(t.travelDir() == 1);
+            t.onBlip(3100000);                                           // magnet 30 arrives
+            CHECK(!t.held());
+            CHECK_NEAR(t.angle(), 30.0, 0.01);
+        """)
+
+
 class BlipEdgeCaseTest(unittest.TestCase):
+    def test_short_gap_where_no_pair_is_expected_marks_unknown(self):
+        run(r"""
+            DomeTracker t;
+            t.setCommand(0, 1, 40);                                      // 20 deg/s by default
+            t.onBlip(1000000); t.onBlip(2500000); t.onBlip(2750000);     // known at 5
+            t.onBlip(4000000);                                           // 30
+            t.onBlip(5500000);                                           // 60
+            CHECK_NEAR(t.angle(), 60.0, 0.01);
+            t.onBlip(5600000);                                           // short gap, but 90 is next
+            CHECK(!t.known());
+        """)
+
+    def test_at_magnet(self):
+        run(r"""
+            DomeTracker t;
+            t.setCommand(0, 1, 100);
+            CHECK(!t.atMagnet(0, 3));                                    // unknown
+            t.onBlip(1000000); t.onBlip(2000000); t.onBlip(2100000);     // known at 5
+            CHECK(t.atMagnet(5, 3));
+            CHECK(!t.atMagnet(0, 3));
+            t.update(2140000);                                           // 2 deg on
+            CHECK(t.atMagnet(5, 3));
+            t.update(2200000);                                           // 5 deg on
+            CHECK(!t.atMagnet(5, 3));
+            CHECK(isMagnetAngle(0) && isMagnetAngle(5) && isMagnetAngle(-30) && isMagnetAngle(180));
+            CHECK(!isMagnetAngle(25) && !isMagnetAngle(-31));
+        """)
+
+    def test_first_gap_after_front_is_learned(self):
+        run(r"""
+            DomeTracker t;
+            t.setCommand(0, 1, 100);                                     // 50 deg/s by default
+            t.onBlip(1000000); t.onBlip(2000000); t.onBlip(2100000);     // known at 5
+            t.onBlip(3100000);                                           // 30: 25 deg in 1.0 s
+            CHECK_NEAR(t.speedDps(1, 100), 25.0, 0.01);
+        """)
+
     def test_bounce_is_dropped(self):
         run(r"""
             DomeTracker t;

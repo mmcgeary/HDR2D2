@@ -45,6 +45,12 @@ inline uint8_t nearestMagnetIndex(float deg)
     return best;
 }
 
+// True when deg is one of the magnet positions.
+inline bool isMagnetAngle(float deg)
+{
+    return fabsf(wrapDeg(deg - kMagnetDeg[nearestMagnetIndex(deg)])) < 0.01f;
+}
+
 // The magnet after the one at `deg`, travelling in dir (+1 clockwise).
 inline float nextMagnet(float deg, int8_t dir)
 {
@@ -61,13 +67,14 @@ public:
         uint32_t bounceUs;     // blips closer than this to the last one are dropped
         float frontGapRatio;   // travel below this fraction of the previous gap = front pair
         float overdueFactor;   // learned travel beyond this many gaps without a blip = lost
+        float unlearnedOverdueFactor; // the same before the speed is learned
         float defaultDpsPerUs; // speed estimate before anything is learned
         float alpha;           // learning rate
     };
 
     static Config defaults()
     {
-        Config c = {8000, 0.4f, 2.5f, 0.5f, 0.3f};
+        Config c = {8000, 0.4f, 2.5f, 6.0f, 0.5f, 0.3f};
         return c;
     }
 
@@ -112,15 +119,35 @@ public:
             return;
         if (prevTravel > 0.0f && travel < fCfg.frontGapRatio * prevTravel)
         {
+            if (fKnown)
+            {
+                // Known position: a short gap only confirms front where the count
+                // expects the pair. Anywhere else the estimates can't be trusted:
+                // drop the position rather than jump to a wrong one.
+                float expected = nextMagnet(fLastMagnet, fLastDir);
+                bool pairExpected = (fLastDir > 0 && expected == kFrontPairDeg) || (fLastDir < 0 && expected == 0.0f);
+                if (!pairExpected)
+                {
+                    markUnknown();
+                    return;
+                }
+            }
             fKnown = true;
-            fLearnable = false;
+            fLearnable = true; // the front magnet's position is exact
             fLastMagnet = fLastDir > 0 ? kFrontPairDeg : 0.0f;
             return;
         }
         if (!fKnown)
             return;
         float next = nextMagnet(fLastMagnet, fLastDir);
-        bool pairSecond = (fLastDir > 0 && next == kFrontPairDeg) || (fLastDir < 0 && next == 0.0f);
+        bool reversed = fJustReversed;
+        fJustReversed = false;
+        if (reversed)
+            fPrevTravelDeg = 0.0f; // the stretch since the reversal is not a full gap
+        // The pair's second magnet comes after a short gap. With no full gap to
+        // compare (just after a reversal), trust the count.
+        bool comparable = !reversed && prevTravel > 0.0f;
+        bool pairSecond = comparable && ((fLastDir > 0 && next == kFrontPairDeg) || (fLastDir < 0 && next == 0.0f));
         if (pairSecond)
         {
             // The pair's second magnet always follows a short gap: the count is wrong.
@@ -137,7 +164,8 @@ public:
     void update(uint32_t nowUs)
     {
         advance(nowUs);
-        if (fKnown && fDir != 0 && learned(fDir, fOffset) && fTravelDeg > fCfg.overdueFactor * gapAhead())
+        float factor = learned(fDir, fOffset) ? fCfg.overdueFactor : fCfg.unlearnedOverdueFactor;
+        if (fKnown && fDir != 0 && fTravelDeg > factor * gapAhead())
             markUnknown();
     }
 
@@ -153,6 +181,20 @@ public:
             t = 0.0f;
         return wrapDeg(fLastMagnet + float(fLastDir) * t);
     }
+
+    // True when the estimate has run ahead to just short of the next magnet and
+    // is waiting for it: the real dome is somewhere short of that magnet.
+    bool held() const { return fKnown && fLastDir != 0 && fTravelDeg >= gapAhead() - 1.0f; }
+
+    // True when the magnet at deg was the last one passed and the dome has moved
+    // no more than tolDeg beyond it since: the dome is confirmed at that magnet.
+    bool atMagnet(float deg, float tolDeg) const
+    {
+        return fKnown && fabsf(wrapDeg(fLastMagnet - deg)) < 0.01f && fTravelDeg <= tolDeg;
+    }
+
+    // Direction of the last movement: +1 clockwise, -1 anticlockwise, 0 never moved.
+    int8_t travelDir() const { return fLastDir; }
 
     void markUnknown()
     {
@@ -222,6 +264,7 @@ private:
 
     bool fKnown = false;
     bool fLearnable = false;
+    bool fJustReversed = false;
     float fLastMagnet = 0.0f;
     float fTravelDeg = 0.0f;
     float fPrevTravelDeg = 0.0f;
@@ -284,6 +327,7 @@ private:
         fPrevTravelDeg = 0.0f;
         fSteady = false;
         fLearnable = false;
+        fJustReversed = true;
         if (!fKnown)
         {
             fTravelDeg = 0.0f;

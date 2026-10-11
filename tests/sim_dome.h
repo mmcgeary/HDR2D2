@@ -13,9 +13,10 @@ struct SimDome
     float dpsPerUs;       // real degrees per second per microsecond of servo offset above the deadband
     uint16_t deadbandUs;  // offsets at or below this don't move the dome
     bool magnetPresent[r2::kMagnetCount];
+    uint32_t blips;       // blips reported so far
 
     SimDome(float startDeg, float dpsPerUsReal, uint16_t deadband)
-        : angle(startDeg), dpsPerUs(dpsPerUsReal), deadbandUs(deadband)
+        : angle(startDeg), dpsPerUs(dpsPerUsReal), deadbandUs(deadband), blips(0)
     {
         for (uint8_t i = 0; i < r2::kMagnetCount; i++)
             magnetPresent[i] = true;
@@ -38,15 +39,20 @@ struct SimDome
             angle = r2::wrapDeg(angle + float(dir) * v * 0.001f);
             if (dir == 0 || v == 0.0f)
                 continue;
-            float moved = r2::wrapDeg(angle - before);
             for (uint8_t i = 0; i < r2::kMagnetCount; i++)
             {
                 if (!magnetPresent[i])
                     continue;
-                float d = r2::wrapDeg(r2::kMagnetDeg[i] - before);
-                bool crossed = dir > 0 ? (d > 0.0f && d <= moved) : (d < 0.0f && d >= moved);
+                // The slice covers (before, after]: the magnet was ahead before it
+                // and is level with or behind the dome after it.
+                float ahead = r2::wrapDeg(r2::kMagnetDeg[i] - before) * float(dir);
+                float aheadAfter = r2::wrapDeg(r2::kMagnetDeg[i] - angle) * float(dir);
+                bool crossed = ahead > 0.0f && ahead < 10.0f && aheadAfter <= 0.0f;
                 if (crossed)
+                {
+                    blips++;
                     tracker.onBlip(nowUs + s + 1000);
+                }
             }
         }
         nowUs += stepUs;

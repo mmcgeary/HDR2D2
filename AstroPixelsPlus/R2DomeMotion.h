@@ -125,6 +125,7 @@ public:
             fArrived = false;
             fBraking = false;
             fGoDir = 0;
+            fWasHeld = false;
         }
 
         int8_t dir = 0;
@@ -140,10 +141,28 @@ public:
         }
         else if (req.kind == kDomeGoTo && known && !fArrived)
         {
-            remaining = clampDeg(req.targetDeg) - angleDeg;
+            float target = clampDeg(req.targetDeg);
+            remaining = target - angleDeg;
             // Passed: moving under this request, and the target is now behind.
             bool passed = fGoDir != 0 && remaining * float(fGoDir) < 0.0f;
-            if (fabsf(remaining) <= fCfg.arriveDeg || passed)
+            bool nearOrPast = fabsf(remaining) <= fCfg.arriveDeg || passed;
+            // A target on a magnet (front, for every return) is only reached when
+            // that magnet has actually been passed.
+            bool awaitingMagnet = speeds.known() && isMagnetAngle(target) && !speeds.atMagnet(target, fCfg.arriveDeg);
+            if (speeds.held() || (nearOrPast && awaitingMagnet))
+            {
+                // The estimate ran ahead of the real dome: it is short of the next
+                // magnet. Creep on until a magnet confirms where the dome is; the
+                // move then carries on from the true position.
+                dir = speeds.travelDir();
+                fGoDir = 0;
+                fBraking = true;
+                fWasHeld = true;
+                fCruise = req.cruiseDps;
+                fEase = req.easeS;
+                approach = true;
+            }
+            else if (nearOrPast)
             {
                 fArrived = true;
                 fBraking = false;
@@ -151,6 +170,12 @@ public:
             }
             else
             {
+                if (fWasHeld)
+                {
+                    // The magnet confirmed the position: speed up again if there's room.
+                    fWasHeld = false;
+                    fBraking = false;
+                }
                 dir = remaining > 0.0f ? 1 : -1;
                 if (fMoveDir != 0 && dir != fMoveDir)
                 {
@@ -240,6 +265,7 @@ private:
     int8_t fMoveDir = 0;
     int8_t fGoDir = 0;
     bool fBraking = false;
+    bool fWasHeld = false;
 };
 
 } // namespace r2
