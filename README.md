@@ -9,7 +9,7 @@ This repository holds two designs:
 | Branch | Design |
 | --- | --- |
 | `simplified-droid` (this one) | Receiver drives the feet directly; one dome board runs everything else |
-| `mmcgeary-r2-build-plan-review` | Teensy body controller, body/dome link protocol and web commissioning |
+| `dual-board-wifi` | Teensy body controller, body/dome link protocol and web commissioning |
 
 ## How it works
 
