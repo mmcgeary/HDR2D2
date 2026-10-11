@@ -17,13 +17,15 @@ struct SimDome
     float vel;            // real speed, degrees per second, positive clockwise
     bool magnetPresent[r2::kMagnetCount];
     uint32_t blips;       // blips reported so far
-    bool lateBlips;       // hand each blip over on the next step, after the tracker was updated past it
+    bool lateBlips;       // step(): hand each blip over on the next step, after the tracker was updated past it
     uint32_t pending[8];
     uint8_t pendingCount;
+    volatile uint32_t ring[8]; // the Hall interrupt's view, as in R2Remote: the last 8 blip times
+    uint8_t head;              // blips stored so far (wraps)
 
     SimDome(float startDeg, float dpsPerUsReal, uint16_t deadband)
         : angle(startDeg), dpsPerUs(dpsPerUsReal), deadbandUs(deadband), arcDeg(0.0f), lagS(0.0f), vel(0.0f),
-          blips(0), lateBlips(false), pendingCount(0)
+          blips(0), lateBlips(false), pendingCount(0), head(0)
     {
         for (uint8_t i = 0; i < r2::kMagnetCount; i++)
             magnetPresent[i] = true;
@@ -45,8 +47,8 @@ struct SimDome
         return false;
     }
 
-    // Moves the dome for stepUs under one command in 1 ms slices, reporting each
-    // magnet reached to the tracker at the slice it happens in. Ends with update().
+    // Gives the tracker the sensor level and the command, moves the dome for
+    // stepUs and reports each magnet reached, then updates the tracker.
     void step(r2::DomeTracker& tracker, uint32_t& nowUs, uint32_t stepUs, int8_t dir, uint16_t offsetUs)
     {
         for (uint8_t i = 0; i < pendingCount; i++)
@@ -54,6 +56,23 @@ struct SimDome
         pendingCount = 0;
         tracker.setSensor(sensorLow());
         tracker.setCommand(nowUs, dir, offsetUs);
+        uint8_t tail = head;
+        move(nowUs, stepUs, dir, offsetUs);
+        for (; tail != head; tail = uint8_t(tail + 1))
+        {
+            if (lateBlips && pendingCount < 8)
+                pending[pendingCount++] = ring[tail & 7];
+            else
+                tracker.onBlip(ring[tail & 7]);
+        }
+        nowUs += stepUs;
+        tracker.update(nowUs);
+    }
+
+    // Moves the dome for stepUs under one command in 1 ms slices. Each magnet
+    // reached stores its time in the ring, as the Hall interrupt does.
+    void move(uint32_t nowUs, uint32_t stepUs, int8_t dir, uint16_t offsetUs)
+    {
         float target = float(dir) * speed(offsetUs);
         for (uint32_t s = 0; s < stepUs; s += 1000)
         {
@@ -91,14 +110,10 @@ struct SimDome
             if (blip)
             {
                 blips++;
-                if (lateBlips && pendingCount < 8)
-                    pending[pendingCount++] = nowUs + s + 1000;
-                else
-                    tracker.onBlip(nowUs + s + 1000);
+                ring[head & 7] = nowUs + s + 1000;
+                head = uint8_t(head + 1);
             }
         }
-        nowUs += stepUs;
-        tracker.update(nowUs);
     }
 };
 
