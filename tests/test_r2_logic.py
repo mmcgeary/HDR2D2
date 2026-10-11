@@ -117,6 +117,16 @@ class ControlsTest(unittest.TestCase):
             CHECK(!switchNotUp(1000)); CHECK(switchNotUp(1500)); CHECK(switchNotUp(2000));
         """)
 
+    def test_switch_level(self):
+        run(r"""
+            CHECK(switchLevel(1000) == 0);
+            CHECK(switchLevel(1249) == 0);
+            CHECK(switchLevel(1500) == 1);
+            CHECK(switchLevel(1750) == 1);
+            CHECK(switchLevel(1751) == 2);
+            CHECK(switchLevel(2000) == 2);
+        """)
+
     def test_edge_trigger_ignores_switch_down_at_start(self):
         run(r"""
             EdgeTrigger t;

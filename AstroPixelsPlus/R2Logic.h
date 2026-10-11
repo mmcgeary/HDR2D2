@@ -93,6 +93,12 @@ inline bool switchNotUp(uint16_t us)
     return us > 1250;
 }
 
+// Three-position switch: 0 up (about 1000us), 1 middle, 2 down (about 2000us).
+inline uint8_t switchLevel(uint16_t us)
+{
+    return us < 1250 ? 0 : (us > 1750 ? 2 : 1);
+}
+
 // Splits a 1000-2000us dial into equal positions numbered 0..positions-1.
 inline uint8_t dialPosition(uint16_t us, uint8_t positions)
 {
