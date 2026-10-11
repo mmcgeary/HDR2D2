@@ -185,7 +185,8 @@ public:
             case kDisabled:
                 break;
             case kDFMini:
-                fDFMini.play(filenum);
+                // HDR2D2: play /mp3/NNNN.mp3 by name; play() uses copy order on the card.
+                fDFMini.playMp3Folder(filenum);
                 break;
             case kMP3Trigger:
                 // send a 't'nnn number where nnn=file number

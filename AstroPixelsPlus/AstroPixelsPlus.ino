@@ -136,11 +136,13 @@
 ////////////////////////////////
 
 #define MARC_SERIAL2_BAUD_RATE 2400
-#define MARC_SERIAL_PASS true
-#define MARC_SERIAL_ENABLED true
+// HDR2D2: Serial2 carries the receiver's iBUS (R2Remote.h), so nothing is passed through to it.
+#define MARC_SERIAL_PASS false
+#define MARC_SERIAL_ENABLED false
 #define MARC_WIFI_ENABLED true
-#define MARC_WIFI_SERIAL_PASS true
-#define MARC_SOUND_PLAYER MarcSound::kDisabled
+#define MARC_WIFI_SERIAL_PASS false
+// HDR2D2: DFPlayer Mini in the body, always on.
+#define MARC_SOUND_PLAYER MarcSound::kDFMini
 #define MARC_SOUND_SERIAL 0
 #define MARC_SOUND_VOLUME 500 // 0 - 1000
 #define MARC_SOUND_STARTUP 255
@@ -283,30 +285,16 @@ HoloLights topHolo(PIN_TOP_HOLO, HoloLights::kRGB, 3);
 
 ////////////////////////////////
 // These values will be configurable through the WiFi interface and stored in the preferences.
+// HDR2D2: one PCA9685 (0x40) with only the six holoprojector servos on channels 0-5.
+// Range limited to 1000-2000us to protect the MG90S holo mechanisms.
 const ServoSettings servoSettings[] PROGMEM = {
 #ifndef USE_I2C_ADDRESS
-    // First PCA9685 controller
-    {1, 800, 2200, PANEL_GROUP_4 | SMALL_PANEL},  /* 0: door 4 */
-    {2, 800, 2200, PANEL_GROUP_3 | SMALL_PANEL},  /* 1: door 3 */
-    {3, 800, 2200, PANEL_GROUP_2 | SMALL_PANEL},  /* 2: door 2 */
-    {4, 800, 2200, PANEL_GROUP_1 | SMALL_PANEL},  /* 3: door 1 */
-    {5, 800, 2200, PANEL_GROUP_5 | MEDIUM_PANEL}, /* 4: door 5 */
-    {6, 800, 2200, PANEL_GROUP_6 | BIG_PANEL},    /* 5: door 9 */
-    {7, 800, 2200, MINI_PANEL},                   /* 6: mini door 2 */
-    {8, 800, 2200, MINI_PANEL},                   /* 7: mini front psi door */
-    {9, 800, 2200, PANEL_GROUP_10 | PIE_PANEL},   /* 8: pie panel 1 */
-    {10, 800, 2200, PANEL_GROUP_9 | PIE_PANEL},   /* 9: pie panel 2 */
-    {11, 800, 2200, PANEL_GROUP_8 | PIE_PANEL},   /* 10: pie panel 3 */
-    {12, 800, 2200, PANEL_GROUP_7 | PIE_PANEL},   /* 11: pie panel 4 */
-    {13, 800, 2200, TOP_PIE_PANEL},               /* 12: dome top panel */
-
-    // Second PCA9685 controller
-    {16, 800, 2200, HOLO_HSERVO}, /* 13: horizontal front holo */
-    {17, 800, 2200, HOLO_VSERVO}, /* 14: vertical front holo */
-    {18, 800, 2200, HOLO_HSERVO}, /* 15: horizontal top holo */
-    {19, 800, 2200, HOLO_VSERVO}, /* 16: vertical top holo */
-    {20, 800, 2200, HOLO_VSERVO}, /* 17: vertical rear holo */
-    {21, 800, 2200, HOLO_HSERVO}, /* 18: horizontal rear holo */
+    {0, 1000, 2000, HOLO_HSERVO}, /* 0: horizontal front holo */
+    {1, 1000, 2000, HOLO_VSERVO}, /* 1: vertical front holo */
+    {2, 1000, 2000, HOLO_HSERVO}, /* 2: horizontal rear holo */
+    {3, 1000, 2000, HOLO_VSERVO}, /* 3: vertical rear holo */
+    {4, 1000, 2000, HOLO_HSERVO}, /* 4: horizontal top holo */
+    {5, 1000, 2000, HOLO_VSERVO}, /* 5: vertical top holo */
 #endif
 };
 
@@ -463,6 +451,9 @@ bool numberparams(const char *cmd, uint8_t &argcount, int32_t *args, uint8_t max
 #include "MarcduinoPanel.h"
 #include "MarcduinoPSI.h"
 
+// HDR2D2: FlySky remote features (dome, mood sounds, volume, random holos)
+#include "R2Remote.h"
+
 ////////////////////////////////
 
 #ifdef USE_WIFI
@@ -604,13 +595,7 @@ void setup()
 #endif
     PrintReelTwoInfo(Serial, "AstroPixelsPlus");
 
-    if (preferences.getBool(PREFERENCE_MARCSERIAL_ENABLED, MARC_SERIAL_ENABLED))
-    {
-        COMMAND_SERIAL.begin(preferences.getInt(PREFERENCE_MARCSERIAL2, MARC_SERIAL2_BAUD_RATE), SERIAL_8N1, SERIAL2_RX_PIN, SERIAL2_TX_PIN);
-        // if (preferences.getBool(PREFERENCE_MARCSERIAL_PASS, MARC_SERIAL_PASS))
-
-        marcduinoSerial.setStream(&COMMAND_SERIAL, &Serial);
-    }
+    // HDR2D2: no Marcduino serial input; R2Remote opens Serial2 for iBUS.
     if (!mountReadOnlyFileSystem())
     {
         DEBUG_PRINTLN("Failed to mount read only filesystem");
@@ -634,7 +619,8 @@ void setup()
         sDisplay.setRotation(2);
     }
 #endif
-    MarcSound::Module soundPlayer = (MarcSound::Module)preferences.getInt(PREFERENCE_MARCSOUND, MARC_SOUND_PLAYER);
+    // HDR2D2: ignore any sound module saved by earlier firmware.
+    MarcSound::Module soundPlayer = MARC_SOUND_PLAYER;
     int soundStartup = preferences.getInt(PREFERENCE_MARCSOUND_STARTUP, MARC_SOUND_STARTUP);
     if (soundPlayer != MarcSound::kDisabled)
     {
@@ -651,19 +637,7 @@ void setup()
     RLD.selectScrollTextLeft("... AstroPixels ....", LogicEngineRenderer::kBlue, 0, 15);
     FLD.selectScrollTextLeft("... R2D2 ...", LogicEngineRenderer::kRed, 0, 15);
 
-    // Assign servos to holo projectors
-    frontHolo.assignServos(&servoDispatch, 13, 14);
-    // Second PCA9685 controller
-    // { 16, 800, 2200, HOLO_HSERVO },                /* 13: horizontal front holo */
-    // { 17, 800, 2200, HOLO_VSERVO },                /* 14: vertical front holo */
-
-    topHolo.assignServos(&servoDispatch, 15, 16);
-    // { 18, 800, 2200, HOLO_HSERVO },                /* 15: horizontal top holo */
-    // { 19, 800, 2200, HOLO_VSERVO },                /* 16: vertical top holo */
-
-    rearHolo.assignServos(&servoDispatch, 17, 18);
-    // { 20, 800, 2200, HOLO_VSERVO },                /* 17: vertical rear holo */
-    // { 21, 800, 2200, HOLO_HSERVO },                /* 18: horizontal rear holo */
+    // HDR2D2: holo servos are moved by R2Remote, not assigned to the holo lights.
 
 #ifdef USE_WIFI
     if (remoteEnabled)
@@ -865,10 +839,8 @@ void setup()
 #endif
     DEBUG_PRINTLN("Ready");
     sMarcSound.playStartSound();
-    sMarcSound.setRandomMin(preferences.getInt(PREFERENCE_MARCSOUND_RANDOM_MIN, MARC_SOUND_RANDOM_MIN));
-    sMarcSound.setRandomMax(preferences.getInt(PREFERENCE_MARCSOUND_RANDOM_MAX, MARC_SOUND_RANDOM_MAX));
-    if (preferences.getInt(PREFERENCE_MARCSOUND_RANDOM, MARC_SOUND_RANDOM))
-        sMarcSound.startRandomInSeconds(13);
+    // HDR2D2: random chatter comes from R2Remote so it can follow the mood dial.
+    r2Remote.setup();
 }
 
 ////////////////
@@ -1090,6 +1062,7 @@ void mainLoop()
 {
     AnimatedEvent::process();
     sMarcSound.idle();
+    r2Remote.loop();
 #ifdef USE_MENUS
     sDisplay.process();
 #endif
