@@ -152,6 +152,34 @@ class LevelTest(unittest.TestCase):
             CHECK(!r.last.eyesActive);
         """)
 
+    def test_still_leaves_a_stick_turned_dome_alone(self):
+        run(r"""
+            Rig r(lowest, kAlive, kGeneral);
+            r.run(1000);                             // no look yet
+            r.in.stick = true; r.dome.angle = 60;    // the operator turns the dome to someone
+            r.run(500);
+            r.in.stick = false;
+            r.run(4000);
+            r.in.level = kStill; r.log.clear();
+            r.run(5000);
+            CHECK(r.log.empty());
+            CHECK(std::fabs(r.dome.angle - 60) < 0.01f);
+        """)
+
+    def test_aware_leaves_a_stick_turned_dome_alone(self):
+        run(r"""
+            Rig r(lowest, kAlive, kGeneral);
+            r.run(1000);
+            r.in.stick = true; r.dome.angle = -40;
+            r.run(500);
+            r.in.stick = false;
+            r.run(4000);
+            r.in.level = kAware; r.log.clear();
+            r.run(3000);
+            CHECK(!r.has("D0 "));
+            CHECK(std::fabs(r.dome.angle + 40) < 0.01f);
+        """)
+
 
 class InterruptionTest(unittest.TestCase):
     def test_stick_pauses_and_returns(self):

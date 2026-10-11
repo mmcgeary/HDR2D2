@@ -81,8 +81,11 @@ public:
         {
             if (fLevel == kAlive)
             {
+                // A look in progress finishes facing front. A dome the operator
+                // turned stays where it is.
+                bool midLook = hasDomeSteps();
                 clear();
-                if (domeAway(in))
+                if (midLook && domeAway(in))
                     pushReturn(mood);
             }
             if (level == kStill)
