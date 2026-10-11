@@ -153,6 +153,12 @@ class RandomTimer
 public:
     RandomTimer(uint32_t minMs, uint32_t maxMs) : fMin(minMs), fMax(maxMs) {}
 
+    void setRange(uint32_t minMs, uint32_t maxMs)
+    {
+        fMin = minMs;
+        fMax = maxMs > minMs ? maxMs : minMs + 1;
+    }
+
     // True when the timer is due. Restarts the wait each time it fires and
     // whenever it is re-enabled.
     bool update(uint32_t now, bool enabled, RandomFn rnd)

@@ -147,6 +147,19 @@ class ControlsTest(unittest.TestCase):
             CHECK(t.update(250, true, lowest));
         """)
 
+    def test_random_timer_range_from_settings(self):
+        run(r"""
+            RandomTimer t(100, 200);
+            t.setRange(1000, 3000);
+            CHECK(!t.update(0, true, highest));
+            CHECK(!t.update(2998, true, highest));
+            CHECK(t.update(2999, true, highest));
+            t.setRange(500, 400);                 // bad range: max forced above min
+            CHECK(!t.update(3000, false, highest));
+            CHECK(!t.update(3000, true, highest));
+            CHECK(t.update(3500, true, highest));
+        """)
+
     def test_mood_sounds(self):
         run(r"""
             const uint8_t sizes[5] = {19, 18, 7, 4, 3};

@@ -423,6 +423,9 @@ public:
                     return false;
                 }
                 fDFMini.EQ(DFPLAYER_EQ_NORMAL);
+                // HDR2D2: turn ACKs off (begin again without reset). Each command then
+                // costs 10ms instead of blocking up to 500ms for the previous reply.
+                fDFMini.begin(stream, false, false);
                 break;
             case kMP3Trigger:
                 fStream = &stream;

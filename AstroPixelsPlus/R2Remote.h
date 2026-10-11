@@ -30,7 +30,8 @@
 #define R2_CH_RANDOM 9      // SwC: up = quiet; middle or down = random sounds and holos
 
 #define R2_RADIO_TIMEOUT_MS 300
-#define R2_DRIVE_BAND_US 100
+// Below the VESC's 10% deadband, so the wheels never move while this reads "not driving".
+#define R2_DRIVE_BAND_US 40
 #define R2_VOLUME_SAVE_DELAY_MS 3000
 
 static uint32_t r2Random(uint32_t lo, uint32_t hi)
@@ -38,17 +39,37 @@ static uint32_t r2Random(uint32_t lo, uint32_t hi)
     return hi > lo ? lo + esp_random() % (hi - lo) : lo;
 }
 
+// Set when the magnet arrives, so a front pass is seen even if the loop was busy.
+static volatile bool sFrontHallEdge = false;
+
+static void IRAM_ATTR r2FrontHallIsr()
+{
+    sFrontHallEdge = true;
+}
+
 class R2Remote
 {
 public:
+    // Called first in setup(): the level shifter pulls a floating pin high,
+    // which some servos read as a command.
+    static void holdDomeServoLow()
+    {
+        pinMode(R2_DOME_SERVO_PIN, OUTPUT);
+        digitalWrite(R2_DOME_SERVO_PIN, LOW);
+    }
+
     void setup()
     {
         R2_IBUS_SERIAL.begin(115200, SERIAL_8N1, R2_IBUS_RX_PIN, -1);
         pinMode(R2_FRONT_HALL_PIN, INPUT_PULLUP);
+        attachInterrupt(digitalPinToInterrupt(R2_FRONT_HALL_PIN), r2FrontHallIsr, FALLING);
         ledcSetup(R2_DOME_LEDC_CHANNEL, 50, 16);
         ledcAttachPin(R2_DOME_SERVO_PIN, R2_DOME_LEDC_CHANNEL);
         ledcWrite(R2_DOME_LEDC_CHANNEL, 0);
         fSavedVolume = preferences.getInt(PREFERENCE_MARCSOUND_VOLUME, MARC_SOUND_VOLUME);
+        // The stock web page's random-sound interval settings still apply.
+        fChatter.setRange(preferences.getInt(PREFERENCE_MARCSOUND_RANDOM_MIN, MARC_SOUND_RANDOM_MIN),
+                          preferences.getInt(PREFERENCE_MARCSOUND_RANDOM_MAX, MARC_SOUND_RANDOM_MAX));
         centreHolos();
     }
 
@@ -139,7 +160,9 @@ private:
         in.stick = fIbus.channel(R2_CH_DOME);
         in.randomOn = fRandomDome;
         in.driving = fDriving;
-        in.atFront = digitalRead(R2_FRONT_HALL_PIN) == LOW;
+        bool passedFront = sFrontHallEdge;
+        sFrontHallEdge = false;
+        in.atFront = passedFront || digitalRead(R2_FRONT_HALL_PIN) == LOW;
         uint16_t pulse = fDome.update(in);
         if (pulse != fDomePulse)
         {

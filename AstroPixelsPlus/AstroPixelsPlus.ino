@@ -37,8 +37,10 @@
 
 // Replace with your network credentials
 #ifdef USE_WIFI
-#define REMOTE_ENABLED true // default disabled
-#define WIFI_ENABLED true   // default enabled
+// HDR2D2: Wi-Fi (web page, OTA) and the ESP-NOW droid remote are off by default.
+// Turn Wi-Fi on from the serial monitor with #APWIFI1.
+#define REMOTE_ENABLED false
+#define WIFI_ENABLED false
 // Set these to your desired WiFi credentials.
 #define WIFI_AP_NAME "AstroPixels"
 #define WIFI_AP_PASSPHRASE "Astromech"
@@ -584,6 +586,8 @@ void scan_i2c()
 void setup()
 {
     REELTWO_READY();
+    // HDR2D2: hold the dome servo line low while the rest of setup runs.
+    R2Remote::holdDomeServoLow();
 
     if (!preferences.begin("astro", false))
     {
