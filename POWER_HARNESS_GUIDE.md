@@ -1,8 +1,6 @@
 # R2-D2 Power Harness: Assembly and Fuse Schedule
 
-> **Safety Notice:** Do not connect this wiring to the old ESP32-only firmware. Flash both the Teensy 4.1 body controller and the AstroPixels Plus ESP32 with the current firmware before combined testing; nothing counts as bench-verified until the commissioning record is filled in.
-
-This is the approved first-assembly schedule. Use [Body Controller Wiring](BODY_CONTROLLER_WIRING.md) for the exact Teensy terminals and [Commissioning](BODY_CONTROLLER_COMMISSIONING.md) before applying motion. The [interactive inspector](wiring_visualizer.html) supplies terminal-to-terminal wiring.
+This is the power, fuse and wire schedule. Signal connections are in [Signal Wiring](WIRING.md); drive bring-up is in [Drive Setup](DRIVE_SETUP.md).
 
 ## 1. Main supply
 
@@ -31,7 +29,7 @@ Fuses across the power harness are sized as best estimates based on planned draw
 | F3 | Body buck IN+ | 7.5A | 16AWG to buck; ground to negative bus |
 | F4 | Dome buck IN+ through ring CH1 | 7.5A | 16AWG extensions; CH2 ground return |
 | F5 | HF82 amplifier power | 5A | 18AWG |
-| F6 | Empty spare | None | FS-CVT01 unused |
+| F6 | Empty spare | None | No connection |
 
 F1 powers **one shared VESC input pair**; do not add a second supply to a COMM or RECEIVER connector. Do not parallel F1/F2 or ring contacts.
 
@@ -40,9 +38,9 @@ F1 powers **one shared VESC input pair**; do not add a second supply to a COMM o
 | Circuit | Load | Fuse | Feed / return |
 | --- | --- | --- | --- |
 | B-SERVO | Body dome-rotation servo | 5A | 16AWG to servo factory leads |
-| B-LOGIC | Teensy, receiver, DFPlayer, body shifter | 2A | 18AWG fan-out feed;20/22AWG short device leads |
+| B-LOGIC | Receiver, DFPlayer | 2A | 18AWG fan-out feed;20/22AWG short device leads |
 | D-SERVO | PCA9685 V+ / six holo servos | 5A | 16AWG to PCA screw terminals |
-| D-LOGIC | AstroPixels, Hall sensor, dome shifter | 3A | 18AWG motherboard;22AWG short sensor/reference leads |
+| D-LOGIC | AstroPixels, front Hall sensor, dome level shifter HV | 3A | 18AWG motherboard;22AWG short sensor/reference leads |
 
 Use the four owned standard blade inline holders [B0FDJYRGB7](https://www.amazon.ca/dp/B0FDJYRGB7), with 12AWG holder leads. No separate 5V fuse boxes. The indexed included assortment starts at 5A: obtain matching **standard ATO/ATC2A and3A**, not mini-blade fuses. Fit two 5A, one 2A and one 3A; keep matching spares.
 
@@ -64,15 +62,13 @@ Use available isolated positions or insulated multiwire connectors for the small
 ```text
 BODY buck OUT+ -> BODY unfused positive -> B-SERVO 5A -> body dome servo
                                       -> B-LOGIC 2A -> insulated logic fan-out
-                                                       -> Teensy VIN
-                                                       -> receiver5V
+                                                       -> receiver 5V
                                                        -> DFPlayer VCC
-                                                       -> body shifter HV
 
 DOME buck OUT+ -> DOME unfused positive -> D-SERVO 5A -> PCA9685 V+ terminal
                                       -> D-LOGIC3A -> insulated logic fan-out
                                                        -> AstroPixels 5V
-                                                       -> Two Hall sensors 5V / dome shifter HV
+                                                       -> front Hall sensor 5V / dome shifter HV
 ```
 
 The two 5V positive rails never join. Common ground connects throughout via ring CH2. These bucks are non-isolated; their input/output negatives are common.
@@ -89,12 +85,12 @@ Each servo plugs directly into its designated 3-pin channel header (Channels 0â€
 | --- | --- | --- | --- |
 | CH1 | F4 7.5A fused battery positive | Dome buck IN+ | Dome 12V feed |
 | CH2 | Body ground bus | Dome ground / buck IN- | Common return |
-| CH3 | Teensy TX17 | ESP32 GPIO16 | Body to dome serial |
-| CH4 | Unconnected | Unconnected | Spare |
-| CH5 | Unconnected | Unconnected | Spare |
-| CH6 | Teensy RX16 | ESP32 GPIO17 | Dome to body serial |
+| CH3 | Receiver i-BUS signal | Dome shifter ch1 HV | iBUS to ESP32 |
+| CH4 | 1k resistor to DFPlayer RX | ESP32 GPIO19 | Sound commands |
+| CH5 | DFPlayer TX | ESP32 GPIO18 | DFPlayer replies |
+| CH6 | Dome servo signal | Dome shifter ch2 HV | Dome servo pulses |
 
-Identify contacts by continuity, not colours. UART uses3.3V115200-baud8N1. No shifter or5V is attached to either signal contact. CH4/5 are insulated at **both** ends. Keep ring signal wiring separate from high-current motor cables.
+Identify contacts by continuity, not colours. All four signal contacts are in use; details are in [Signal Wiring](WIRING.md). Keep ring signal wiring separate from high-current motor cables.
 
 ## 4. Wire quantities and assembly
 
@@ -108,7 +104,7 @@ Measure actual paths before cutting; these are shopping allowances, not required
 | 18AWG | 3m red,3m black | Amp supply, AstroPixels and electronics fan-outs |
 | 20AWG | 2m red,2m black | DFPlayer power and speaker |
 | 22AWG five-core | 5m | Two approximately2m Hall extensions |
-| 22AWG singles | Measured short runs | UART, receiver supply, shifters, Hall and I2C |
+| 22AWG singles | Measured short runs | Serial and servo signals, receiver supply, shifter, Hall and I2C |
 
 Use stranded copper, not CCA. Secure battery, converters, fuse block and carriers before wiring. Protect shell holes with grommets; leave service loops at leg/shoulder joints. Keep phase wiring away from signal wiring and antennas. Crimp with the correctly sized tool, pull-test each crimp and insulate joints with heatshrink. Use ferrules at screw terminals; do not solder-tin those ends.
 
@@ -126,19 +122,19 @@ Amp L+ / L-   -> speaker + / -
 
 Use the [BESIGN B06XQYN77L](https://www.amazon.ca/dp/B06XQYN77L) line isolator. Do not add an external sleeve jumper around it. TRS ring/right channel is unused for this mono connection.
 
-Neither amplifier speaker output connects to ground; it is a bridge output. DFPlayer SPK1/SPK2 never go into an amplifier line input. Default digital volume 10/30 and Wi-Fi volume control replace a separate potentiometer.
+Neither amplifier speaker output connects to ground; it is a bridge output. DFPlayer SPK1/SPK2 never go into an amplifier line input. The transmitter's VrB dial sets the DFPlayer's digital volume (0-30); there is no potentiometer.
 
-The1k ohm resistor in Teensy TX14 -> DFPlayer RX is a serial command-line resistor, not a3.3V/5V converter.
+The 1k ohm resistor in the DFPlayer RX line (from slip ring CH4) is a serial command-line resistor, not a 3.3V/5V converter.
 
 ## 6. Power-up sequence
 
-Follow the detailed [commissioning procedure](BODY_CONTROLLER_COMMISSIONING.md).
+1. Test continuity with all sources disconnected.
+2. Energize the main bus with loads disconnected, then F3/F4 with all four 5V output fuses removed. Measure each buck output: 4.9-5.1V. Turn off before adding loads.
+3. Fit B-LOGIC 2A and D-LOGIC 3A. Check the receiver, DFPlayer and AstroPixels power up. Do not plug computer USB into the mounted ESP32.
+4. Fit D-SERVO 5A and check the holo servos, then B-SERVO 5A and check the dome servo.
+5. Fit F1 only for the wheels-up tests in [Drive Setup](DRIVE_SETUP.md). Do the transmitter-off and pulled-lead tests before any floor driving.
 
-First test continuity with all sources disconnected. Energize the main bus with loads disconnected, then F3/F4 with all four5V output fuses removed. Measure each buck output 4.9-5.1V. Turn off before adding loads.
-
-Power electronics via B-LOGIC 2A/D-LOGIC3A before servos; do not plug computer USB into mounted ESP32. Teensy needs the approved VUSB/VIN cut and carrier isolation check before ordinary USB is used with external 5V.
-
-Only after compatible firmware and individual subsystem checks: fit B-SERVO 5A/D-SERVO 5A, then F1 for unloaded VESC tests. Test transmitter-off, each lost UART and physical stop behaviour before floor driving. A capacitor is optional troubleshooting for observed supply transients, not a required purchase.
+A capacitor is optional troubleshooting for observed supply transients, not a required purchase.
 
 ## 7. Charging
 

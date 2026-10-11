@@ -125,7 +125,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Flipsky Dual FSESC4.20 100A</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Two direct Teensy UARTs: leftTX1/RX0, rightTX8/RX7,115200. CAN switchOFF, forwarding disabled. One shared F1 15A supply; configure each USB separately,150ms timeout and tested braking.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Each half is a separate VESC joined only by CAN. Solder a second receiver lead (signal + GND only) to the matching pads on the second half. CAN switch OFF. Each half: PPM app, timeout brake, safe start. Receiver CH1/CH2 (Elevon mix). See DRIVE_SETUP.md. One shared F1 15A supply.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">5</Data></Cell>
@@ -161,16 +161,16 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">TIANKONGRC TD-8135MG-360 (35kg 360°)</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body B-SERVO5A fused5V,16AWG trunk; Teensy pin2 via body shifterLV3/HV3. Calibrate neutral unloaded; pulse-sleep disabled until installed signal-loss test passes.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body B-SERVO 5A fused 5V, 16AWG trunk. Signal from ESP32 GPIO4 via dome shifter ch2 and slip ring CH6. Trim neutral with transmitter CH4 subtrim.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">9</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Drive Subsystem</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome Homing Sensors</Data></Cell>
-    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired (1 used)</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">2</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">KY-003 / 3144E Hall Effect Sensors</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome D-LOGIC fused5V; Front 0° on HV2/LV2 to GPIO19, Rear 180° on HV3/LV3 to GPIO18. ESP32 publishes Hall state to Teensy for homing.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Front sensor only: dome D-LOGIC 5V, output via dome shifter ch3 to ESP32 GPIO5 (AUX3). Homes random dome moves. Rear sensor not used.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">10</Data></Cell>
@@ -197,7 +197,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">AstroPixels ESP32 30-Pin Module</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome controller: lights, PCA9685, Hall, choreography, Wi-Fi/OTA. D-LOGIC3A supply. Body link RX16/TX17; target firmware migration complete.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Stock AstroPixelsPlus + R2Remote (AstroPixelsPlus/ in repo): lights, holo servos, mood sounds/volume via DFPlayer, dome servo, reads receiver iBUS on GPIO16. D-LOGIC 3A supply.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">13</Data></Cell>
@@ -278,7 +278,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Senring H3086 (30mm ID, 6-Channel 10A)</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">17AWG leads,10A/contact. CH1=F4 7.5A battery to dome buck; CH2=GND; CH3=TeensyTX17 to ESP32RX16; CH6=ESP32TX17 to TeensyRX16; CH4/5 insulated spares. Extend power16AWG; no paralleling.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">17AWG leads, 10A/contact. CH1=F4 7.5A to dome buck; CH2=GND; CH3=receiver iBUS to dome shifter; CH4=ESP32 GPIO19 to DFPlayer RX (1k); CH5=DFPlayer TX to ESP32 GPIO18; CH6=dome servo signal. See WIRING.md.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">22</Data></Cell>
@@ -287,7 +287,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">DFPlayer Mini MP3 Player Board</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body B-LOGIC2A fused5V,20AWG. Bidirectional3.3V9600: TeensyTX14 through1k resistor to RX; TX to TeensyRX15. No ring audio line or BUSY wire.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body B-LOGIC 2A fused 5V. RX from ESP32 GPIO19 via 1k resistor (ring CH4); TX to ESP32 GPIO18 (ring CH5). SD card: /mp3/0001.mp3 ... (see AstroPixelsPlus/HDR2D2.md).</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">23</Data></Cell>
@@ -305,7 +305,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">1kΩ 1/4W Resistor</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">TeensyTX14 to DFPlayerRX command line only,3.3V UART. Not a voltage converter. DFPlayerTX directly to TeensyRX15.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">In the DFPlayer RX line from slip ring CH4 (ESP32 GPIO19). Not a voltage converter.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">25</Data></Cell>
@@ -314,7 +314,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">HF82 / TPA3110 stereo amp, Amazon.ca B09F2XR9MN; listed8-26V DC,4-10ohm,2x15W; solder-pad connections</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Replaces PAM8610. F5 5A battery branch,18AWG supply/return; verify actual pad labels, strain-relieve soldered pigtails. DFPlayer DAC through BESIGN isolator to line input. Speaker negatives are not ground. WiFi volume, default10/30 unless saved setting exists.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">F5 5A battery branch, 18AWG. DFPlayer DAC through BESIGN isolator to line input. Speaker negatives are not ground. Volume set by transmitter dial VrB (DFPlayer 0-30).</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">26</Data></Cell>
@@ -341,7 +341,7 @@
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Unused / Not required</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">10kΩ Logarithmic Stereo Potentiometer</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Wi-Fi volume control; default10/30 unless saved. No separate physical pot.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Not needed: volume is the transmitter VrB dial.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">29</Data></Cell>
@@ -401,10 +401,10 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">35</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Power &amp; Safety</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Battery Voltage Telemetry Sensor</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Unused</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Optional</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">FS-CVT01 sensor; user-selected Amazon.ca B0DQXT337L; no standalone display</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Not needed: Teensy replies to receiver SENSOR polls with fresh VESC pack voltage/temperature. F6 empty; no sense cable. Voltage is not charge percentage.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Optional: plugs into receiver SENS port to show pack voltage on the FS-i6X screen. No code involved.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">36</Data></Cell>
@@ -413,7 +413,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">FlySky FS-i6X 10-Channel 2.4GHz AFHDS 2A</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">No transmitter tank mix; Teensy mixes. CH1steer/2throttle/3unused/4dome/5SwB rates/6SwA enable/7VrA/8SwC trigger/9SwD auto dome;10unused. Verify failsafe CH6OFF and centered sticks.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Right stick drive via Elevon mix on CH1/CH2. CH4 dome, CH5 VrA mood, CH6 VrB volume, CH7 SwA random dome, CH8 SwB play sound, CH9 SwC random sounds/holos, CH10 spare. Failsafe: CH1/2/4 centre, SwA up. See CONTROLLER_GUIDE.md.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">37</Data></Cell>
@@ -422,7 +422,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">FlySky FS-iA6B 6/10-Ch iBus Receiver</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body B-LOGIC5V. SERVO via body Lonely Binary HV1/LV1 to TeensyRX21; SENSOR single-wire HV2/LV2 to pin24,115200. No PPM or ring receiver line. TX20/RX25 unused.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body B-LOGIC 5V. Output mode PWM + i-BUS. CH1/CH2 PWM to the two VESC receiver leads (signal+GND). i-BUS SERVO port to slip ring CH3. SENS optional FS-CVT01.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">38</Data></Cell>
@@ -440,7 +440,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">6 pcs</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Matching COMM TX/RX/GND pigtails, receiver connectors and labelled detachable UART harnesses</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">No VESC PPM cables or supply pins. Keep PCA servo factory plugs, no unnecessary thin extensions. Short22AWG signal leads, strain relief and correct terminal ferrules.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">VESC receiver leads: signal + GND only, 5V pin removed. Keep PCA servo factory plugs. Short 22AWG signal leads with strain relief.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">40</Data></Cell>
@@ -458,7 +458,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 set</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Data Micro-USB for Teensy4.1/VESC; data cable matching actual ESP32 socket</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Teensy VUSB/VIN cut once and carrier isolation checked before externalVIN plus USB. After cut externalVIN required. ESP32 flashed bare, removed from AstroPixels.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Micro-USB for VESC Tool; data cable for ESP32. ESP32 flashed removed from the AstroPixels board.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">42</Data></Cell>
@@ -467,7 +467,7 @@
     <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered / Acquired</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Second matching B09T954ZV1-equivalent 10-35V input / fixed 5V 10A converter</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">F3 7.5A input; B-SERVO5A and B-LOGIC2A output branches. Powers Teensy,receiver,DFPlayer,body shifter and dome servo. Body/dome5V positives separate.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">F3 7.5A input; B-SERVO 5A and B-LOGIC 2A output branches. Powers receiver, DFPlayer and dome servo. Body/dome 5V positives separate.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">43</Data></Cell>
@@ -518,28 +518,28 @@
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">48</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Body Controller</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Teensy 4.1</Data></Cell>
-    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Not used</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">PJRC Teensy4.1,3.3V I/O; matching male headers if not preinstalled</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">14 terminals per BODY_CONTROLLER_WIRING.md; B-LOGIC2A VIN5V. Cut designated underside VUSB/VIN bridge once; verify isolation before ordinaryUSB plus externalVIN.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Not used in the simplified droid (drive and dome come from the receiver and ESP32).</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">49</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Body Controller</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Treedix Teensy Carrier</Data></Cell>
-    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Ordered</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Not used</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Socketed screw-terminal carrier, Amazon.ca B09NXYWYK7</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">No perfboard/female sockets needed. Check terminal labels by continuity and no VIN/VUSB re-bridge. Standoffs, short22AWG logic harnesses; servo power bypasses carrier.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Not used in the simplified droid.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">50</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Body / Dome I/O</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Lonely Binary Logic-Level Converter Kit</Data></Cell>
-    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Selected / Acquired</Data></Cell>
+    <Cell ss:StyleID="Ordered"><Data ss:Type="String">Selected / Acquired (1 board used)</Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">1 kit; use2 four-channel boards</Data></Cell>
     <Cell ss:StyleID="CellText"><Data ss:Type="String">Amazon.ca B0FFMLDYNY,27-piece MOSFET kit,10k pull-ups</Data></Cell>
-    <Cell ss:StyleID="CellText"><Data ss:Type="String">Body ch1iBUSinput,ch2single-wiretelemetry,ch3servo; dome ch2 Front Hall, ch3 Rear Hall. LV externally supplied3.3V,HV respective fused5V,common ground. A/B labels alias LV/HV. Short leads; functional115200 checks without scope.</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">Dome board only: ch1 iBUS in (ring CH3 -&gt; GPIO16), ch2 dome servo out (GPIO4 -&gt; ring CH6), ch3 front Hall (-&gt; GPIO5), ch4 spare. LV = ESP32 3.3V, HV = dome D-LOGIC 5V.</Data></Cell>
    </Row>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String">51</Data></Cell>

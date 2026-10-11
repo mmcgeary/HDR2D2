@@ -1,105 +1,83 @@
-# Home Depot R2-D2 Conversion
+# Home Depot R2-D2 Conversion: Simplified Droid
 
-An in-progress build to turn the 2024 Home Depot R2-D2 animatronic into a fully remote-controlled droid with upgraded lights, sound, dome movement, and powered feet.
+An in-progress build that turns the 2024 Home Depot R2-D2 animatronic into a remote-controlled droid with AstroPixels lights, sound, a turning dome and powered feet.
 
-The build keeps the stock exterior shell while adding:
-* **AstroPixels lighting:** Logic displays (FLD/RLD), process state indicators (PSIs), and 3 illuminated holoprojectors.
-* **Split controllers:** Teensy 4.1/Treedix in the body for radio, feet, dome rotation and audio; AstroPixels ESP32 in the dome for lighting, six holo servos, Hall input, Wi-Fi and choreography.
-* **Onboard sound:** DFPlayer Mini, 12V Class-D amplifier, and speaker firing through the front acoustic vents for chatter and movie sounds.
-* **Dual-motor foot drive:** Razor Tekno Pop hub motors in the feet powered by a Flipsky Dual FSESC 4.20 motor controller.
-* **FlySky radio control & Wi-Fi:** 10-channel RC control, plus an onboard Wi-Fi dashboard for triggering routines, adjusting volume, and flashing firmware updates.
-* **Clean power harness:** 12V LiFePO4 battery, master cutoff switch, fused branch circuits, and dedicated 5V power converters for the body and dome.
+The design keeps the number of boards and links to a minimum:
 
----
+- **Feet:** driven straight from the FlySky receiver into the VESC motor controllers. No board in between.
+- **Dome, sound, holos and lights:** one AstroPixels ESP32 running stock AstroPixelsPlus plus one small add-on. It reads the receiver's iBUS line to turn the dome, pick mood sounds and set the volume.
+- **Failures stay separate:** if the dome board fails, the droid still drives.
 
-## Quick Reference
+```mermaid
+flowchart LR
+    TX["FS-i6X transmitter"] -. radio .-> RX["FS-iA6B receiver (body)"]
+    RX -->|"CH1 / CH2"| VESC["Dual FSESC4.20<br/>two independent halves"]
+    VESC --> FEET["Hub motors"]
+    RX -->|"iBUS via slip ring"| ESP["AstroPixels ESP32 (dome)"]
+    ESP -->|"servo signal via slip ring"| DOME["Dome servo (body)"]
+    ESP <-->|"serial via slip ring"| DF["DFPlayer → amp → speaker (body)"]
+    ESP --> HOLO["Holo servos, logics, PSIs, holo LEDs"]
+    HALL["Front Hall sensor"] --> ESP
+```
 
-**Approved split controller architecture:** Teensy 4.1 in the body handles radio decoding, dual VESC UART control, continuous dome servo, and DFPlayer audio. AstroPixels Plus ESP32 in the dome manages lighting (ReelTwo), holo servos, Hall reference sensors, Wi-Fi dashboard, and wireless `/commissioning` Web UI.
+## Features
 
-| Guide | Description |
-| :--- | :--- |
-| [System Architecture](SYSTEM_ARCHITECTURE.md) | High-level system overview, subsystem descriptions, and block diagrams |
-| [Body Controller Wiring](BODY_CONTROLLER_WIRING.md) | Authoritative Teensy/Treedix terminal map, receiver, selected shifters and UART harnesses |
-| [Commissioning](BODY_CONTROLLER_COMMISSIONING.md) | Wireless `/commissioning` UI workflow, USB isolation, and subsystem/failure checks |
-| [Power Harness Guide](POWER_HARNESS_GUIDE.md) | Wire gauges, fuse sizes, crimping standards, and step-by-step electrical testing |
-| [Interactive Wiring Diagram](wiring_visualizer.html) | Searchable terminal-to-terminal wiring schematic (open locally in your browser) |
-| [System Wiring Overview](DOME_WIRING_DIAGRAM.md) | Logical circuit diagrams, slip-ring assignments, and logic-level shifter pinouts |
-| [AstroPixels Plus Firmware Guide](ASTROPIXELS_PLUS_UNIFIED/README.md) | Dome firmware setup, target pin map, sound files, Web UI, and safety controls |
-| [Teensy Body Controller Guide](TEENSY_BODY_CONTROLLER/README.md) | Teensy firmware architecture, scheduler, CLI commands, and test suites |
-| [VESC Drive Setup](VESC_DRIVE_INTEGRATION.md) | Motor detection, current limits, radio mixing, and safety failsafes for the feet |
-| [Controller Operator Guide](CONTROLLER_OPERATOR_GUIDE.md) | Switch/stick layout, dial routines, and safe power-on checklist for the FlySky transmitter |
-| [Bill of Materials](Master_R2D2_BOM.xls) | Complete parts list, hardware links, and purchase notes (Excel-compatible) |
+| Feature | How |
+| --- | --- |
+| Driving | Right stick. Transmitter Elevon mix → each VESC half's receiver input. |
+| Dome | Left stick, plus optional random moves that always return to front (front Hall sensor) |
+| Mood sounds | VrA dial picks the mood; SwB plays one; random chatter follows the mood |
+| Volume | VrB dial |
+| Random holo movement | On with SwC; off with SwC up |
+| Lights | Stock AstroPixels effects |
 
-Use the body guide for pins and the power guide for fuses. `ESP32_DOME_BRAIN_GUIDE.md` and standalone sketches are historical references, not alternative instructions for the selected hardware.
+## Guides
 
----
+| Guide | Contents |
+| --- | --- |
+| [Controller Guide](CONTROLLER_GUIDE.md) | What each stick, switch and dial does; transmitter setup; failsafe; power-on checklist |
+| [Drive Setup](DRIVE_SETUP.md) | Proving the VESC receiver input, the second-half solder mod, VESC Tool settings, safety tests |
+| [Signal Wiring](WIRING.md) | Receiver, VESC leads, slip ring, dome level shifter, Hall sensor, PCA9685, DFPlayer |
+| [Power Harness](POWER_HARNESS_GUIDE.md) | Battery, fuses, 5V supplies, wire gauges, audio path, charging |
+| [Dome Firmware](AstroPixelsPlus/HDR2D2.md) | Build and flash, SD card layout, serial log, adjusting behaviour |
+| [Bill of Materials](Master_R2D2_BOM.xls) | Parts list (Excel-compatible), with unused parts marked |
 
-## Repository Contents
+## Bring-up order
 
-### Primary Firmware
-* [`TEENSY_BODY_CONTROLLER/`](TEENSY_BODY_CONTROLLER/): PlatformIO firmware for the Teensy 4.1 body controller. Manages radio input, dual-motor VESC control, dome servo positioning, DFPlayer audio, and commissioning calibration state machine.
-* [`ASTROPIXELS_PLUS_UNIFIED/`](ASTROPIXELS_PLUS_UNIFIED/): PlatformIO ESP32 firmware built on AstroPixels Plus/ReelTwo. Manages dome lighting, holo servos, Hall reference inputs, Wi-Fi dashboard, `/diagnostics` telemetry, and wireless `/commissioning` Web UI.
-* [`shared/R2BodyLink/`](shared/R2BodyLink/): Shared wire protocol codec and packet framing for the bi-directional SLIP link between body and dome.
-* [Firmware implementation plan](docs/superpowers/plans/2026-10-09-teensy-firmware.md): Comprehensive 12-task architecture and verification plan.
+Each step works on its own before the next is added.
 
-### Operation & Radio Control
-* [`CONTROLLER_OPERATOR_GUIDE.md`](CONTROLLER_OPERATOR_GUIDE.md): Illustrated FlySky FS-i6X transmitter layout, detailed control breakdown, 13-routine dial schedule, and power-on safety checklist.
+1. **Power:** continuity checks, bucks, fuses ([Power Harness](POWER_HARNESS_GUIDE.md) §6).
+2. **Drive:** prove each VESC half reads the receiver, configure VESC Tool, Elevon mix, failsafe, wheels-up safety tests ([Drive Setup](DRIVE_SETUP.md)).
+3. **Dome lights:** flash the dome firmware and check lights and holo servos on the bench ([Dome Firmware](AstroPixelsPlus/HDR2D2.md)).
+4. **Sound:** SD card, DFPlayer wiring through the slip ring, volume dial.
+5. **Dome:** iBUS and dome servo through the slip ring, CH4 subtrim, front Hall sensor, random dome.
 
-### Wiring & Power
-* [`POWER_HARNESS_GUIDE.md`](POWER_HARNESS_GUIDE.md) and [`DOME_WIRING_DIAGRAM.md`](DOME_WIRING_DIAGRAM.md) detail the entire electrical layout, wire sizes, fusing, and testing steps.
-* [`wiring_visualizer.html`](wiring_visualizer.html) is an interactive offline wiring inspector with a printable wire schedule.
+## Repository contents
 
-### Mechanical Files & Models
-* [`index.html`](index.html), `app.js`, and `styles.css`: Mechanical visualizer for exploring foot-drive clearance and design concepts.
-* [`Razor_Hub_Motor_Slotted_Mount.stl`](Razor_Hub_Motor_Slotted_Mount.stl) & [`generate_slotted_mount_stl.py`](generate_slotted_mount_stl.py): 3D-printable slotted motor mount and generator script.
-* [`mechanical/tekno-pop-motor-mounts-wip/`](mechanical/tekno-pop-motor-mounts-wip/): Work-in-progress 3D models for mounting Razor Tekno Pop scooter hub motors into the droid feet:
-  - [`r2d2_clean_motor_mount.stl`](mechanical/tekno-pop-motor-mounts-wip/r2d2_clean_motor_mount.stl)
-  - [`r2d2_inboard_axle_keeper_plate.stl`](mechanical/tekno-pop-motor-mounts-wip/r2d2_inboard_axle_keeper_plate.stl)
-  - [`case_bottom_locators_only.stl`](mechanical/tekno-pop-motor-mounts-wip/case_bottom_locators_only.stl)
-  Check dimensions, fit, and print orientation before final assembly.
+* [`AstroPixelsPlus/`](AstroPixelsPlus/): dome firmware. Stock AstroPixelsPlus plus `R2Logic.h` / `R2Remote.h`.
+* [`tests/`](tests/): PC tests for the dome firmware's logic (`python3 -m unittest discover tests`).
+* [`docs/astropixels/`](docs/astropixels/): AstroPixels reference documentation.
+* Mechanical:
+  * [`index.html`](index.html), `app.js` and `styles.css`: foot-drive clearance visualizer.
+  * [`Razor_Hub_Motor_Slotted_Mount.stl`](Razor_Hub_Motor_Slotted_Mount.stl) and [`generate_slotted_mount_stl.py`](generate_slotted_mount_stl.py): printable motor mount and its generator.
+  * [`mechanical/tekno-pop-motor-mounts-wip/`](mechanical/tekno-pop-motor-mounts-wip/): work-in-progress hub motor mounts. Check fit before final assembly.
 
-### Alternative & Reference Code
-* `ASTROPIXELS_UNIFIED_BRAIN.ino` and `ESP32_DOME_BRAIN_GUIDE.md`: Earlier FastLED-based alternative firmware. Kept for reference; do not mix with the PlatformIO build.
-* `Dome_Control_with-Audio-Nano2-Body.ino`: Earlier Arduino Nano reference sketch for sound coordination.
-* [`tests/`](tests/): Host-side Python unit tests that verify firmware timing contracts, macro behavior, and wiring diagram routes.
+The earlier Teensy-based design (body controller, body/dome link and commissioning pages) is kept in the history of the `mmcgeary-r2-build-plan-review` branch.
 
----
+## Build safety
 
-## Build Safety & Testing Steps
+1. **Inspect wiring unpowered.** Check crimps, gauges and terminals for shorts before connecting power.
+2. **Keep the 5V rails separate.** Body and dome each have their own 5V buck; never join their outputs. Grounds are common.
+3. **Flash the ESP32 out of its board.** Refit it only with all power off.
+4. **Wheels in the air** for all drive setup and failsafe tests.
+5. **Failsafe first.** Set the receiver failsafe and test transmitter-off and a pulled receiver lead before any floor driving.
+6. **Master cutoff within reach.** Keep the 25A main fuse within 150mm of the battery.
 
-To avoid damaging electronics or running into wiring issues, test your build in stages:
+## Credits
 
-1. **Inspect wiring unpowered:** Check crimps, wire gauges, and screw terminals with a multimeter for shorts before connecting any power.
-2. **Verify power rails:** Power the 12V bus through the main fuse and verify voltage at each buck converter input. Check that both buck converters output a clean 5.0V before connecting any boards.
-3. **Keep 5V rails separate:** The body and dome each use an independent 5V buck converter. **Never connect their +5V outputs together.** Common ground connects everywhere.
-4. **Flash the ESP32 unmounted:** Remove the ESP32 module from the AstroPixels dome motherboard before plugging into your computer via USB. Reinstall it only with all power turned off.
-5. **Elevate wheels during motor tests:** When configuring the Dual VESC or testing radio transmitter mixes, always elevate the droid so the wheels can spin freely in the air.
-6. **Set up radio failsafes:** Test transmitter-off and unplugged receiver separately; CH6 must go OFF. Record actual stopping distance and each VESC's timeout brake action.
-7. **Accessible master cutoff:** Keep the 25A main battery fuse close to the battery (<=150mm), and mount the master power switch where you can hit it instantly from the outside.
+* **[AstroPixels Plus](https://github.com/reeltwo/AstroPixelsPlus)** by the ReelTwo team is the dome firmware's base (LGPL-2.1).
+* **[AstroPixels](https://github.com/dpoulson/Astropixels)** by David Poulson: display boards and original firmware. [Documentation](https://r2djp.gitbook.io/astropixels).
+* **[ReelTwo](https://reeltwo.github.io/Reeltwo/html/index.html)**: the robotics, lighting and animation framework.
+* **[The Real Home Depot R2D2 Mods Group](https://www.facebook.com/groups/969844001468804)**: 3D-printable parts and conversion ideas.
 
----
-
-## Upstream Software & Community Credits
-
-* **[AstroPixels Plus](https://github.com/reeltwo/AstroPixelsPlus)** (maintained by the ReelTwo team) is the foundation for `ASTROPIXELS_PLUS_UNIFIED/`. It provides the Wi-Fi dashboard, settings storage, lighting animations, and web interface. Licensed under LGPL-2.1.
-* **[AstroPixels](https://github.com/dpoulson/Astropixels)** (by David Poulson) provides the original AstroPixels display board designs and core firmware. [Official Documentation](https://r2djp.gitbook.io/astropixels).
-* **[ReelTwo](https://reeltwo.github.io/Reeltwo/html/index.html)** provides the underlying robotics, lighting, and animation framework used across the astromech builder community.
-* **[The Real Home Depot R2D2 Mods Group](https://www.facebook.com/groups/969844001468804)** is the community hub for 3D-printable parts, reinforcement ideas, and conversion guides.
-
-This is an independent hobbyist build, not affiliated with or endorsed by Home Depot, Lucasfilm, or Disney.
-
----
-
-## Upstream Comparison: Why AstroPixels Plus?
-
-We reviewed the standard AstroPixels firmware (`src/standard/main.cpp`) alongside AstroPixels Plus to decide which base to use for this project:
-
-| Feature | Standard AstroPixels | AstroPixels Plus (Selected) | Notes for this Build |
-| :--- | :--- | :--- | :--- |
-| **User Interface** | Serial / I2C commands only | Built-in Wi-Fi dashboard & web GUI | Plus gives us an easy phone/browser dashboard to trigger sounds, test macros, and adjust settings. |
-| **Remote Control** | Serial2 (9600 baud) or I2C slave | Body client on Serial2 (115200 baud) | Reserved GPIO16/17 for the bidirectional body link; radio/drive/audio handled by Teensy. |
-| **Firmware Updates** | USB cable required | Wireless ArduinoOTA & web uploads | Gated by body maintenance-lock acknowledgement before either OTA path writes flash. |
-| **Lighting Effects** | ReelTwo display classes & sequences | ReelTwo display classes & sequences | Both firmware families use the same high-quality ReelTwo lighting engines. |
-| **Library Versions** | Unpinned dependencies | Pinned PlatformIO environment (`esp32@5.2.0`, `ReelTwo@23.5.3`) | Pinned dependencies ensure consistent, reliable builds without unexpected breakage from newer library versions. |
-
-AstroPixels Plus gives us the web dashboard, OTA updating, and flexible serial setup we need without losing any lighting features.
+This is an independent hobbyist build, not affiliated with or endorsed by Home Depot, Lucasfilm or Disney.
