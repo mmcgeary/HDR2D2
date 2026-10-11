@@ -68,7 +68,7 @@ class FirmwarePinsTest(unittest.TestCase):
         pins = {
             "iBUS": re.search(r"#define R2_IBUS_RX_PIN (\d+)", remote).group(1),
             "DOME SERVO": aux[re.search(r"#define R2_DOME_SERVO_PIN (PIN_AUX\d)", remote).group(1)],
-            "HALL": aux[re.search(r"#define R2_FRONT_HALL_PIN (PIN_AUX\d)", remote).group(1)],
+            "HALL": aux[re.search(r"#define R2_DOME_HALL_PIN (PIN_AUX\d)", remote).group(1)],
             "DF TX": aux[re.search(r"#define SOUND_RX_PIN (PIN_AUX\d)", ino).group(1)],
             "DF RX": aux[re.search(r"#define SOUND_TX_PIN (PIN_AUX\d)", ino).group(1)],
         }
