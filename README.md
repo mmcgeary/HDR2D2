@@ -51,6 +51,7 @@ flowchart LR
 | [Bring-Up Checklist](BRING_UP.md) | First assembly, stage by stage, with checkboxes |
 | [Power](POWER.md) | Battery, fuses, 5V supplies, wire sizes, audio power, charging |
 | [Wiring](WIRING.md) | Every signal connection: receiver, VESC leads, slip ring, level shifter, sensor, PCA9685, DFPlayer |
+| [Wiring Reference](wiring_reference.html) | Interactive diagram of every wire, power and signal, with a printable wire schedule. Open it in a browser. |
 | [Bill of Materials](Master_R2D2_BOM.xls) | Parts list; unused parts marked |
 
 ### Setup
