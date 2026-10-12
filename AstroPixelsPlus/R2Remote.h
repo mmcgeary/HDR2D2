@@ -94,6 +94,11 @@ public:
             readControls(now);
         uint8_t mood = fMoods.update(fDialMood, now, r2Random);
         const r2::MoodProfile& profile = r2::moodProfile(mood);
+        if (mood != fLastActiveMood)
+        {
+            fLastActiveMood = mood;
+            sMarcSound.setMood(mood);
+        }
 
         // One time for the whole pass: blips up to it, then the update and the
         // new command, so the tracker sees events in the order they happened.
@@ -134,6 +139,9 @@ public:
         report(mood);
     }
 
+    uint8_t holoBrightness(uint8_t eye) const { return fHoloLamps.brightness(eye); }
+    uint8_t activeMood() const { return fMoods.active(); }
+
 private:
     r2::IbusParser fIbus;
     r2::EdgeTrigger fPlaySwitch;
@@ -145,7 +153,10 @@ private:
     r2::LeadingEye fFrontEye;
     r2::ChameleonEye fRearEye;
     r2::ChameleonEye fTopEye;
+    r2::HoloLampFader fHoloLamps;
     uint8_t fBlipTail = 0;
+    uint8_t fLastActiveMood = 0;
+
 
     bool fRadioSeen = false;
     bool fRadio = false;
@@ -211,10 +222,23 @@ private:
     {
         float range = out.calm ? 0.7f : 1.0f;
         float hold = out.calm ? 1.5f : 1.0f;
-        applyEyeMove(r2::kFrontEye,
-                     fFrontEye.update(now, out.eyesActive, profile, out.eyeCue, out.eyeSide, out.calm, r2Random));
-        applyEyeMove(r2::kRearEye, fRearEye.update(now, out.eyesActive, profile, range, hold, r2Random));
-        applyEyeMove(r2::kTopEye, fTopEye.update(now, out.eyesActive, profile, range, hold, r2Random));
+        r2::EyeMove moveFront =
+            fFrontEye.update(now, out.eyesActive, profile, out.eyeCue, out.eyeSide, out.calm, r2Random);
+        r2::EyeMove moveRear = fRearEye.update(now, out.eyesActive, profile, range, hold, r2Random);
+        r2::EyeMove moveTop = fTopEye.update(now, out.eyesActive, profile, range, hold, r2Random);
+
+        applyEyeMove(r2::kFrontEye, moveFront);
+        applyEyeMove(r2::kRearEye, moveRear);
+        applyEyeMove(r2::kTopEye, moveTop);
+
+        if (moveFront.pending && fFrontEye.lastHoldMs() >= r2::HoloLampFader::kMinHoldMs)
+            fHoloLamps.triggerHold(r2::kFrontEye, now, fFrontEye.lastHoldMs(), profile.holoHoldChancePct, r2Random);
+        if (moveRear.pending && fRearEye.lastHoldMs() >= r2::HoloLampFader::kMinHoldMs)
+            fHoloLamps.triggerHold(r2::kRearEye, now, fRearEye.lastHoldMs(), profile.holoHoldChancePct, r2Random);
+        if (moveTop.pending && fTopEye.lastHoldMs() >= r2::HoloLampFader::kMinHoldMs)
+            fHoloLamps.triggerHold(r2::kTopEye, now, fTopEye.lastHoldMs(), profile.holoHoldChancePct, r2Random);
+
+        fHoloLamps.update(now);
     }
 
     // Both servos of an eye start together and take the same time.
@@ -228,6 +252,12 @@ private:
 
     void playSound(uint8_t bank)
     {
+        if (sMarcSound.module() == MarcSound::kHCR)
+        {
+            bool variation = (r2Random(0, 2) != 0);
+            sMarcSound.playStimulus(bank, variation);
+            return;
+        }
 #if MOOD_SOUND_SOURCE == MOOD_SOUNDS_GENERATED_ONLY
         static const uint8_t kBankSizes[5] = {0, 0, 0, 0, 0};
         static const uint8_t kPhraseCounts[5] = {

@@ -1,4 +1,5 @@
 #include "DFRobotDFPlayerMini.h"
+#include "R2Logic.h"
 /***********************************************************
  *  MP3sound.c
  *  MarcDuino interface to play sounds from an MP3Trigger board
@@ -138,6 +139,41 @@ public:
         kHCR
     };
 
+    bool isVocalizing() const
+    {
+        return (fModule == kHCR) ? fHcrParser.isVocalizing() : false;
+    }
+
+    float currentDuration() const
+    {
+        return (fModule == kHCR) ? fHcrParser.currentDuration() : 0.0f;
+    }
+
+    Module module() const
+    {
+        return fModule;
+    }
+
+    void setMood(uint8_t mood)
+    {
+        fCurrentMood = mood;
+        if (fModule == kHCR)
+        {
+            sendHCR(r2::HcrCommand::moodSetup(mood));
+            fAwaitingTelemetry = true;
+        }
+    }
+
+    void playStimulus(uint8_t mood, bool variation = false)
+    {
+        if (fModule == kHCR)
+        {
+            sendHCR(r2::HcrCommand::stimulus(mood, variation));
+            sendHCR(r2::HcrCommand::queryDuration());
+            fAwaitingTelemetry = true;
+        }
+    }
+
     void idle()
     {
         if (fModule != kDisabled)
@@ -147,6 +183,21 @@ public:
             {
                 playRandom();
                 fNextRandomEvent = millis() + random(fRandomMinDelay, fRandomMaxDelay);
+            }
+            if (fModule == kHCR)
+            {
+                while (fStream != nullptr && fStream->available())
+                {
+                    int c = fStream->read();
+                    if (c >= 0)
+                        fHcrParser.feed(char(c));
+                }
+                if ((fAwaitingTelemetry || fHcrParser.isVocalizing()) &&
+                    currentMillis - fLastTelemetryPollMs >= 100)
+                {
+                    fLastTelemetryPollMs = currentMillis;
+                    sendHCR(r2::HcrCommand::queryVocalizing());
+                }
             }
         }
     }
@@ -219,53 +270,19 @@ public:
                 break;
             case kHCR:
             {
-                char buffer[10];
-                snprintf(buffer, sizeof(buffer), "<CA%04d>", filenum);
-                switch (bank)
+                if (bank >= 1 && bank <= 5)
                 {
-                    case kGenSounds:
-                        sendHCR("<SS0>");
-                        break;
-                    case kChatSounds:
-                        sendHCR("<MT><MT>");
-                        break;
-                    case kHappySounds:
-                        if (filenum < fMaxSounds[bank] / 2)
-                            sendHCR("<SH0>");
-                        else
-                            sendHCR("<SH1>");
-                        break;
-                    case kSadSounds:
-                        if (filenum < fMaxSounds[bank] / 2)
-                            sendHCR("<SS0>");
-                        else
-                            sendHCR("<SS1>");
-                        break;
-                    case kWhistleSounds:
-                        sendHCR("<MT><MT>");
-                        break;
-                    case kScreamSounds:
-                        switch (sound)
-                        {
-                            case 1:
-                                sendHCR("<SC0>");
-                                break;
-                            case 2:
-                                sendHCR("<SC1>");
-                                break;
-                            case 3:
-                            default:
-                                sendHCR("<SE>");
-                                break;
-                        }
-                        break;
-                    case 0:
-                    case kLeiaSounds:
-                    case kSingSounds:
-                    case kMusicSounds:
-                        sendHCR(buffer);
-                        break;
+                    bool variation = (sound % 2 != 0);
+                    sendHCR(r2::HcrCommand::stimulus(bank, variation));
                 }
+                else
+                {
+                    char buffer[16];
+                    snprintf(buffer, sizeof(buffer), "<CA%04d>", filenum);
+                    sendHCR(buffer);
+                }
+                sendHCR(r2::HcrCommand::queryDuration());
+                fAwaitingTelemetry = true;
                 break;
             }
         }
@@ -285,7 +302,14 @@ public:
                     playSound(0, filenum);
                 break;
             case kHCR:
+            {
+                char buffer[16];
+                snprintf(buffer, sizeof(buffer), "<CA%04d>", filenum);
+                sendHCR(buffer);
+                sendHCR(r2::HcrCommand::queryDuration());
+                fAwaitingTelemetry = true;
                 break;
+            }
         }
     }
 
@@ -293,10 +317,12 @@ public:
     {
         if (fModule == kHCR)
         {
-            sendHCR("<MT><MT>");
+            bool variation = (random(0, 2) != 0);
+            playStimulus(fCurrentMood, variation);
             return;
         }
         uint8_t num;
+
         // Plays a random sound from the first 5 banks only
         num = random(1, MP3_BANK1_SOUNDS + MP3_BANK2_SOUNDS + MP3_BANK3_SOUNDS + MP3_BANK4_SOUNDS + MP3_BANK5_SOUNDS);
         if(num <= MP3_BANK1_SOUNDS)
@@ -481,6 +507,8 @@ public:
             fBankIndexes[i] = 0;
         }
         fModule = module;
+        if (fModule == kHCR)
+            setMood(1);
         return true;
     }
 
@@ -666,7 +694,13 @@ private:
         if (fStream != nullptr)
             fStream->print(cmd);
     }
+
+    r2::HcrTelemetryParser fHcrParser;
+    uint32_t fLastTelemetryPollMs = 0;
+    bool fAwaitingTelemetry = false;
+    uint8_t fCurrentMood = 1;
 };
+
 
 MarcSound sMarcSound;
 

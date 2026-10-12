@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PRELUDE = r"""
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <cmath>
 #include "R2Logic.h"
 using namespace r2;
 
@@ -181,5 +183,103 @@ class ControlsTest(unittest.TestCase):
         """)
 
 
+class HcrCommandTest(unittest.TestCase):
+    def test_mood_setup_strings(self):
+        run(r"""
+            CHECK(std::strcmp(HcrCommand::moodSetup(1), "<OR,M1,MN12,MX45>") == 0);
+            CHECK(std::strcmp(HcrCommand::moodSetup(2), "<M0,OR,OH30,OC20>") == 0);
+            CHECK(std::strcmp(HcrCommand::moodSetup(3), "<M0,OR,OH80>") == 0);
+            CHECK(std::strcmp(HcrCommand::moodSetup(4), "<M0,OR,OS85>") == 0);
+            CHECK(std::strcmp(HcrCommand::moodSetup(5), "<M0,OR,OH95>") == 0);
+            CHECK(std::strcmp(HcrCommand::moodSetup(0), "<OR,M1,MN12,MX45>") == 0);
+            CHECK(std::strcmp(HcrCommand::moodSetup(9), "<OR,M1,MN12,MX45>") == 0);
+        """)
+
+    def test_stimulus_strings(self):
+        run(r"""
+            CHECK(std::strcmp(HcrCommand::stimulus(1, false), "<MM>") == 0);
+            CHECK(std::strcmp(HcrCommand::stimulus(1, true), "<SH0>") == 0);
+            CHECK(std::strcmp(HcrCommand::stimulus(2, false), "<SC0>") == 0);
+            CHECK(std::strcmp(HcrCommand::stimulus(2, true), "<SH0>") == 0);
+            CHECK(std::strcmp(HcrCommand::stimulus(3, false), "<SH0>") == 0);
+            CHECK(std::strcmp(HcrCommand::stimulus(3, true), "<SH1>") == 0);
+            CHECK(std::strcmp(HcrCommand::stimulus(4, false), "<SS0>") == 0);
+            CHECK(std::strcmp(HcrCommand::stimulus(4, true), "<SS1>") == 0);
+            CHECK(std::strcmp(HcrCommand::stimulus(5, false), "<SH1>") == 0);
+            CHECK(std::strcmp(HcrCommand::stimulus(5, true), "<CA0901C1020>") == 0);
+        """)
+
+    def test_queries(self):
+        run(r"""
+            CHECK(std::strcmp(HcrCommand::queryVocalizing(), "<QPV>") == 0);
+            CHECK(std::strcmp(HcrCommand::queryDuration(), "<QT>") == 0);
+        """)
+
+
+class HcrTelemetryParserTest(unittest.TestCase):
+    def test_vocalizing_telemetry(self):
+        run(r"""
+            HcrTelemetryParser parser;
+            const char* s1 = "<QPV,1>";
+            bool ok = false;
+            for (size_t i = 0; i < std::strlen(s1); i++) ok = parser.feed(s1[i]) || ok;
+            CHECK(ok);
+            CHECK(parser.isVocalizing());
+
+            const char* s2 = "<QPV,0>";
+            ok = false;
+            for (size_t i = 0; i < std::strlen(s2); i++) ok = parser.feed(s2[i]) || ok;
+            CHECK(ok);
+            CHECK(!parser.isVocalizing());
+        """)
+
+    def test_duration_telemetry(self):
+        run(r"""
+            HcrTelemetryParser parser;
+            const char* s = "<QT,2.35>";
+            bool ok = false;
+            for (size_t i = 0; i < std::strlen(s); i++) ok = parser.feed(s[i]) || ok;
+            CHECK(ok);
+            CHECK(std::fabs(parser.currentDuration() - 2.35f) < 0.01f);
+        """)
+
+    def test_noise_and_split_packets(self):
+        run(r"""
+            HcrTelemetryParser parser;
+            const char* stream = "noise123<QPV,1>garbage<QT,1.42>tail";
+            bool p1 = false, p2 = false;
+            for (size_t i = 0; i < std::strlen(stream); i++) {
+                if (parser.feed(stream[i])) {
+                    if (parser.isVocalizing()) p1 = true;
+                    if (std::fabs(parser.currentDuration() - 1.42f) < 0.01f) p2 = true;
+                }
+            }
+            CHECK(p1);
+            CHECK(p2);
+        """)
+
+    def test_malformed_and_overflow(self):
+        run(r"""
+            HcrTelemetryParser parser;
+            const char* bad = "<UNKNOWN,123><><broken";
+            for (size_t i = 0; i < std::strlen(bad); i++) parser.feed(bad[i]);
+            CHECK(!parser.isVocalizing());
+
+            // Long packet overflow protection
+            parser.feed('<');
+            for (int i = 0; i < 60; i++) parser.feed('A');
+            parser.feed('>');
+            CHECK(!parser.isVocalizing());
+
+            // Resyncs immediately after bad packet
+            const char* good = "<QPV,1>";
+            bool ok = false;
+            for (size_t i = 0; i < std::strlen(good); i++) ok = parser.feed(good[i]) || ok;
+            CHECK(ok);
+            CHECK(parser.isVocalizing());
+        """)
+
+
 if __name__ == "__main__":
     unittest.main()
+

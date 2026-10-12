@@ -140,17 +140,21 @@ public:
     {
         EyeMove move = {true, eyeMoveDuration(fPos, to, speed), to};
         fPos = to;
+        fHoldMs = holdMs;
         fNextMs = nowMs + move.durationMs + holdMs;
         return move;
     }
 
     EyePos position() const { return fPos; }
 
+    uint32_t lastHoldMs() const { return fHoldMs; }
+
     bool due(uint32_t nowMs) const { return int32_t(nowMs - fNextMs) >= 0; }
 
 private:
     EyePos fPos = {0.0f, 0.0f};
     uint32_t fNextMs = 0;
+    uint32_t fHoldMs = 0;
     bool fStarted = false;
 };
 
@@ -165,20 +169,24 @@ public:
         if (!active)
         {
             fMode = kRoaming;
+            fHoldMs = 0;
             return fEye.update(nowMs, false, mood, 1.0f, 1.0f, rnd);
         }
         if (cue == kCueLook)
         {
             fMode = kLooking;
-            fNextAdjustMs = nowMs + rnd(1500, 3001);
+            uint32_t hold = rnd(1500, 3001);
+            fNextAdjustMs = nowMs + hold;
+            fHoldMs = hold;
             EyePos to = {clampUnit(0.6f * mood.holoRange * float(side)), clampUnit(0.2f * signedFraction(rnd))};
             return fEye.moveTo(nowMs, to, mood.holoSpeed, 0);
         }
         if (cue == kCueReturn)
         {
             fMode = kRoaming;
+            fHoldMs = pickMs(mood.holoHoldS, 1.5f, rnd);
             EyePos centre = {0.0f, 0.0f};
-            return fEye.moveTo(nowMs, centre, mood.holoSpeed, pickMs(mood.holoHoldS, 1.5f, rnd));
+            return fEye.moveTo(nowMs, centre, mood.holoSpeed, fHoldMs);
         }
         if (cue == kCueFlick)
         {
@@ -188,6 +196,7 @@ public:
                 fFlickBack = fEye.position();
             }
             fMode = kFlicking;
+            fHoldMs = 600;
             EyePos up = {0.0f, 0.2f};
             return fEye.moveTo(nowMs, up, 4.0f, 600);
         }
@@ -199,21 +208,27 @@ public:
                 {
                     fMode = fResumeMode;
                     fNextAdjustMs = nowMs + rnd(1500, 3001);
-                    return fEye.moveTo(nowMs, fFlickBack, mood.holoSpeed,
-                                       fMode == kRoaming ? pickMs(mood.holoHoldS, 1.5f, rnd) : 0);
+                    fHoldMs = (fMode == kRoaming ? pickMs(mood.holoHoldS, 1.5f, rnd) : 0);
+                    return fEye.moveTo(nowMs, fFlickBack, mood.holoSpeed, fHoldMs);
                 }
                 return none;
             case kLooking:
                 if (int32_t(nowMs - fNextAdjustMs) >= 0)
                 {
-                    fNextAdjustMs = nowMs + rnd(1500, 3001);
+                    uint32_t hold = rnd(1500, 3001);
+                    fNextAdjustMs = nowMs + hold;
+                    fHoldMs = hold;
                     EyePos p = fEye.position();
                     EyePos to = {clampUnit(p.h + 0.1f * signedFraction(rnd)), clampUnit(p.v + 0.1f * signedFraction(rnd))};
                     return fEye.moveTo(nowMs, to, mood.holoSpeed, 0);
                 }
                 return none;
             case kRoaming:
-                return fEye.update(nowMs, true, mood, calm ? 0.35f : 0.5f, calm ? 2.25f : 1.5f, rnd);
+            {
+                EyeMove move = fEye.update(nowMs, true, mood, calm ? 0.35f : 0.5f, calm ? 2.25f : 1.5f, rnd);
+                fHoldMs = fEye.lastHoldMs();
+                return move;
+            }
         }
         return none;
     }
@@ -221,6 +236,8 @@ public:
     bool looking() const { return fMode == kLooking; }
 
     EyePos position() const { return fEye.position(); }
+
+    uint32_t lastHoldMs() const { return fHoldMs; }
 
 private:
     enum Mode : uint8_t
@@ -235,6 +252,150 @@ private:
     Mode fResumeMode = kRoaming;
     EyePos fFlickBack = {0.0f, 0.0f};
     uint32_t fNextAdjustMs = 0;
+    uint32_t fHoldMs = 0;
+};
+
+////////////////////////////////
+// Holoprojector Inspection Lamp Fader
+// Symmetrically monitors look/hold state on Front, Rear, and Top holoprojectors.
+// Fades in a pale inspection beam (~25% brightness) over 250ms during deliberate
+// inspection holds (>= 1.5s), sustains through the hold, and smoothly fades out over 350ms.
+
+class HoloLampFader
+{
+public:
+    static const uint8_t kLamps = 3;
+    static const uint8_t kMaxBrightness = 64; // Pale beam (~25% of 255 PWM)
+    static const uint32_t kFadeInMs = 250;
+    static const uint32_t kFadeOutMs = 350;
+    static const uint32_t kMinHoldMs = 1500;
+
+    enum State : uint8_t
+    {
+        kIdle,
+        kFadeIn,
+        kHold,
+        kFadeOut
+    };
+
+    struct Lamp
+    {
+        State state;
+        uint32_t startMs;
+        uint32_t holdUntilMs;
+        uint8_t brightness;
+    };
+
+    HoloLampFader()
+    {
+        for (uint8_t i = 0; i < kLamps; i++)
+        {
+            fLamps[i].state = kIdle;
+            fLamps[i].startMs = 0;
+            fLamps[i].holdUntilMs = 0;
+            fLamps[i].brightness = 0;
+        }
+    }
+
+    // Trigger inspection lamp on deliberate hold (>= 1500ms) with mood-scaled probability
+    bool triggerHold(uint8_t eye, uint32_t nowMs, uint32_t holdMs, uint8_t chancePct, RandomFn rnd)
+    {
+        if (eye >= kLamps || holdMs < kMinHoldMs)
+            return false;
+        if (!chance(chancePct, rnd))
+            return false;
+
+        fLamps[eye].state = kFadeIn;
+        fLamps[eye].startMs = nowMs;
+        fLamps[eye].holdUntilMs = nowMs + holdMs;
+        fLamps[eye].brightness = 0;
+        return true;
+    }
+
+    void update(uint32_t nowMs)
+    {
+        for (uint8_t i = 0; i < kLamps; i++)
+        {
+            Lamp& lamp = fLamps[i];
+            switch (lamp.state)
+            {
+                case kIdle:
+                    lamp.brightness = 0;
+                    break;
+                case kFadeIn:
+                {
+                    uint32_t elapsed = nowMs - lamp.startMs;
+                    if (elapsed >= kFadeInMs)
+                    {
+                        lamp.state = kHold;
+                        lamp.brightness = kMaxBrightness;
+                    }
+                    else
+                    {
+                        lamp.brightness = uint8_t((uint32_t(elapsed) * kMaxBrightness) / kFadeInMs);
+                    }
+                    break;
+                }
+                case kHold:
+                {
+                    if (int32_t(nowMs - lamp.holdUntilMs) >= 0)
+                    {
+                        lamp.state = kFadeOut;
+                        lamp.startMs = nowMs;
+                        lamp.brightness = kMaxBrightness;
+                    }
+                    else
+                    {
+                        lamp.brightness = kMaxBrightness;
+                    }
+                    break;
+                }
+                case kFadeOut:
+                {
+                    uint32_t elapsed = nowMs - lamp.startMs;
+                    if (elapsed >= kFadeOutMs)
+                    {
+                        lamp.state = kIdle;
+                        lamp.brightness = 0;
+                    }
+                    else
+                    {
+                        lamp.brightness = uint8_t(kMaxBrightness - (uint32_t(elapsed) * kMaxBrightness) / kFadeOutMs);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    uint8_t brightness(uint8_t eye) const
+    {
+        return eye < kLamps ? fLamps[eye].brightness : 0;
+    }
+
+    State state(uint8_t eye) const
+    {
+        return eye < kLamps ? fLamps[eye].state : kIdle;
+    }
+
+    void cancel(uint8_t eye)
+    {
+        if (eye < kLamps)
+        {
+            fLamps[eye].state = kIdle;
+            fLamps[eye].brightness = 0;
+        }
+    }
+
+    void cancelAll()
+    {
+        for (uint8_t i = 0; i < kLamps; i++)
+            cancel(i);
+    }
+
+private:
+    Lamp fLamps[kLamps];
 };
 
 } // namespace r2
+
