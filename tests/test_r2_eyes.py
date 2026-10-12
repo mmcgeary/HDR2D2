@@ -153,5 +153,87 @@ class LeadingEyeTest(unittest.TestCase):
         """)
 
 
+class HoloLampFaderTest(unittest.TestCase):
+    def test_initial_state_idle_and_dark(self):
+        run(r"""
+            HoloLampFader fader;
+            for (uint8_t i = 0; i < 3; i++) {
+                CHECK(fader.state(i) == HoloLampFader::kIdle);
+                CHECK(fader.brightness(i) == 0);
+            }
+        """)
+
+    def test_short_hold_rejected(self):
+        run(r"""
+            HoloLampFader fader;
+            CHECK(!fader.triggerHold(kFrontEye, 1000, 1499, 100, lowest));
+            CHECK(fader.state(kFrontEye) == HoloLampFader::kIdle);
+            CHECK(fader.brightness(kFrontEye) == 0);
+        """)
+
+    def test_chance_roll(self):
+        run(r"""
+            HoloLampFader fader;
+            CHECK(!fader.triggerHold(kRearEye, 1000, 2000, 0, lowest));
+            CHECK(!fader.triggerHold(kRearEye, 1000, 2000, 50, highest));
+            CHECK(fader.triggerHold(kRearEye, 1000, 2000, 100, highest));
+            CHECK(fader.state(kRearEye) == HoloLampFader::kFadeIn);
+        """)
+
+    def test_fade_in_hold_and_fade_out_lifecycle(self):
+        run(r"""
+            HoloLampFader fader;
+            CHECK(fader.triggerHold(kFrontEye, 1000, 2000, 100, lowest));
+
+            fader.update(1000);
+            CHECK(fader.state(kFrontEye) == HoloLampFader::kFadeIn);
+            CHECK(fader.brightness(kFrontEye) == 0);
+
+            fader.update(1125);
+            CHECK(fader.state(kFrontEye) == HoloLampFader::kFadeIn);
+            CHECK(fader.brightness(kFrontEye) == 32);
+
+            fader.update(1250);
+            CHECK(fader.state(kFrontEye) == HoloLampFader::kHold);
+            CHECK(fader.brightness(kFrontEye) == 64);
+
+            fader.update(2000);
+            CHECK(fader.state(kFrontEye) == HoloLampFader::kHold);
+            CHECK(fader.brightness(kFrontEye) == 64);
+
+            fader.update(3000);
+            CHECK(fader.state(kFrontEye) == HoloLampFader::kFadeOut);
+            CHECK(fader.brightness(kFrontEye) == 64);
+
+            fader.update(3175);
+            CHECK(fader.state(kFrontEye) == HoloLampFader::kFadeOut);
+            CHECK(fader.brightness(kFrontEye) == 32);
+
+            fader.update(3350);
+            CHECK(fader.state(kFrontEye) == HoloLampFader::kIdle);
+            CHECK(fader.brightness(kFrontEye) == 0);
+        """)
+
+    def test_symmetrical_multi_eye(self):
+        run(r"""
+            HoloLampFader fader;
+            CHECK(fader.triggerHold(kFrontEye, 100, 2000, 100, lowest));
+            CHECK(fader.triggerHold(kRearEye, 200, 1600, 100, lowest));
+            CHECK(fader.triggerHold(kTopEye, 300, 3000, 100, lowest));
+
+            fader.update(350);
+            CHECK(fader.state(kFrontEye) == HoloLampFader::kHold);
+            CHECK(fader.brightness(kFrontEye) == 64);
+            CHECK(fader.state(kRearEye) == HoloLampFader::kFadeIn);
+            CHECK(fader.state(kTopEye) == HoloLampFader::kFadeIn);
+
+            fader.cancel(kRearEye);
+            CHECK(fader.state(kRearEye) == HoloLampFader::kIdle);
+            CHECK(fader.brightness(kRearEye) == 0);
+            CHECK(fader.state(kFrontEye) == HoloLampFader::kHold);
+        """)
+
+
 if __name__ == "__main__":
     unittest.main()
+

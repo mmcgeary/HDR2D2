@@ -24,8 +24,43 @@ class MoodTableTest(unittest.TestCase):
                 CHECK(p.holoRange > 0 && p.holoRange <= 1 && p.holoSpeed > 0);
                 CHECK(p.readjustPct <= 100 && p.doubleTakePct <= 100 && p.chainPct <= 100);
                 CHECK(p.glanceFrontPct <= 100 && p.noticePct <= 100 && p.commentPct <= 100);
+                CHECK(p.psiSpeedMs > 0 && p.fldDelay > 0 && p.rldDelay > 0 && p.holoHoldChancePct <= 100);
             }
         """)
+
+    def test_alive_lighting_parameters(self):
+        run(r"""
+            const MoodProfile& gen = moodProfile(kGeneral);
+            CHECK(gen.psiSpeedMs == 120);
+            CHECK(gen.fldDelay == 5);
+            CHECK(gen.rldDelay == 5);
+            CHECK(gen.holoHoldChancePct == 15);
+
+            const MoodProfile& chat = moodProfile(kChat);
+            CHECK(chat.psiSpeedMs == 80);
+            CHECK(chat.fldDelay == 3);
+            CHECK(chat.rldDelay == 3);
+            CHECK(chat.holoHoldChancePct == 35);
+
+            const MoodProfile& hap = moodProfile(kHappy);
+            CHECK(hap.psiSpeedMs == 60);
+            CHECK(hap.fldDelay == 2);
+            CHECK(hap.rldDelay == 2);
+            CHECK(hap.holoHoldChancePct == 25);
+
+            const MoodProfile& sad = moodProfile(kSad);
+            CHECK(sad.psiSpeedMs == 250);
+            CHECK(sad.fldDelay == 12);
+            CHECK(sad.rldDelay == 12);
+            CHECK(sad.holoHoldChancePct == 0);
+
+            const MoodProfile& whi = moodProfile(kWhistle);
+            CHECK(whi.psiSpeedMs == 50);
+            CHECK(whi.fldDelay == 2);
+            CHECK(whi.rldDelay == 2);
+            CHECK(whi.holoHoldChancePct == 40);
+        """)
+
 
     def test_lookup_defaults_to_general(self):
         run(r"""

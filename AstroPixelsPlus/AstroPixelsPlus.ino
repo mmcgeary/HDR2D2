@@ -1061,12 +1061,46 @@ I2CReceiverBase<CONSOLE_BUFFER_SIZE> i2cReceiver(USE_I2C_ADDRESS, [](char *cmd)
 #endif
 
 ////////////////
+// Alive Lighting Synchronizer:
+// Modulates FLD/RLD flicker delays (canon Blue/White and Red/Yellow/Green preserved),
+// PSI sliding color wipe sweep speeds (Front Red<->Blue, Rear Yellow<->Green preserved),
+// and Holoprojector inspection lamp fading based on mood and deliberate inspection holds.
+
+void updateAliveLighting()
+{
+    uint8_t mood = r2Remote.activeMood();
+    const r2::MoodProfile& profile = r2::moodProfile(mood);
+    bool vocalizing = sMarcSound.isVocalizing();
+
+    // FLD / RLD: Strict canon colors preserved (Front: Blue/White; Rear: Red/Yellow/Green).
+    // Modulate flicker delay dynamically: reduce by 50% during speech for rapid chatter.
+    uint8_t fldDelay = vocalizing ? (profile.fldDelay > 1 ? profile.fldDelay / 2 : 1) : profile.fldDelay;
+    uint8_t rldDelay = vocalizing ? (profile.rldDelay > 1 ? profile.rldDelay / 2 : 1) : profile.rldDelay;
+    if (FLD.getDelay() != fldDelay)
+        FLD.setDelay(fldDelay);
+    if (RLD.getDelay() != rldDelay)
+        RLD.setDelay(rldDelay);
+
+    // PSIs: Sliding color wipe baseline preserved (Front: Red <-> Blue, Rear: Yellow <-> Green).
+    // Modulate sweep speed by current mood.
+    frontPSI.setEffectDelay(profile.psiSpeedMs);
+    rearPSI.setEffectDelay(profile.psiSpeedMs);
+
+    // Holoprojectors (Front, Rear, Top):
+    // Modulate pale inspection beam during deliberate inspection holds.
+    frontHolo.setBrightness(r2Remote.holoBrightness(r2::kFrontEye));
+    rearHolo.setBrightness(r2Remote.holoBrightness(r2::kRearEye));
+    topHolo.setBrightness(r2Remote.holoBrightness(r2::kTopEye));
+}
+
+////////////////
 
 void mainLoop()
 {
     AnimatedEvent::process();
     sMarcSound.idle();
     r2Remote.loop();
+    updateAliveLighting();
 #ifdef USE_MENUS
     sDisplay.process();
 #endif

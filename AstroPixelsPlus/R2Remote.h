@@ -134,6 +134,9 @@ public:
         report(mood);
     }
 
+    uint8_t holoBrightness(uint8_t eye) const { return fHoloLamps.brightness(eye); }
+    uint8_t activeMood() const { return fMoods.active(); }
+
 private:
     r2::IbusParser fIbus;
     r2::EdgeTrigger fPlaySwitch;
@@ -145,7 +148,9 @@ private:
     r2::LeadingEye fFrontEye;
     r2::ChameleonEye fRearEye;
     r2::ChameleonEye fTopEye;
+    r2::HoloLampFader fHoloLamps;
     uint8_t fBlipTail = 0;
+
 
     bool fRadioSeen = false;
     bool fRadio = false;
@@ -211,11 +216,25 @@ private:
     {
         float range = out.calm ? 0.7f : 1.0f;
         float hold = out.calm ? 1.5f : 1.0f;
-        applyEyeMove(r2::kFrontEye,
-                     fFrontEye.update(now, out.eyesActive, profile, out.eyeCue, out.eyeSide, out.calm, r2Random));
-        applyEyeMove(r2::kRearEye, fRearEye.update(now, out.eyesActive, profile, range, hold, r2Random));
-        applyEyeMove(r2::kTopEye, fTopEye.update(now, out.eyesActive, profile, range, hold, r2Random));
+        r2::EyeMove moveFront =
+            fFrontEye.update(now, out.eyesActive, profile, out.eyeCue, out.eyeSide, out.calm, r2Random);
+        r2::EyeMove moveRear = fRearEye.update(now, out.eyesActive, profile, range, hold, r2Random);
+        r2::EyeMove moveTop = fTopEye.update(now, out.eyesActive, profile, range, hold, r2Random);
+
+        applyEyeMove(r2::kFrontEye, moveFront);
+        applyEyeMove(r2::kRearEye, moveRear);
+        applyEyeMove(r2::kTopEye, moveTop);
+
+        if (moveFront.pending && fFrontEye.lastHoldMs() >= r2::HoloLampFader::kMinHoldMs)
+            fHoloLamps.triggerHold(r2::kFrontEye, now, fFrontEye.lastHoldMs(), profile.holoHoldChancePct, r2Random);
+        if (moveRear.pending && fRearEye.lastHoldMs() >= r2::HoloLampFader::kMinHoldMs)
+            fHoloLamps.triggerHold(r2::kRearEye, now, fRearEye.lastHoldMs(), profile.holoHoldChancePct, r2Random);
+        if (moveTop.pending && fTopEye.lastHoldMs() >= r2::HoloLampFader::kMinHoldMs)
+            fHoloLamps.triggerHold(r2::kTopEye, now, fTopEye.lastHoldMs(), profile.holoHoldChancePct, r2Random);
+
+        fHoloLamps.update(now);
     }
+
 
     // Both servos of an eye start together and take the same time.
     static void applyEyeMove(uint8_t eye, const r2::EyeMove& move)

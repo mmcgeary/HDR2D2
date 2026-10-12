@@ -138,6 +138,11 @@ public:
         kHCR
     };
 
+    bool isVocalizing() const
+    {
+        return false;
+    }
+
     void idle()
     {
         if (fModule != kDisabled)

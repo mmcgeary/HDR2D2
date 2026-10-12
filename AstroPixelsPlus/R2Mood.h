@@ -67,16 +67,22 @@ struct MoodProfile
     float holoVBias;
     uint8_t soundBank;
     Gesture gesture;
+    // Alive lighting parameters
+    uint16_t psiSpeedMs;
+    uint8_t fldDelay;
+    uint8_t rldDelay;
+    uint8_t holoHoldChancePct;
 };
 
 static const MoodProfile kMoodProfiles[5] = {
-    // name      look every   look angle   cruise ease   hold         adj dbl chn gfr ntc cmt  remark every  range  holo hold    speed vbias  bank gesture
-    {"general", {12, 35}, {25, 100}, 45, 0.6f, {2, 6}, 30, 15, 15, 0, 25, 20, {40, 90}, 0.5f, {3, 8}, 1.0f, 0.0f, 1, kGlance},
-    {"chat", {10, 28}, {20, 80}, 50, 0.5f, {2, 5}, 25, 10, 20, 0, 40, 60, {20, 50}, 0.55f, {3, 7}, 1.0f, 0.0f, 2, kHalfTurnFront},
-    {"happy", {6, 18}, {20, 120}, 75, 0.35f, {1, 3}, 35, 20, 25, 0, 40, 40, {25, 60}, 0.8f, {1.5f, 4}, 1.4f, 0.1f, 3, kWiggle},
-    {"sad", {30, 75}, {15, 60}, 25, 1.0f, {3, 8}, 10, 5, 5, 0, 15, 15, {60, 150}, 0.4f, {5, 12}, 0.6f, -0.4f, 4, kSlowTurnAway},
-    {"whistle", {10, 30}, {25, 90}, 50, 0.5f, {1.5f, 4}, 20, 10, 10, 50, 30, 30, {30, 70}, 0.6f, {2, 6}, 1.0f, 0.0f, 5, kFaceFront},
+    // name      look every   look angle   cruise ease   hold         adj dbl chn gfr ntc cmt  remark every  range  holo hold    speed vbias  bank gesture         psi fld rld holo%
+    {"general", {12, 35}, {25, 100}, 45, 0.6f, {2, 6}, 30, 15, 15, 0, 25, 20, {40, 90}, 0.5f, {3, 8}, 1.0f, 0.0f, 1, kGlance, 120, 5, 5, 15},
+    {"chat", {10, 28}, {20, 80}, 50, 0.5f, {2, 5}, 25, 10, 20, 0, 40, 60, {20, 50}, 0.55f, {3, 7}, 1.0f, 0.0f, 2, kHalfTurnFront, 80, 3, 3, 35},
+    {"happy", {6, 18}, {20, 120}, 75, 0.35f, {1, 3}, 35, 20, 25, 0, 40, 40, {25, 60}, 0.8f, {1.5f, 4}, 1.4f, 0.1f, 3, kWiggle, 60, 2, 2, 25},
+    {"sad", {30, 75}, {15, 60}, 25, 1.0f, {3, 8}, 10, 5, 5, 0, 15, 15, {60, 150}, 0.4f, {5, 12}, 0.6f, -0.4f, 4, kSlowTurnAway, 250, 12, 12, 0},
+    {"whistle", {10, 30}, {25, 90}, 50, 0.5f, {1.5f, 4}, 20, 10, 10, 50, 30, 30, {30, 70}, 0.6f, {2, 6}, 1.0f, 0.0f, 5, kFaceFront, 50, 2, 2, 40},
 };
+
 
 // mood 1-5; anything else gives General.
 inline const MoodProfile& moodProfile(uint8_t mood)
