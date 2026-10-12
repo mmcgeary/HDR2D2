@@ -204,22 +204,37 @@ private:
 
 static const uint8_t kMoodCount = 6;
 
-inline void pickMoodSound(uint8_t mood, const uint8_t bankSizes[5], RandomFn rnd,
-                          uint8_t &bank, uint8_t &sound)
+inline uint16_t pickMoodSound(uint8_t mood, const uint8_t clips[5], const uint8_t phrases[5], RandomFn rnd)
 {
     if (mood >= 1 && mood <= 5)
     {
-        bank = mood;
-        sound = uint8_t(rnd(1, uint32_t(bankSizes[mood - 1]) + 1));
-        return;
+        uint8_t m = mood - 1;
+        uint32_t pool = clips[m] + phrases[m];
+        if (pool == 0)
+            return 1;
+        uint32_t n = rnd(0, pool);
+        if (n < clips[m])
+            return uint16_t(m * 25 + n + 1);
+        return uint16_t(300 + m * 150 + (n - clips[m] + 1));
     }
     uint32_t total = 0;
     for (uint8_t i = 0; i < 5; i++)
-        total += bankSizes[i];
+        total += clips[i] + phrases[i];
+    if (total == 0)
+        return 1;
     uint32_t n = rnd(0, total);
-    for (bank = 1; bank < 5 && n >= bankSizes[bank - 1]; bank++)
-        n -= bankSizes[bank - 1];
-    sound = uint8_t(n + 1);
+    for (uint8_t i = 0; i < 5; i++)
+    {
+        uint32_t pool = clips[i] + phrases[i];
+        if (n < pool)
+        {
+            if (n < clips[i])
+                return uint16_t(i * 25 + n + 1);
+            return uint16_t(300 + i * 150 + (n - clips[i] + 1));
+        }
+        n -= pool;
+    }
+    return 1;
 }
 
 } // namespace r2

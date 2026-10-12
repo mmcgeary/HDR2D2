@@ -228,11 +228,22 @@ private:
 
     void playSound(uint8_t bank)
     {
+#if MOOD_SOUND_SOURCE == MOOD_SOUNDS_GENERATED_ONLY
+        static const uint8_t kBankSizes[5] = {0, 0, 0, 0, 0};
+        static const uint8_t kPhraseCounts[5] = {
+            MP3_BANK1_PHRASES, MP3_BANK2_PHRASES, MP3_BANK3_PHRASES, MP3_BANK4_PHRASES, MP3_BANK5_PHRASES};
+#elif MOOD_SOUND_SOURCE == MOOD_SOUNDS_CLIPS_ONLY
         static const uint8_t kBankSizes[5] = {
             MP3_BANK1_SOUNDS, MP3_BANK2_SOUNDS, MP3_BANK3_SOUNDS, MP3_BANK4_SOUNDS, MP3_BANK5_SOUNDS};
-        uint8_t b, s;
-        r2::pickMoodSound(bank, kBankSizes, r2Random, b, s);
-        sMarcSound.playSound(b, s);
+        static const uint8_t kPhraseCounts[5] = {0, 0, 0, 0, 0};
+#else // MOOD_SOUNDS_EXTENDED
+        static const uint8_t kBankSizes[5] = {
+            MP3_BANK1_SOUNDS, MP3_BANK2_SOUNDS, MP3_BANK3_SOUNDS, MP3_BANK4_SOUNDS, MP3_BANK5_SOUNDS};
+        static const uint8_t kPhraseCounts[5] = {
+            MP3_BANK1_PHRASES, MP3_BANK2_PHRASES, MP3_BANK3_PHRASES, MP3_BANK4_PHRASES, MP3_BANK5_PHRASES};
+#endif
+        uint16_t file = r2::pickMoodSound(bank, kBankSizes, kPhraseCounts, r2Random);
+        sMarcSound.playFile(file);
     }
 
     // Saves the dial's volume once it has settled, and the learned dome
