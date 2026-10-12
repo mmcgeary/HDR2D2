@@ -2,3 +2,5 @@
 **/__pycache__/
 .DS_Store
 .vscode/
+AstromechVocalizer_Sounds/
+sd_phrases/

@@ -164,16 +164,20 @@ class ControlsTest(unittest.TestCase):
 
     def test_mood_sounds(self):
         run(r"""
-            const uint8_t sizes[5] = {19, 18, 7, 4, 3};
-            uint8_t bank, sound;
-            pickMoodSound(3, sizes, highest, bank, sound);
-            CHECK(bank == 3 && sound == 7);
-            pickMoodSound(5, sizes, lowest, bank, sound);
-            CHECK(bank == 5 && sound == 1);
-            pickMoodSound(0, sizes, lowest, bank, sound);
-            CHECK(bank == 1 && sound == 1);
-            pickMoodSound(0, sizes, highest, bank, sound);
-            CHECK(bank == 5 && sound == 3);
+            const uint8_t clips[5] = {19, 18, 7, 4, 3};
+            const uint8_t phrases[5] = {120, 120, 120, 120, 120};
+            CHECK(pickMoodSound(3, clips, phrases, lowest) == 51);
+            CHECK(pickMoodSound(3, clips, phrases, highest) == 720);
+            CHECK(pickMoodSound(0, clips, phrases, lowest) == 1);
+            CHECK(pickMoodSound(0, clips, phrases, highest) == 1020);
+            const uint8_t no_phrases[5] = {0, 0, 0, 0, 0};
+            CHECK(pickMoodSound(3, clips, no_phrases, lowest) == 51);
+            CHECK(pickMoodSound(3, clips, no_phrases, highest) == 57);
+            const uint8_t no_clips[5] = {0, 0, 0, 0, 0};
+            CHECK(pickMoodSound(3, no_clips, phrases, lowest) == 601);
+            CHECK(pickMoodSound(3, no_clips, phrases, highest) == 720);
+            CHECK(pickMoodSound(0, no_clips, phrases, lowest) == 301);
+            CHECK(pickMoodSound(0, no_clips, phrases, highest) == 1020);
         """)
 
 

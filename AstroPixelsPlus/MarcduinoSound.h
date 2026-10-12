@@ -43,6 +43,30 @@
 #define MP3_BANK3_SOUNDS 7  // happy sounds, numbered 051 to 075
 #define MP3_BANK4_SOUNDS 4  // sad sounds, numbered 076 to 100
 #define MP3_BANK5_SOUNDS 3  // whistle sounds, numbered 101 to 125
+
+#define MP3_PHRASE_BASE             300
+#define MP3_PHRASE_BLOCK            150
+#define MP3_BANK1_PHRASES           120
+#define MP3_BANK2_PHRASES           120
+#define MP3_BANK3_PHRASES           120
+#define MP3_BANK4_PHRASES           120
+#define MP3_BANK5_PHRASES           120
+static_assert(MP3_BANK1_PHRASES <= MP3_PHRASE_BLOCK && MP3_BANK2_PHRASES <= MP3_PHRASE_BLOCK &&
+                  MP3_BANK3_PHRASES <= MP3_PHRASE_BLOCK && MP3_BANK4_PHRASES <= MP3_PHRASE_BLOCK &&
+                  MP3_BANK5_PHRASES <= MP3_PHRASE_BLOCK,
+              "a phrase bank holds at most 150 sounds");
+
+// Mood sound source selection:
+//   1 = MOOD_SOUNDS_CLIPS_ONLY     (film clips only: 0001-0125)
+//   2 = MOOD_SOUNDS_EXTENDED       (film clips and phrases)
+//   3 = MOOD_SOUNDS_GENERATED_ONLY (phrases only: 0301-1050)
+#define MOOD_SOUNDS_CLIPS_ONLY     1
+#define MOOD_SOUNDS_EXTENDED       2
+#define MOOD_SOUNDS_GENERATED_ONLY 3
+
+#ifndef MOOD_SOUND_SOURCE
+#define MOOD_SOUND_SOURCE          MOOD_SOUNDS_EXTENDED
+#endif
 // unless you change bank cutoff, these are ignored, so I set them to max
 #define MP3_BANK6_SOUNDS MP3_MAX_SOUNDS_PER_BANK    // scream sounds, numbered 126 to 150
 #define MP3_BANK7_SOUNDS MP3_MAX_SOUNDS_PER_BANK    // Leia sounds, numbered 151 to 175
@@ -244,6 +268,24 @@ public:
                 }
                 break;
             }
+        }
+    }
+
+    void playFile(uint16_t filenum)
+    {
+        switch (fModule)
+        {
+            case kDisabled:
+                break;
+            case kDFMini:
+                fDFMini.playMp3Folder(filenum);
+                break;
+            case kMP3Trigger:
+                if (filenum <= 255)
+                    playSound(0, filenum);
+                break;
+            case kHCR:
+                break;
         }
     }
 
