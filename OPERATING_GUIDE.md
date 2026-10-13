@@ -42,6 +42,20 @@ The mood sets what R2 says and how it moves.
 | Whistle | Attentive. Looks often include a glance back toward front. |
 | Mixed | Changes to a different mood every 1–3 minutes. |
 
+## Sounds
+
+In Aware and Alive, R2 talks on its own: a lone remark now and then, a sound as it notices something before some looks, and a comment during some looks. Sounds are always at least 4 seconds apart, except SwB, which plays at once. In Still, R2 makes no sound on its own.
+
+| Mood | Lone remark | Looks | Sound before a look | Comment during a look |
+| --- | --- | --- | --- | --- |
+| General | Every 40–90 s | Every 12–35 s | 1 in 4 | 1 in 5 |
+| Chat | Every 20–50 s | Every 10–28 s | 2 in 5 | 3 in 5 |
+| Happy | Every 25–60 s | Every 6–18 s | 2 in 5 | 2 in 5 |
+| Sad | Every 60–150 s | Every 30–75 s | 1 in 7 | 1 in 7 |
+| Whistle | Every 30–70 s | Every 10–30 s | 1 in 3 | 1 in 5 |
+
+Aware and Alive talk the same; only the dome differs. The sounds come from the mood's banks on the SD card ([Sound Setup](SOUND_SETUP.md) §1). The numbers are in `kMoodProfiles` in `AstroPixelsPlus/R2Mood.h`.
+
 ## Lights
 
 The lights keep their stock colours and patterns. The mood sets their pace:

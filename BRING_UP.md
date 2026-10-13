@@ -59,7 +59,7 @@ Guide: [Sound Setup](SOUND_SETUP.md)
 - [ ] F5 (5A) fitted
 - [ ] Start-up sound plays
 - [ ] SwB plays a mood sound; VrA changes the mood; VrB sets the volume
-- [ ] SwC middle gives random chatter; SwC up stops it
+- [ ] SwC middle: R2 makes sounds on its own within 2 minutes (VrA on General); SwC up stops them
 
 ## Stage 6: Dome rotation
 

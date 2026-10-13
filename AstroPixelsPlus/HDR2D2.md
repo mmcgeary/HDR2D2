@@ -103,7 +103,8 @@ Stock serial commands still work. Examples:
 | Stick deadband, final approach speed, step limit | `DomeMotion::defaults()` in `R2DomeMotion.h` |
 | Front-pair gap ratio, gap growth limit, overdue factors, default speed and zero-speed offset, learning rate | `DomeTracker::defaults()` in `R2DomeTracker.h` |
 | Gap between sounds, pause after the stick or driving, seek timeout | `kSoundGapMs`, `kResumeMs`, `kSeekTimeoutMs` in `R2Attention.h` |
-| Mood bank sizes | `MP3_BANK1_SOUNDS` … `MP3_BANK5_SOUNDS` in `MarcduinoSound.h` |
+| Mood bank sizes: film clips, then phrases | `MP3_BANK1_SOUNDS` … `MP3_BANK5_SOUNDS` and `MP3_BANK1_PHRASES` … `MP3_BANK5_PHRASES` in `MarcduinoSound.h` |
+| Which banks moods play: clips, phrases or both | `MOOD_SOUND_SOURCE` in `MarcduinoSound.h` ([Sound Setup](../SOUND_SETUP.md) §1) |
 
 ## Tests
 

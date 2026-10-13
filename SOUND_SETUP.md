@@ -94,8 +94,8 @@ Full details: [Wiring](WIRING.md) §1–2 and [Power](POWER.md) §8.
 | Flip SwB down | One sound from the current mood plays |
 | Turn VrA, flip SwB up then down | The sound matches the new mood |
 | Turn VrB | Volume follows the dial |
-| SwC middle, wait 30 s | Random chatter plays every 5–30 seconds |
-| SwC up | Chatter stops |
+| VrA on General, SwC middle, wait 2 minutes | R2 makes a sound on its own at least once. How often each mood talks is in the [Operating Guide](OPERATING_GUIDE.md#sounds). |
+| SwC up | R2 stops talking on its own. SwB still plays a sound. |
 
 ## 4. Problems
 

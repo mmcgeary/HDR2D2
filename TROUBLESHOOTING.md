@@ -39,6 +39,8 @@ Find the symptom, then work down its checks in order.
 | No sound | SD card FAT32, `mp3` folder present, files numbered ([Sound Setup](SOUND_SETUP.md) §1). B-LOGIC and F5 fuses. Slip ring CH4 and the 1k resistor. VrB not at zero. |
 | Start-up sound plays, nothing else | Radio link down: see "Holos and radio" below |
 | Wrong sound for the mood | File numbers don't match the bank table |
+| Most mood sounds are silent | The phrase files are missing, or the bank counts don't match the card. Copy them, set the counts, or set `MOOD_SOUND_SOURCE` to `MOOD_SOUNDS_CLIPS_ONLY` ([Sound Setup](SOUND_SETUP.md) §1). |
+| R2 is quiet for a minute or more | Normal in General and Sad: see how often each mood talks in the [Operating Guide](OPERATING_GUIDE.md#sounds). Still is silent apart from SwB. |
 | Hum or buzz | Ground-loop isolator bypassed or missing |
 
 ## Holos and radio
@@ -57,6 +59,8 @@ Find the symptom, then work down its checks in order.
 | No lights | D-LOGIC fuse. Dome buck output 4.9–5.1V. F4 and slip ring CH1/CH2. |
 | One display dark | Its cable and connector on the AstroPixels board |
 | Lights flicker when servos move | The holo servos must be powered from D-SERVO through the PCA9685 V+ terminal, never from D-LOGIC |
+| Holo LEDs dark most of the time | Normal: as stock, each holo flickers blue for 5–25 s every 45–180 s |
+| A holo glows pale white | Normal: the holo lamp while R2 studies something ([Operating Guide](OPERATING_GUIDE.md#lights)). Its brightness is `kLampLevel` in `AstroPixelsPlus/R2Eyes.h`. |
 
 ## Resetting the dome firmware
 
