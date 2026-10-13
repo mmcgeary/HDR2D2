@@ -107,6 +107,34 @@ inline uint8_t dialPosition(uint16_t us, uint8_t positions)
     return pos < positions ? pos : positions - 1;
 }
 
+// dialPosition() with hysteresis: a dial resting on the edge between two
+// positions stays on the one it was in until it is clearly past the edge.
+class DialSelector
+{
+public:
+    static const uint16_t kHysteresisUs = 15;
+
+    uint8_t update(uint16_t us, uint8_t positions)
+    {
+        uint8_t pos = dialPosition(us, positions);
+        if (fHave && pos != fPos && fPos < positions)
+        {
+            // The current position's band, widened by the hysteresis.
+            uint32_t lo = 1000 + uint32_t(fPos) * 1001 / positions;
+            uint32_t hi = 1000 + uint32_t(fPos + 1) * 1001 / positions;
+            if (uint32_t(us) + kHysteresisUs >= lo && uint32_t(us) < hi + kHysteresisUs)
+                return fPos;
+        }
+        fHave = true;
+        fPos = pos;
+        return pos;
+    }
+
+private:
+    bool fHave = false;
+    uint8_t fPos = 0;
+};
+
 // Fires once each time a switch moves to on.
 class EdgeTrigger
 {

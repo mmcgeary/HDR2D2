@@ -102,6 +102,37 @@ class GoToTest(unittest.TestCase):
             CHECK(prev == 1500);
         """)
 
+    def test_step_limit_holds_at_the_real_loop_rate(self):
+        # The ESP32 loop runs every 1-3 ms, not every 20: the pulse still moves
+        # at most 10 us per 20 ms, and the move still gets there.
+        run(r"""
+            for (uint32_t stepMs = 1; stepMs <= 3; stepMs++)
+            {
+                DomeMotion m; DomeTracker model; uint32_t now = 0; float a = 0;
+                tick(m, model, now, a, domeHold());
+                uint16_t prev = 1500; uint16_t windowStart = 1500; uint32_t windowMs = now; int worst = 0;
+                DomeRequest req = domeGoTo(90, 75, 0.35f);
+                for (int i = 0; i < 60000 && !m.arrived(); i++)
+                {
+                    now += stepMs;
+                    uint16_t p = m.update(now, true, 1500, req, true, a, model);
+                    a += float(m.direction()) * model.speedDps(m.direction(), m.offsetUs()) * 0.001f * float(stepMs);
+                    CHECK(std::abs(int(p) - int(prev)) <= 1 + int(stepMs));
+                    if (now - windowMs >= 20)
+                    {
+                        int j = std::abs(int(p) - int(windowStart));
+                        if (j > worst) worst = j;
+                        windowStart = p; windowMs = now;
+                    }
+                    prev = p;
+                }
+                CHECK(m.arrived());
+                CHECK_NEAR(a, 90, 4);
+                CHECK(worst <= 11);   // 10 us per 20 ms; a window can span 21 ms at 3 ms passes
+                CHECK(worst >= 9);    // and the limit is actually used
+            }
+        """)
+
     def test_target_clamped_to_135(self):
         run(r"""
             DomeMotion m; DomeTracker model; uint32_t now = 0; float a = 0;

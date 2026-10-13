@@ -42,7 +42,7 @@ flowchart LR
 | Play a mood sound, with a gesture | SwB |
 | Mood: sets what R2 says and how it moves | VrA |
 | Volume | VrB |
-| Lights | Always on, stock AstroPixels patterns |
+| Lights | Always on: stock AstroPixels patterns, paced by the mood. A holo lights up while R2 studies something. |
 
 ## Documents
 

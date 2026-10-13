@@ -66,7 +66,7 @@ Film clips follow the same steps in their own banks: the next free number from t
 | Setting | Moods play |
 | --- | --- |
 | `MOOD_SOUNDS_CLIPS_ONLY` | Film clips only (`0001`–`0125`) |
-| `MOOD_SOUNDS_EXTENDED` | Film clips and phrases, picked evenly from both. The default. |
+| `MOOD_SOUNDS_EXTENDED` | Film clips and phrases. The default. Every file in the mood's two banks is equally likely, so the bigger bank plays more often: with 120 phrases, a film clip is about 1 sound in 7 in General and 1 in 40 in Whistle. |
 | `MOOD_SOUNDS_GENERATED_ONLY` | Phrases only (`0301`–`1050`) |
 
 Both sets of files stay on the card. Change the setting, then rebuild and reflash. A card with no phrase files uses `MOOD_SOUNDS_CLIPS_ONLY`.

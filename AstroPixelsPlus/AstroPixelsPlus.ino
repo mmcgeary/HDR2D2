@@ -1061,36 +1061,66 @@ I2CReceiverBase<CONSOLE_BUFFER_SIZE> i2cReceiver(USE_I2C_ADDRESS, [](char *cmd)
 #endif
 
 ////////////////
-// Alive Lighting Synchronizer:
-// Modulates FLD/RLD flicker delays (canon Blue/White and Red/Yellow/Green preserved),
-// PSI sliding color wipe sweep speeds (Front Red<->Blue, Rear Yellow<->Green preserved),
-// and Holoprojector inspection lamp fading based on mood and deliberate inspection holds.
+// HDR2D2: lights follow the mood (kMoodProfiles in R2Mood.h). The logic
+// displays keep their stock colours with the mood's pauses, shorter for 2 s
+// after each sound. The PSIs keep their stock colour wipe at the mood's speed.
+// A holo shows a pale lamp while its eye holds on something (R2Eyes.h) and its
+// stock flicker the rest of the time.
+
+static void sendHoloCommand(char holo, const char* function)
+{
+    char cmd[] = {'H', 'P', holo, '0', function[0], function[1], '\0'};
+    CommandEvent::process(cmd);
+}
+
+// shownOwned / shownLevel: what this holo was last given.
+static void showHoloLamp(HoloLights& holo, char id, uint8_t eye, bool& shownOwned, uint8_t& shownLevel)
+{
+    bool owned = r2Remote.holoLampOwned(eye);
+    uint8_t level = owned ? r2Remote.holoLampLevel(eye) : 0;
+    if (owned && !shownOwned)
+        sendHoloCommand(id, "98"); // stock flicker off; the holo goes dark
+    if (owned && level != shownLevel)
+    {
+        for (uint16_t i = 0; i < holo.numPixels(); i++)
+            holo.setPixelColor(i, level, level, level);
+        holo.dirty();
+    }
+    if (!owned && shownOwned)
+        sendHoloCommand(id, "99"); // stock flicker back on; the holo goes dark until it next flickers
+    shownOwned = owned;
+    shownLevel = level;
+}
 
 void updateAliveLighting()
 {
+    static uint8_t sPsiMood = 0;
+    static bool sLampOwned[3] = {false, false, false};
+    static uint8_t sLampLevel[3] = {0, 0, 0};
+
     uint8_t mood = r2Remote.activeMood();
     const r2::MoodProfile& profile = r2::moodProfile(mood);
-    bool vocalizing = sMarcSound.isVocalizing();
+    bool speaking = sMarcSound.isVocalizing();
 
-    // FLD / RLD: Strict canon colors preserved (Front: Blue/White; Rear: Red/Yellow/Green).
-    // Modulate flicker delay dynamically: reduce by 50% during speech for rapid chatter.
-    uint8_t fldDelay = vocalizing ? (profile.fldDelay > 1 ? profile.fldDelay / 2 : 1) : profile.fldDelay;
-    uint8_t rldDelay = vocalizing ? (profile.rldDelay > 1 ? profile.rldDelay / 2 : 1) : profile.rldDelay;
+    uint8_t fldDelay = speaking ? r2::speakingDelay(profile.fldDelay) : profile.fldDelay;
+    uint8_t rldDelay = speaking ? r2::speakingDelay(profile.rldDelay) : profile.rldDelay;
     if (FLD.getDelay() != fldDelay)
         FLD.setDelay(fldDelay);
     if (RLD.getDelay() != rldDelay)
         RLD.setDelay(rldDelay);
 
-    // PSIs: Sliding color wipe baseline preserved (Front: Red <-> Blue, Rear: Yellow <-> Green).
-    // Modulate sweep speed by current mood.
-    frontPSI.setEffectDelay(profile.psiSpeedMs);
-    rearPSI.setEffectDelay(profile.psiSpeedMs);
+    // Only on a mood change: selecting the sequence restarts the wipe.
+    if (mood != sPsiMood)
+    {
+        sPsiMood = mood;
+        uint8_t speed = r2::psiSpeedScale(profile.psiSpeedMs);
+        frontPSI.selectSequence(LogicEngineDefaults::PSICOLORWIPE, LogicEngineDefaults::kRed, speed);
+        rearPSI.selectSequence(LogicEngineDefaults::PSICOLORWIPE, LogicEngineDefaults::kYellow, speed);
+    }
 
-    // Holoprojectors (Front, Rear, Top):
-    // Modulate pale inspection beam during deliberate inspection holds.
-    frontHolo.setBrightness(r2Remote.holoBrightness(r2::kFrontEye));
-    rearHolo.setBrightness(r2Remote.holoBrightness(r2::kRearEye));
-    topHolo.setBrightness(r2Remote.holoBrightness(r2::kTopEye));
+    showHoloLamp(frontHolo, 'F', r2::kFrontEye, sLampOwned[r2::kFrontEye], sLampLevel[r2::kFrontEye]);
+    showHoloLamp(rearHolo, 'R', r2::kRearEye, sLampOwned[r2::kRearEye], sLampLevel[r2::kRearEye]);
+    showHoloLamp(topHolo, 'T', r2::kTopEye, sLampOwned[r2::kTopEye], sLampLevel[r2::kTopEye]);
 }
 
 ////////////////

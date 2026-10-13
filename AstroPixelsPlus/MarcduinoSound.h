@@ -138,9 +138,11 @@ public:
         kHCR
     };
 
+    // HDR2D2: true for 2 seconds after a sound starts. The DFPlayer's BUSY pin
+    // has no slip ring contact, so the firmware can't see when a sound ends.
     bool isVocalizing() const
     {
-        return false;
+        return fModule != kDisabled && fPlayedAny && millis() - fPlayedMs < kVocalizeMs;
     }
 
     void idle()
@@ -209,6 +211,7 @@ public:
             filenum = (bank - 1) * MP3_MAX_SOUNDS_PER_BANK + sound;
         }
 
+        notePlayed(); // HDR2D2
         switch (fModule)
         {
             case kDisabled:
@@ -278,6 +281,7 @@ public:
 
     void playFile(uint16_t filenum)
     {
+        notePlayed();
         switch (fModule)
         {
             case kDisabled:
@@ -621,6 +625,17 @@ public:
     }
 
 private:
+    // HDR2D2: when the last sound started, for isVocalizing().
+    static const uint32_t kVocalizeMs = 2000;
+    uint32_t fPlayedMs = 0;
+    bool fPlayedAny = false;
+
+    void notePlayed()
+    {
+        fPlayedMs = millis();
+        fPlayedAny = true;
+    }
+
     DFRobotDFPlayerMini fDFMini;
     Stream* fStream = nullptr;
     float fVolume = 0.5;
