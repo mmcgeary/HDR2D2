@@ -42,6 +42,16 @@ The mood sets what R2 says and how it moves.
 | Whistle | Attentive. Looks often include a glance back toward front. |
 | Mixed | Changes to a different mood every 1–3 minutes. |
 
+## Lights
+
+The lights keep their stock colours and patterns. The mood sets their pace:
+
+| Lights | Behaviour |
+| --- | --- |
+| Logics | General runs at stock speed. Chat, Happy and Whistle flicker faster, Sad slower. Both speed up for 2 seconds after each sound. |
+| PSIs | Sweep at stock speed in Chat, Happy and Whistle, a little slower in General, slowest in Sad. |
+| Holos | Flicker blue now and then, as stock. While R2 studies something, the front holo glows pale white; the top and rear holos do the same now and then. Never in Sad. |
+
 ## SwB
 
 - Flip SwB down to play one sound from the current mood, at any level. Flip it up, then down again, for another.

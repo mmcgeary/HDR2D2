@@ -30,37 +30,42 @@ class MoodTableTest(unittest.TestCase):
 
     def test_alive_lighting_parameters(self):
         run(r"""
-            const MoodProfile& gen = moodProfile(kGeneral);
-            CHECK(gen.psiSpeedMs == 120);
-            CHECK(gen.fldDelay == 5);
-            CHECK(gen.rldDelay == 5);
-            CHECK(gen.holoHoldChancePct == 15);
-
-            const MoodProfile& chat = moodProfile(kChat);
-            CHECK(chat.psiSpeedMs == 80);
-            CHECK(chat.fldDelay == 3);
-            CHECK(chat.rldDelay == 3);
-            CHECK(chat.holoHoldChancePct == 35);
-
-            const MoodProfile& hap = moodProfile(kHappy);
-            CHECK(hap.psiSpeedMs == 60);
-            CHECK(hap.fldDelay == 2);
-            CHECK(hap.rldDelay == 2);
-            CHECK(hap.holoHoldChancePct == 25);
-
-            const MoodProfile& sad = moodProfile(kSad);
-            CHECK(sad.psiSpeedMs == 250);
-            CHECK(sad.fldDelay == 12);
-            CHECK(sad.rldDelay == 12);
-            CHECK(sad.holoHoldChancePct == 0);
-
-            const MoodProfile& whi = moodProfile(kWhistle);
-            CHECK(whi.psiSpeedMs == 50);
-            CHECK(whi.fldDelay == 2);
-            CHECK(whi.rldDelay == 2);
-            CHECK(whi.holoHoldChancePct == 40);
+            // Logic pauses around stock (front 10, rear 40): General is stock,
+            // livelier moods shorter, Sad longer.
+            CHECK(moodProfile(kGeneral).fldDelay == 10 && moodProfile(kGeneral).rldDelay == 40);
+            for (uint8_t m = kChat; m <= kWhistle; m++) {
+                const MoodProfile& p = moodProfile(m);
+                if (m == kSad) { CHECK(p.fldDelay > 10 && p.rldDelay > 40); }
+                else { CHECK(p.fldDelay < 10 && p.rldDelay < 40 && p.fldDelay >= 5 && p.rldDelay >= 20); }
+                CHECK(p.psiSpeedMs % 50 == 0);
+            }
+            CHECK(moodProfile(kSad).holoHoldChancePct == 0);
+            CHECK(moodProfile(kWhistle).holoHoldChancePct == 40);
         """)
 
+    def test_psi_speed_scale(self):
+        run(r"""
+            CHECK(psiSpeedScale(0) == 0);
+            CHECK(psiSpeedScale(50) == 0);     // stock
+            CHECK(psiSpeedScale(100) == 1);
+            CHECK(psiSpeedScale(200) == 3);
+            CHECK(psiSpeedScale(130) == 2);    // nearest 50 ms
+            CHECK(psiSpeedScale(500) == 9);
+            CHECK(psiSpeedScale(2000) == 9);
+        """)
+
+    def test_speaking_delay(self):
+        run(r"""
+            CHECK(speakingDelay(40) == 24);
+            CHECK(speakingDelay(10) == 6);
+            CHECK(speakingDelay(5) == 3);
+            CHECK(speakingDelay(4) == 3);      // never below 3
+            CHECK(speakingDelay(2) == 2);      // nor above the mood's own
+            for (uint8_t m = kGeneral; m <= kWhistle; m++) {
+                CHECK(speakingDelay(moodProfile(m).fldDelay) < moodProfile(m).fldDelay);
+                CHECK(speakingDelay(moodProfile(m).rldDelay) < moodProfile(m).rldDelay);
+            }
+        """)
 
     def test_lookup_defaults_to_general(self):
         run(r"""

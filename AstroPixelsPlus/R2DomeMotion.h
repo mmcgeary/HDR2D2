@@ -102,6 +102,7 @@ public:
             fFrac = 0.0f;
             fMoveDir = 0;
             fManual = false;
+            fStepCarry = 0.0f;
             fPulse = fNeutral;
             return fNeutral;
         }
@@ -111,6 +112,7 @@ public:
             fFrac = 0.0f;
             fMoveDir = 0;
             fArrived = false;
+            fStepCarry = 0.0f;
             fPulse = stickUs;
             return stickUs;
         }
@@ -232,14 +234,20 @@ public:
                 offset = fCfg.minMoveOffsetUs;
         }
         int32_t target = int32_t(fNeutral) + int32_t(dir) * int32_t(offset);
-        int32_t limit = int32_t(fCfg.maxStepUs * dt / 0.02f + 0.001f);
-        if (limit < 1 && dt > 0.0f)
-            limit = 1;
+        // The loop runs every few ms: the part of a microsecond the limit allows
+        // this pass carries to the next, so the pulse moves maxStepUs per 20 ms
+        // at any loop rate. Nothing carries while the limit isn't holding it back.
+        float allow = fStepCarry + fCfg.maxStepUs * dt / 0.02f;
+        int32_t limit = int32_t(allow + 0.001f);
         int32_t step = target - int32_t(fPulse);
         if (step > limit)
             step = limit;
         if (step < -limit)
             step = -limit;
+        bool held = step == limit || step == -limit;
+        fStepCarry = held && target != int32_t(fPulse) + step ? allow - float(limit) : 0.0f;
+        if (fStepCarry < 0.0f)
+            fStepCarry = 0.0f;
         fPulse = uint16_t(int32_t(fPulse) + step);
         return fPulse;
     }
@@ -303,6 +311,7 @@ private:
     float fCruise = 0.0f;
     float fEase = 0.5f;
     float fReqEase = -1.0f;
+    float fStepCarry = 0.0f;
     int8_t fMoveDir = 0;
     int8_t fGoDir = 0;
     bool fBraking = false;

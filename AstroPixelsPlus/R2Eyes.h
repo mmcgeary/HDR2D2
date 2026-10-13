@@ -256,34 +256,30 @@ private:
 };
 
 ////////////////////////////////
-// Holoprojector Inspection Lamp Fader
-// Symmetrically monitors look/hold state on Front, Rear, and Top holoprojectors.
-// Fades in a pale inspection beam (~25% brightness) over 250ms during deliberate
-// inspection holds (>= 1.5s), sustains through the hold, and smoothly fades out over 350ms.
+// Holo lamps: a pale beam in a holo while its eye holds on something. A lamp
+// waits until the eye's move has finished, fades in, holds, and fades out as
+// the hold ends or when released. level() is the pixel level to paint (0 = the
+// lamp is not lit); owned() is true from the trigger until the fade-out ends,
+// while the lamp, not the stock holo flicker, decides what the holo shows.
 
 class HoloLampFader
 {
 public:
     static const uint8_t kLamps = 3;
-    static const uint8_t kMaxBrightness = 64; // Pale beam (~25% of 255 PWM)
+    // Pixel level of the lit beam, before the holo's own brightness (100/255).
+    static const uint8_t kLampLevel = 128;
     static const uint32_t kFadeInMs = 250;
     static const uint32_t kFadeOutMs = 350;
+    // Shortest hold that lights a wandering eye's lamp.
     static const uint32_t kMinHoldMs = 1500;
 
     enum State : uint8_t
     {
         kIdle,
+        kWaiting,
         kFadeIn,
         kHold,
         kFadeOut
-    };
-
-    struct Lamp
-    {
-        State state;
-        uint32_t startMs;
-        uint32_t holdUntilMs;
-        uint8_t brightness;
     };
 
     HoloLampFader()
@@ -293,23 +289,37 @@ public:
             fLamps[i].state = kIdle;
             fLamps[i].startMs = 0;
             fLamps[i].holdUntilMs = 0;
-            fLamps[i].brightness = 0;
+            fLamps[i].from = 0;
+            fLamps[i].level = 0;
         }
     }
 
-    // Trigger inspection lamp on deliberate hold (>= 1500ms) with mood-scaled probability
-    bool triggerHold(uint8_t eye, uint32_t nowMs, uint32_t holdMs, uint8_t chancePct, RandomFn rnd)
+    // Lights a lamp after delayMs (the eye's move) for holdMs (the eye's hold),
+    // with chancePct. Holds shorter than kMinHoldMs are ignored. The fade-out
+    // ends as the hold does.
+    bool triggerHold(uint8_t eye, uint32_t nowMs, uint32_t delayMs, uint32_t holdMs, uint8_t chancePct, RandomFn rnd)
     {
         if (eye >= kLamps || holdMs < kMinHoldMs)
             return false;
         if (!chance(chancePct, rnd))
             return false;
-
-        fLamps[eye].state = kFadeIn;
-        fLamps[eye].startMs = nowMs;
-        fLamps[eye].holdUntilMs = nowMs + holdMs;
-        fLamps[eye].brightness = 0;
+        Lamp& lamp = fLamps[eye];
+        lamp.state = kWaiting;
+        lamp.startMs = nowMs + delayMs;
+        lamp.holdUntilMs = lamp.startMs + holdMs - kFadeOutMs;
         return true;
+    }
+
+    // Ends a lamp early: fades out from where it is, or never lights.
+    void release(uint8_t eye, uint32_t nowMs)
+    {
+        if (eye >= kLamps)
+            return;
+        Lamp& lamp = fLamps[eye];
+        if (lamp.state == kWaiting)
+            lamp.state = kIdle;
+        else if (lamp.state == kFadeIn || lamp.state == kHold)
+            startFadeOut(lamp, nowMs);
     }
 
     void update(uint32_t nowMs)
@@ -317,10 +327,18 @@ public:
         for (uint8_t i = 0; i < kLamps; i++)
         {
             Lamp& lamp = fLamps[i];
+            if (lamp.state == kWaiting && int32_t(nowMs - lamp.startMs) >= 0)
+            {
+                lamp.state = kFadeIn;
+                lamp.startMs = nowMs;
+            }
+            if ((lamp.state == kFadeIn || lamp.state == kHold) && int32_t(nowMs - lamp.holdUntilMs) >= 0)
+                startFadeOut(lamp, nowMs);
             switch (lamp.state)
             {
                 case kIdle:
-                    lamp.brightness = 0;
+                case kWaiting:
+                    lamp.level = 0;
                     break;
                 case kFadeIn:
                 {
@@ -328,74 +346,55 @@ public:
                     if (elapsed >= kFadeInMs)
                     {
                         lamp.state = kHold;
-                        lamp.brightness = kMaxBrightness;
+                        lamp.level = kLampLevel;
                     }
                     else
-                    {
-                        lamp.brightness = uint8_t((uint32_t(elapsed) * kMaxBrightness) / kFadeInMs);
-                    }
+                        lamp.level = uint8_t(elapsed * kLampLevel / kFadeInMs);
                     break;
                 }
                 case kHold:
-                {
-                    if (int32_t(nowMs - lamp.holdUntilMs) >= 0)
-                    {
-                        lamp.state = kFadeOut;
-                        lamp.startMs = nowMs;
-                        lamp.brightness = kMaxBrightness;
-                    }
-                    else
-                    {
-                        lamp.brightness = kMaxBrightness;
-                    }
+                    lamp.level = kLampLevel;
                     break;
-                }
                 case kFadeOut:
                 {
                     uint32_t elapsed = nowMs - lamp.startMs;
                     if (elapsed >= kFadeOutMs)
                     {
                         lamp.state = kIdle;
-                        lamp.brightness = 0;
+                        lamp.level = 0;
                     }
                     else
-                    {
-                        lamp.brightness = uint8_t(kMaxBrightness - (uint32_t(elapsed) * kMaxBrightness) / kFadeOutMs);
-                    }
+                        lamp.level = uint8_t(lamp.from - elapsed * lamp.from / kFadeOutMs);
                     break;
                 }
             }
         }
     }
 
-    uint8_t brightness(uint8_t eye) const
-    {
-        return eye < kLamps ? fLamps[eye].brightness : 0;
-    }
+    uint8_t level(uint8_t eye) const { return eye < kLamps ? fLamps[eye].level : 0; }
 
-    State state(uint8_t eye) const
-    {
-        return eye < kLamps ? fLamps[eye].state : kIdle;
-    }
+    bool owned(uint8_t eye) const { return eye < kLamps && fLamps[eye].state != kIdle; }
 
-    void cancel(uint8_t eye)
-    {
-        if (eye < kLamps)
-        {
-            fLamps[eye].state = kIdle;
-            fLamps[eye].brightness = 0;
-        }
-    }
-
-    void cancelAll()
-    {
-        for (uint8_t i = 0; i < kLamps; i++)
-            cancel(i);
-    }
+    State state(uint8_t eye) const { return eye < kLamps ? fLamps[eye].state : kIdle; }
 
 private:
+    struct Lamp
+    {
+        State state;
+        uint32_t startMs;
+        uint32_t holdUntilMs;
+        uint8_t from;
+        uint8_t level;
+    };
+
     Lamp fLamps[kLamps];
+
+    static void startFadeOut(Lamp& lamp, uint32_t nowMs)
+    {
+        lamp.state = kFadeOut;
+        lamp.startMs = nowMs;
+        lamp.from = lamp.level;
+    }
 };
 
 } // namespace r2
-

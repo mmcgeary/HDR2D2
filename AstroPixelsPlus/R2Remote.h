@@ -37,6 +37,8 @@
 #define R2_STICK_BAND_US 80
 #define R2_VOLUME_SAVE_DELAY_MS 3000
 #define R2_SPEED_SAVE_INTERVAL_MS 300000
+// Longest the front holo lamp stays lit for one look.
+#define R2_FRONT_LAMP_MAX_MS 8000
 #define PREFERENCE_R2_DOME_SPEEDS "r2speeds"
 
 static uint32_t r2Random(uint32_t lo, uint32_t hi)
@@ -134,12 +136,16 @@ public:
         report(mood);
     }
 
-    uint8_t holoBrightness(uint8_t eye) const { return fHoloLamps.brightness(eye); }
+    // Holo lamp for an eye: the pixel level to show, and whether the lamp
+    // rather than the stock holo flicker owns that holo right now.
+    uint8_t holoLampLevel(uint8_t eye) const { return fHoloLamps.level(eye); }
+    bool holoLampOwned(uint8_t eye) const { return fHoloLamps.owned(eye); }
     uint8_t activeMood() const { return fMoods.active(); }
 
 private:
     r2::IbusParser fIbus;
     r2::EdgeTrigger fPlaySwitch;
+    r2::DialSelector fMoodDial;
     r2::VolumeDial fVolumeDial;
     r2::MoodSelector fMoods;
     r2::DomeTracker fTracker;
@@ -150,7 +156,6 @@ private:
     r2::ChameleonEye fTopEye;
     r2::HoloLampFader fHoloLamps;
     uint8_t fBlipTail = 0;
-
 
     bool fRadioSeen = false;
     bool fRadio = false;
@@ -201,7 +206,7 @@ private:
         fLevel = r2::switchLevel(fIbus.channel(R2_CH_LEVEL));
         if (fPlaySwitch.update(r2::switchOn(fIbus.channel(R2_CH_PLAY_SOUND))))
             fSwbPressed = true;
-        fDialMood = r2::dialPosition(fIbus.channel(R2_CH_MOOD), r2::kMoodCount);
+        fDialMood = fMoodDial.update(fIbus.channel(R2_CH_MOOD), r2::kMoodCount);
 
         int level = fVolumeDial.update(fIbus.channel(R2_CH_VOLUME));
         if (level >= 0)
@@ -225,16 +230,31 @@ private:
         applyEyeMove(r2::kRearEye, moveRear);
         applyEyeMove(r2::kTopEye, moveTop);
 
-        if (moveFront.pending && fFrontEye.lastHoldMs() >= r2::HoloLampFader::kMinHoldMs)
-            fHoloLamps.triggerHold(r2::kFrontEye, now, fFrontEye.lastHoldMs(), profile.holoHoldChancePct, r2Random);
-        if (moveRear.pending && fRearEye.lastHoldMs() >= r2::HoloLampFader::kMinHoldMs)
-            fHoloLamps.triggerHold(r2::kRearEye, now, fRearEye.lastHoldMs(), profile.holoHoldChancePct, r2Random);
-        if (moveTop.pending && fTopEye.lastHoldMs() >= r2::HoloLampFader::kMinHoldMs)
-            fHoloLamps.triggerHold(r2::kTopEye, now, fTopEye.lastHoldMs(), profile.holoHoldChancePct, r2Random);
-
+        // Lamps: the front holo lights for a look once its eye gets there and
+        // stays lit until the eye leaves the look. The rear and top holos light
+        // now and then while their eyes hold still.
+        if (!out.eyesActive)
+        {
+            for (uint8_t eye = 0; eye < 3; eye++)
+                fHoloLamps.release(eye, now);
+        }
+        else
+        {
+            if (out.eyeCue == r2::kCueLook && moveFront.pending)
+                fHoloLamps.triggerHold(r2::kFrontEye, now, moveFront.durationMs, R2_FRONT_LAMP_MAX_MS,
+                                       profile.holoHoldChancePct, r2Random);
+            else if (!fFrontEye.looking())
+                fHoloLamps.release(r2::kFrontEye, now);
+            uint8_t wanderChance = profile.holoHoldChancePct / 4;
+            if (moveRear.pending)
+                fHoloLamps.triggerHold(r2::kRearEye, now, moveRear.durationMs, fRearEye.lastHoldMs(), wanderChance,
+                                       r2Random);
+            if (moveTop.pending)
+                fHoloLamps.triggerHold(r2::kTopEye, now, moveTop.durationMs, fTopEye.lastHoldMs(), wanderChance,
+                                       r2Random);
+        }
         fHoloLamps.update(now);
     }
-
 
     // Both servos of an eye start together and take the same time.
     static void applyEyeMove(uint8_t eye, const r2::EyeMove& move)

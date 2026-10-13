@@ -103,6 +103,23 @@ class ControlsTest(unittest.TestCase):
             CHECK(dialPosition(2100, 6) == 5);
         """)
 
+    def test_dial_selector_holds_at_an_edge(self):
+        run(r"""
+            // 6 positions: the edge between 0 and 1 is at about 1167 us.
+            DialSelector d;
+            CHECK(d.update(1100, 6) == 0);
+            CHECK(d.update(1168, 6) == 0);     // just past the edge: stays
+            CHECK(d.update(1180, 6) == 0);
+            CHECK(d.update(1165, 6) == 0);
+            CHECK(d.update(1183, 6) == 1);     // clearly past: moves
+            CHECK(d.update(1160, 6) == 1);     // and now holds the other way
+            CHECK(d.update(1152, 6) == 1);
+            CHECK(d.update(1150, 6) == 0);
+            CHECK(d.update(1500, 6) == 2);     // a big turn moves at once
+            DialSelector fresh;
+            CHECK(fresh.update(1170, 6) == 1); // first reading: no history
+        """)
+
     def test_switches(self):
         run(r"""
             CHECK(!switchOn(1000)); CHECK(switchOn(2000));

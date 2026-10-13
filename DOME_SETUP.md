@@ -45,7 +45,7 @@ Wi-Fi is off. The droid needs no Wi-Fi to run. To use the stock web page or Wi-F
 1. Fit D-LOGIC (3A). Leave D-SERVO out.
 2. Power on.
 
-**Pass:** the front logic scrolls "R2D2", the rear logic scrolls "AstroPixels", then both run their normal patterns. PSIs and holo LEDs light.
+**Pass:** the front logic scrolls "R2D2", the rear logic scrolls "AstroPixels", then both run their normal patterns. The PSIs sweep and each holo flickers blue within a few seconds.
 
 ## 3. Holo servos
 

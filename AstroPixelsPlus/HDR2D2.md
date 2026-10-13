@@ -6,7 +6,7 @@ This folder is stock [reeltwo/AstroPixelsPlus](https://github.com/reeltwo/AstroP
 | --- | --- |
 | `R2Logic.h` | iBUS decoding, switches, dials, volume |
 | `R2Mood.h` | Mood profiles: every behaviour number, one row per mood |
-| `R2Eyes.h` | Holo eyes: leading front eye, independent top and rear eyes, per-axis direction flips |
+| `R2Eyes.h` | Holo eyes: leading front eye, independent top and rear eyes, per-axis direction flips; holo lamps |
 | `R2DomeTracker.h` | Dome angle from the body magnet ring, learned dome speeds, reading the magnet blips in order |
 | `R2DomeMotion.h` | Eased dome moves, stick pass-through |
 | `R2Attention.h` | When R2 looks, where, what it says, SwB gestures, levels and interruptions |
@@ -26,6 +26,8 @@ Every change in a stock file is marked with a `HDR2D2` comment. `git diff a242c7
 | `AstroPixelsPlus.ino` | Wi-Fi and the ESP-NOW droid remote off by default |
 | `AstroPixelsPlus.ino` | Dome servo pin held low from the first line of `setup()` |
 | `AstroPixelsPlus.ino` | Calls `r2Remote.setup()` and `r2Remote.loop()` |
+| `AstroPixelsPlus.ino` | `updateAliveLighting()`: logic pauses and PSI wipe speed follow the mood; holo lamps take over a holo while lit |
+| `MarcduinoSound.h` | `isVocalizing()`: true for 2 seconds after a sound starts (the DFPlayer's BUSY pin isn't wired) |
 | `MarcduinoSound.h` | DFPlayer plays `/mp3/NNNN.mp3` by number (`playMp3Folder`), not by copy order |
 | `MarcduinoSound.h` | DFPlayer ACKs off after start-up: each command takes 10 ms and never waits for a reply |
 | `platformio.ini` | Library versions pinned |
@@ -76,6 +78,8 @@ The module prints these messages at 115200 baud. Read them only with the module 
 | `[R2] behaviour rest` / `looking` / `returning` / `gesture` / `manual` | What the planner is doing |
 | `[R2] dome position found` / `lost` | The magnet count is in step, or was lost |
 | `[R2] dome looks off: ...` | Two seeks failed. SwC to Still resets. |
+| `COMMAND: HPF098` (or `HPR`, `HPT`) | A holo lamp takes over that holo; its stock flicker pauses |
+| `COMMAND: HPF099` (or `HPR`, `HPT`) | The lamp has faded out; stock flicker resumes |
 
 Stock serial commands still work. Examples:
 
@@ -90,7 +94,10 @@ Stock serial commands still work. Examples:
 
 | Setting | Location |
 | --- | --- |
-| Every behaviour number per mood (look interval, angle, speed, holds, chances, holo range and speed) | `kMoodProfiles` in `R2Mood.h` |
+| Every behaviour number per mood (look interval, angle, speed, holds, chances, holo range and speed, logic pauses, PSI speed, holo lamp chance) | `kMoodProfiles` in `R2Mood.h` |
+| Logic speed-up while speaking | `speakingDelay()` in `R2Mood.h`; its 2-second window is `kVocalizeMs` in `MarcduinoSound.h` |
+| Holo lamp brightness and fades | `HoloLampFader` constants in `R2Eyes.h` |
+| Longest front holo lamp per look | `R2_FRONT_LAMP_MAX_MS` in `R2Remote.h` |
 | Holo servo ranges | Servo table (`servoSettings`) in `AstroPixelsPlus.ino` |
 | Holo direction | `kEyeFlipH` / `kEyeFlipV` in `R2Eyes.h` |
 | Stick deadband, final approach speed, step limit | `DomeMotion::defaults()` in `R2DomeMotion.h` |
