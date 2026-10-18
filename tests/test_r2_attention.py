@@ -191,9 +191,10 @@ class InterruptionTest(unittest.TestCase):
             r.in.stick = true; r.log.clear();
             r.run(500);
             CHECK(std::strcmp(r.att.phase(), "manual") == 0);
-            r.in.stick = false;
+            CHECK(r.log == "ER ");                   // the eye comes home at once
+            r.in.stick = false; r.log.clear();
             r.run(2900);
-            CHECK(r.log.empty());                    // waits 3 s after release
+            CHECK(r.log.empty());                    // the dome waits 3 s after release
             r.run(400);
             CHECK(r.log == "ER D0 ");
         """)
@@ -215,6 +216,51 @@ class InterruptionTest(unittest.TestCase):
             CHECK(!r.last.calm);
         """)
 
+
+    def test_aware_driving_leaves_the_dome_and_returns_the_eye(self):
+        run(r"""
+            Rig r(lowest, kAware, kGeneral);
+            r.dome.angle = 60;                       // the operator left the dome turned
+            r.run(13300);                            // look under way: eye out, readjust still queued
+            CHECK(r.has("EL+ "));
+            r.in.driving = true; r.log.clear();
+            r.run(2000);
+            CHECK(r.log == "ER ");
+            CHECK(std::fabs(r.dome.angle - 60) < 0.01f);
+        """)
+
+    def test_stick_mid_look_returns_the_eye(self):
+        run(r"""
+            Rig r(lowest, kAware, kGeneral);
+            r.run(12600);                            // look cue at 12.5 s
+            CHECK(r.has("EL+ "));
+            r.in.stick = true; r.log.clear();
+            r.tick();
+            CHECK(r.log == "ER ");
+            r.run(500);
+            CHECK(r.log == "ER ");
+        """)
+
+    def test_no_remark_on_leaving_still(self):
+        run(r"""
+            Rig r(lowest, kAware, kChat);            // remark due 20 s after the start
+            r.run(1000);
+            r.in.level = kStill;
+            r.run(60000);
+            r.in.level = kAware; r.log.clear();
+            r.run(5000);                             // next look at 10 s, next remark at 20 s
+            CHECK(r.log.empty());
+        """)
+
+    def test_no_remark_straight_after_the_stick(self):
+        run(r"""
+            Rig r(highest, kAware, kChat);           // highest: remark every 50 s, no notice sounds
+            r.run(1000);
+            r.in.stick = true; r.run(60000);         // the remark falls due during the stick
+            r.in.stick = false; r.log.clear();
+            r.run(4000);                             // 3 s pause, then a fresh wait
+            CHECK(!r.has("S"));
+        """)
 
 class GestureTest(unittest.TestCase):
     def test_happy_wiggle(self):

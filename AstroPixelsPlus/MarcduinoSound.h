@@ -376,7 +376,8 @@ public:
 
     void stopRandom()
     {
-        fRandomEnabled = true;
+        // HDR2D2: stock set this to true, so a manual sound command turned random chatter on.
+        fRandomEnabled = false;
     }
 
     void suspendRandom()

@@ -190,7 +190,14 @@ public:
         }
         if (cue == kCueFlick)
         {
-            if (fMode != kFlicking)
+            // A gesture ends any look, so a flick from a look comes home.
+            if (fMode == kLooking)
+            {
+                fResumeMode = kRoaming;
+                fFlickBack.h = 0.0f;
+                fFlickBack.v = 0.0f;
+            }
+            else if (fMode != kFlicking)
             {
                 fResumeMode = fMode;
                 fFlickBack = fEye.position();

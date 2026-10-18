@@ -288,15 +288,16 @@ HoloLights topHolo(PIN_TOP_HOLO, HoloLights::kRGB, 3);
 ////////////////////////////////
 // These values will be configurable through the WiFi interface and stored in the preferences.
 // HDR2D2: one PCA9685 (0x40) with only the six holoprojector servos on channels 0-5.
+// ReelTwo numbers PCA9685 pins from 1: pin 1 is channel 0.
 // Range limited to 1000-2000us to protect the MG90S holo mechanisms.
 const ServoSettings servoSettings[] PROGMEM = {
 #ifndef USE_I2C_ADDRESS
-    {0, 1000, 2000, HOLO_HSERVO}, /* 0: horizontal front holo */
-    {1, 1000, 2000, HOLO_VSERVO}, /* 1: vertical front holo */
-    {2, 1000, 2000, HOLO_HSERVO}, /* 2: horizontal rear holo */
-    {3, 1000, 2000, HOLO_VSERVO}, /* 3: vertical rear holo */
-    {4, 1000, 2000, HOLO_HSERVO}, /* 4: horizontal top holo */
-    {5, 1000, 2000, HOLO_VSERVO}, /* 5: vertical top holo */
+    {1, 1000, 2000, HOLO_HSERVO}, /* 0: horizontal front holo, channel 0 */
+    {2, 1000, 2000, HOLO_VSERVO}, /* 1: vertical front holo, channel 1 */
+    {3, 1000, 2000, HOLO_HSERVO}, /* 2: horizontal rear holo, channel 2 */
+    {4, 1000, 2000, HOLO_VSERVO}, /* 3: vertical rear holo, channel 3 */
+    {5, 1000, 2000, HOLO_HSERVO}, /* 4: horizontal top holo, channel 4 */
+    {6, 1000, 2000, HOLO_VSERVO}, /* 5: vertical top holo, channel 5 */
 #endif
 };
 

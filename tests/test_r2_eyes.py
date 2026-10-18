@@ -122,7 +122,7 @@ class LeadingEyeTest(unittest.TestCase):
             CHECK_NEAR(left.to.h, -0.48, 0.001);
         """)
 
-    def test_flick_and_resume(self):
+    def test_flick_mid_look_comes_home(self):
         run(r"""
             LeadingEye e;
             const MoodProfile& m = moodProfile(kGeneral);
@@ -135,10 +135,26 @@ class LeadingEyeTest(unittest.TestCase):
             uint32_t back = 20 + flick.durationMs + 600;
             CHECK(!e.update(back - 1, true, m, kCueNone, 0, false, lowest).pending);
             EyeMove resume = e.update(back, true, m, kCueNone, 0, false, lowest);
+            CHECK(resume.pending);                                // the gesture ended the look
+            CHECK_NEAR(resume.to.h, 0, 0.001);
+            CHECK_NEAR(resume.to.v, 0, 0.001);
+            CHECK(!e.looking());
+        """)
+
+    def test_flick_while_roaming_resumes_where_it_was(self):
+        run(r"""
+            LeadingEye e;
+            const MoodProfile& m = moodProfile(kGeneral);
+            e.update(0, true, m, kCueNone, 0, false, lowest);
+            EyeMove roam = e.update(100000, true, m, kCueNone, 0, false, lowest);
+            CHECK(roam.pending);
+            EyeMove flick = e.update(100000 + roam.durationMs, true, m, kCueFlick, 0, false, lowest);
+            uint32_t back = 100000 + roam.durationMs + flick.durationMs + 600;
+            EyeMove resume = e.update(back, true, m, kCueNone, 0, false, lowest);
             CHECK(resume.pending);
-            CHECK_NEAR(resume.to.h, 0.3, 0.001);
-            CHECK_NEAR(resume.to.v, -0.2, 0.001);
-            CHECK(e.looking());
+            CHECK_NEAR(resume.to.h, roam.to.h, 0.001);
+            CHECK_NEAR(resume.to.v, roam.to.v, 0.001);
+            CHECK(!e.looking());
         """)
 
     def test_inactive_centres(self):
