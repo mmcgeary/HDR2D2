@@ -83,9 +83,11 @@ public:
             {
                 // A look in progress finishes facing front. A dome the operator
                 // turned stays where it is.
+                // Decided on the dome being known, not away: a dome passing front
+                // on its way out would otherwise coast to a stop off front.
                 bool midLook = hasDomeSteps();
                 clear();
-                if (midLook && domeAway(in))
+                if (midLook && in.domeKnown)
                     pushReturn(mood);
                 else
                     returnEye(mood);
@@ -117,14 +119,14 @@ public:
                 fEyeLooking = false;
                 out.eyeCue = kCueReturn;
             }
-            fRemark.update(in.nowMs, false, fRnd);
             fResumeMs = in.nowMs + kResumeMs;
+            fRemark.defer(fResumeMs);
             fPhase = "manual";
             return out;
         }
         if (int32_t(in.nowMs - fResumeMs) < 0)
         {
-            fRemark.update(in.nowMs, false, fRnd);
+            fRemark.defer(fResumeMs);
             if (int32_t(fLookDueMs - fResumeMs) < 0)
                 fLookDueMs = fResumeMs;
             return out;
@@ -142,7 +144,7 @@ public:
             {
                 clear();
                 // Only Alive turns the dome; Aware brings just the eye back.
-                if (level == kAlive && domeAway(in))
+                if (level == kAlive && in.domeKnown)
                     pushReturn(mood);
                 else
                     returnEye(mood);

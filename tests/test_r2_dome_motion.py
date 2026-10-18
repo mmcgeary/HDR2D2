@@ -152,6 +152,19 @@ class GoToTest(unittest.TestCase):
             CHECK_NEAR(a, -100, 4);
         """)
 
+    def test_no_arrival_without_radio(self):
+        run(r"""
+            DomeMotion m; DomeTracker model; uint32_t now = 0; float a = 0;
+            tick(m, model, now, a, domeHold());
+            for (int i = 0; i < 3000 && !m.arrived(); i++) tick(m, model, now, a, domeGoTo(60, 45, 0.6f));
+            CHECK(m.arrived());
+            tick(m, model, now, a, domeGoTo(0, 45, 0.6f, true), 1500, false);   // a return asked for during radio loss
+            CHECK(!m.arrived());                     // the planner must not see the old move's arrival
+            for (int i = 0; i < 3000 && !m.arrived(); i++) tick(m, model, now, a, domeGoTo(0, 45, 0.6f, true));
+            CHECK(m.arrived());
+            CHECK_NEAR(a, 0, 4);
+        """)
+
     def test_unknown_position_holds(self):
         run(r"""
             DomeMotion m; DomeTracker model; uint32_t now = 0; float a = 0;

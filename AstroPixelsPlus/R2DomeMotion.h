@@ -103,6 +103,7 @@ public:
             fMoveDir = 0;
             fManual = false;
             fStepCarry = 0.0f;
+            fArrived = false; // no move completes without radio: a queued return waits for it
             fPulse = fNeutral;
             return fNeutral;
         }

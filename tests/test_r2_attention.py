@@ -217,6 +217,18 @@ class InterruptionTest(unittest.TestCase):
         """)
 
 
+    def test_driving_as_the_dome_passes_front_still_returns(self):
+        run(r"""
+            Rig r(lowest, kAlive, kGeneral);
+            r.run(13000);
+            CHECK(r.has("D25 "));
+            r.run(2000);                             // dome at 25, readjust to 35 requested next
+            r.dome.angle = 1;                        // a move under way, sweeping past front
+            r.in.driving = true; r.log.clear();
+            r.tick();
+            CHECK(r.log == "ER D0 ");
+        """)
+
     def test_aware_driving_leaves_the_dome_and_returns_the_eye(self):
         run(r"""
             Rig r(lowest, kAware, kGeneral);
@@ -258,8 +270,21 @@ class InterruptionTest(unittest.TestCase):
             r.run(1000);
             r.in.stick = true; r.run(60000);         // the remark falls due during the stick
             r.in.stick = false; r.log.clear();
-            r.run(4000);                             // 3 s pause, then a fresh wait
-            CHECK(!r.has("S"));
+            r.run(2900);
+            CHECK(!r.has("S"));                      // quiet through the 3 s pause
+            r.run(300);
+            CHECK(r.has("S2 "));                     // then the overdue remark
+        """)
+
+    def test_remarks_survive_frequent_stick_use(self):
+        run(r"""
+            Rig r(highest, kAware, kGeneral);        // remark every 90 s, no notice sounds
+            for (int i = 0; i < 10; i++)             // the operator steers for 1 s every 30 s
+            {
+                r.in.stick = true; r.run(1000);
+                r.in.stick = false; r.run(29000);
+            }
+            CHECK(r.has("S1 "));
         """)
 
 class GestureTest(unittest.TestCase):

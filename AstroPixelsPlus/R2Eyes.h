@@ -190,18 +190,15 @@ public:
         }
         if (cue == kCueFlick)
         {
-            // A gesture ends any look, so a flick from a look comes home.
+            // A gesture ends any look, so a flick from a look comes home;
+            // otherwise it returns to where the eye was roaming.
             if (fMode == kLooking)
             {
-                fResumeMode = kRoaming;
                 fFlickBack.h = 0.0f;
                 fFlickBack.v = 0.0f;
             }
             else if (fMode != kFlicking)
-            {
-                fResumeMode = fMode;
                 fFlickBack = fEye.position();
-            }
             fMode = kFlicking;
             fHoldMs = 600;
             EyePos up = {0.0f, 0.2f};
@@ -213,9 +210,8 @@ public:
             case kFlicking:
                 if (fEye.due(nowMs))
                 {
-                    fMode = fResumeMode;
-                    fNextAdjustMs = nowMs + rnd(1500, 3001);
-                    fHoldMs = (fMode == kRoaming ? pickMs(mood.holoHoldS, 1.5f, rnd) : 0);
+                    fMode = kRoaming;
+                    fHoldMs = pickMs(mood.holoHoldS, 1.5f, rnd);
                     return fEye.moveTo(nowMs, fFlickBack, mood.holoSpeed, fHoldMs);
                 }
                 return none;
@@ -256,7 +252,6 @@ private:
 
     ChameleonEye fEye;
     Mode fMode = kRoaming;
-    Mode fResumeMode = kRoaming;
     EyePos fFlickBack = {0.0f, 0.0f};
     uint32_t fNextAdjustMs = 0;
     uint32_t fHoldMs = 0;

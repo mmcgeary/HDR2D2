@@ -213,6 +213,14 @@ public:
         return true;
     }
 
+    // Keeps the wait but moves a deadline earlier than t to t, so a timer that
+    // falls due while paused fires once the pause ends.
+    void defer(uint32_t t)
+    {
+        if (fArmed && int32_t(fNext - t) < 0)
+            fNext = t;
+    }
+
     void restart(uint32_t now, RandomFn rnd)
     {
         fNext = now + rnd(fMin, fMax);
