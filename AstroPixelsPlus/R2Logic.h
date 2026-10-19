@@ -213,6 +213,14 @@ public:
         return true;
     }
 
+    // Keeps the wait but moves a deadline earlier than t to t, so a timer that
+    // falls due while paused fires once the pause ends.
+    void defer(uint32_t t)
+    {
+        if (fArmed && int32_t(fNext - t) < 0)
+            fNext = t;
+    }
+
     void restart(uint32_t now, RandomFn rnd)
     {
         fNext = now + rnd(fMin, fMax);
@@ -232,6 +240,21 @@ private:
 
 static const uint8_t kMoodCount = 6;
 
+// SD card layout (SOUND_SETUP.md): film clip k of bank b is (b-1)*25 + k;
+// phrase k is 300 + (b-1)*150 + k. R2Remote.h checks these against
+// MarcduinoSound.h's MP3_MAX_SOUNDS_PER_BANK, MP3_PHRASE_BASE and MP3_PHRASE_BLOCK.
+static const uint16_t kClipBankSize = 25;
+static const uint16_t kPhraseBase = 300;
+static const uint16_t kPhraseBlock = 150;
+
+// File number for entry n (0-based) of bank index m (0-4): its clips first, then its phrases.
+inline uint16_t moodFile(uint8_t m, uint32_t n, const uint8_t clips[5])
+{
+    if (n < clips[m])
+        return uint16_t(m * kClipBankSize + n + 1);
+    return uint16_t(kPhraseBase + m * kPhraseBlock + (n - clips[m] + 1));
+}
+
 inline uint16_t pickMoodSound(uint8_t mood, const uint8_t clips[5], const uint8_t phrases[5], RandomFn rnd)
 {
     if (mood >= 1 && mood <= 5)
@@ -240,10 +263,7 @@ inline uint16_t pickMoodSound(uint8_t mood, const uint8_t clips[5], const uint8_
         uint32_t pool = clips[m] + phrases[m];
         if (pool == 0)
             return 1;
-        uint32_t n = rnd(0, pool);
-        if (n < clips[m])
-            return uint16_t(m * 25 + n + 1);
-        return uint16_t(300 + m * 150 + (n - clips[m] + 1));
+        return moodFile(m, rnd(0, pool), clips);
     }
     uint32_t total = 0;
     for (uint8_t i = 0; i < 5; i++)
@@ -255,11 +275,7 @@ inline uint16_t pickMoodSound(uint8_t mood, const uint8_t clips[5], const uint8_
     {
         uint32_t pool = clips[i] + phrases[i];
         if (n < pool)
-        {
-            if (n < clips[i])
-                return uint16_t(i * 25 + n + 1);
-            return uint16_t(300 + i * 150 + (n - clips[i] + 1));
-        }
+            return moodFile(i, n, clips);
         n -= pool;
     }
     return 1;

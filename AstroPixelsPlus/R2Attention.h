@@ -83,15 +83,20 @@ public:
             {
                 // A look in progress finishes facing front. A dome the operator
                 // turned stays where it is.
+                // Decided on the dome being known, not away: a dome passing front
+                // on its way out would otherwise coast to a stop off front.
                 bool midLook = hasDomeSteps();
                 clear();
-                if (midLook && domeAway(in))
+                if (midLook && in.domeKnown)
                     pushReturn(mood);
+                else
+                    returnEye(mood);
             }
             if (level == kStill)
             {
                 fDomeDisabled = false;
                 fSeekFailures = 0;
+                fEyeLooking = false; // the eyes rest
             }
             if (fLevel == kStill)
                 scheduleLook(in.nowMs, mood);
@@ -99,6 +104,7 @@ public:
         }
         if (level == kStill)
         {
+            fRemark.update(in.nowMs, false, fRnd);
             runQueue(in, out, mood, level);
             finishUpdate(in, mood);
             return out;
@@ -108,12 +114,19 @@ public:
             if (hasDomeSteps())
                 fReturnAfterStick = true;
             clear();
+            if (fEyeLooking)
+            {
+                fEyeLooking = false;
+                out.eyeCue = kCueReturn;
+            }
             fResumeMs = in.nowMs + kResumeMs;
+            fRemark.defer(fResumeMs);
             fPhase = "manual";
             return out;
         }
         if (int32_t(in.nowMs - fResumeMs) < 0)
         {
+            fRemark.defer(fResumeMs);
             if (int32_t(fLookDueMs - fResumeMs) < 0)
                 fLookDueMs = fResumeMs;
             return out;
@@ -130,8 +143,11 @@ public:
             if (hasDomeSteps() && !onlyReturn())
             {
                 clear();
-                if (domeAway(in))
+                // Only Alive turns the dome; Aware brings just the eye back.
+                if (level == kAlive && in.domeKnown)
                     pushReturn(mood);
+                else
+                    returnEye(mood);
             }
         }
         if (int32_t(fLookDueMs - fCalmUntilMs) < 0 && int32_t(in.nowMs - fCalmUntilMs) < 0)
@@ -140,6 +156,7 @@ public:
         if (in.swb)
         {
             clear();
+            fEyeLooking = false; // the flick ends the look (LeadingEye)
             pushGesture(in, mood, level);
             fPhase = "gesture";
         }
@@ -179,8 +196,7 @@ private:
         float target;
         float cruise;
         float ease;
-        bool slowFinish;
-        bool isReturn;
+        bool isReturn; // a return to front: allowed at any level, finishes slowly
         bool started;
         uint32_t untilMs;
     };
@@ -203,6 +219,7 @@ private:
     uint32_t fResumeMs = 0;
     uint32_t fCalmUntilMs = 0;
     bool fReturnAfterStick = false;
+    bool fEyeLooking = false; // the front eye is out on a look
     uint8_t fSeekFailures = 0;
     bool fDomeDisabled = false;
     const char* fPhase = "rest";
@@ -219,7 +236,6 @@ private:
         s.target = 0.0f;
         s.cruise = 0.0f;
         s.ease = 0.0f;
-        s.slowFinish = false;
         s.isReturn = false;
         s.started = false;
         s.untilMs = 0;
@@ -249,13 +265,12 @@ private:
         push(s);
     }
 
-    void pushDome(float target, float cruise, float ease, bool slowFinish = false, bool isReturn = false)
+    void pushDome(float target, float cruise, float ease, bool isReturn = false)
     {
         Step s = makeStep(kStepDome);
         s.target = clampDeg(target);
         s.cruise = cruise;
         s.ease = ease;
-        s.slowFinish = slowFinish;
         s.isReturn = isReturn;
         push(s);
     }
@@ -266,8 +281,15 @@ private:
     {
         pushEye(kCueReturn, 0);
         if (withDome)
-            pushDome(0.0f, mood.domeCruiseDps, mood.domeEaseS, true, true);
+            pushDome(0.0f, mood.domeCruiseDps, mood.domeEaseS, true);
         fPhase = "returning";
+    }
+
+    // After clearing a look that leaves the dome where it is: the eye still comes home.
+    void returnEye(const MoodProfile& mood)
+    {
+        if (fEyeLooking)
+            pushReturn(mood, false);
     }
 
     void clear()
@@ -416,7 +438,7 @@ private:
             case kFaceFront:
                 break;
         }
-        pushDome(0.0f, mood.domeCruiseDps, mood.domeEaseS, true, true);
+        pushDome(0.0f, mood.domeCruiseDps, mood.domeEaseS, true);
     }
 
     // ---- running ----
@@ -455,6 +477,10 @@ private:
             }
             if (s.kind == kStepEye)
             {
+                if (s.cue == kCueLook)
+                    fEyeLooking = true;
+                else if (s.cue == kCueReturn)
+                    fEyeLooking = false;
                 out.eyeCue = s.cue;
                 out.eyeSide = s.side;
                 pop();
@@ -490,7 +516,7 @@ private:
                 pop();
                 continue;
             }
-            out.dome = domeGoTo(s.target, s.cruise, s.ease, s.slowFinish);
+            out.dome = domeGoTo(s.target, s.cruise, s.ease, s.isReturn);
             if (!s.started)
             {
                 s.started = true;
