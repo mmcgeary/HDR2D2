@@ -160,6 +160,23 @@ public:
         }
         if (!fKnown)
             return;
+        if (fReentryPossible)
+        {
+            // Turned back over a magnet while moving: the dome lags its command,
+            // so it can coast off that magnet's arc and come back into it. A
+            // blip soon after, well short of the next magnet, is that magnet
+            // again. (The 5 degree pair gap is too short to tell; the check
+            // below catches a miscount there.)
+            fReentryPossible = false;
+            float gap = gapAhead();
+            if (gap > 2.0f * kFrontPairDeg && travel < 0.5f * gap && tUs - fReversedUs < kReentryUs)
+            {
+                fPrevTravelDeg = 0.0f;
+                fPrevPrevTravelDeg = 0.0f;
+                fSteady = false;
+                return;
+            }
+        }
         float next = nextMagnet(fLastMagnet, fLastDir);
         bool reversed = fJustReversed;
         fJustReversed = false;
@@ -168,10 +185,11 @@ public:
         // The pair's second magnet comes after a short gap. With no full gap to
         // compare (just after a reversal), trust the count.
         bool comparable = !reversed && prevTravel > 0.0f;
-        bool pairSecond = comparable && ((fLastDir > 0 && next == kFrontPairDeg) || (fLastDir < 0 && next == 0.0f));
-        if (pairSecond)
+        bool expectShort = (fLastDir > 0 && next == kFrontPairDeg) || (fLastDir < 0 && next == 0.0f);
+        if (expectShort && (comparable || travel > 3.0f * kFrontPairDeg))
         {
-            // The pair's second magnet always follows a short gap: the count is wrong.
+            // The pair's second magnet always follows a short gap: the count is
+            // wrong. With no earlier gap to compare, a full gap's turn shows it.
             markUnknown();
             return;
         }
@@ -221,6 +239,7 @@ public:
     {
         fKnown = false;
         fLearnable = false;
+        fReentryPossible = false;
     }
 
     // Speed at an offset: straight lines between the learned speeds, and
@@ -315,6 +334,9 @@ private:
     bool fKnown = false;
     bool fLearnable = false;
     bool fJustReversed = false;
+    bool fReentryPossible = false; // reversed over a magnet: it may blip again (onBlip)
+    uint32_t fReversedUs = 0;
+    static const uint32_t kReentryUs = 300000;
     bool fOverMagnet = false;
     float fLastMagnet = 0.0f;
     float fTravelDeg = 0.0f;
@@ -432,6 +454,8 @@ private:
         fSteady = false;
         fLearnable = false;
         fJustReversed = true;
+        fReentryPossible = fKnown && fOverMagnet;
+        fReversedUs = fLastUs;
         if (!fKnown || fOverMagnet)
         {
             fTravelDeg = 0.0f;

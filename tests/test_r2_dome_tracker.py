@@ -269,6 +269,30 @@ class TrackingTest(unittest.TestCase):
             CHECK(std::fabs(wrapDeg(t.angle() - dome.angle)) < 3.0f);
         """)
 
+    def test_reversal_at_speed_over_a_magnet_ignores_the_reentry(self):
+        # The stick flips the dome while the sensor is over a magnet. The dome
+        # lags its command, coasts off the magnet's arc and comes back into it:
+        # a second blip from the same magnet, not the next one.
+        run(r"""
+            DomeTracker t; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t now = 1000;
+            dome.arcDeg = 0.5f; dome.lagS = 0.04f;
+            for (int i = 0; i < 1300; i++) dome.step(t, now, 20000, 1, 100);      // learn, ends near -47
+            for (int i = 0; i < 2000 && !(dome.sensorLow() && dome.angle > -125 && dome.angle < -115); i++)
+                dome.step(t, now, 2000, -1, 230);                                 // fast, onto magnet -120
+            CHECK(dome.sensorLow());
+            CHECK(t.known());
+            uint32_t before = dome.blips;
+            float worst = 0;
+            while (dome.angle < 40.0f)                                            // flipped at speed
+            {
+                dome.step(t, now, 5000, 1, 150);
+                if (t.known()) worst = std::fmax(worst, std::fabs(wrapDeg(t.angle() - dome.angle)));
+            }
+            CHECK(dome.blips > before + 6);                                       // the re-entry blipped
+            CHECK(t.known());
+            CHECK(worst < 5.0f);
+        """)
+
     def test_stop_over_a_magnet_then_carry_on(self):
         run(r"""
             DomeTracker t; r2sim::SimDome dome(-100, 0.35f, 15); uint32_t now = 1000;
@@ -433,6 +457,21 @@ class BlipEdgeCaseTest(unittest.TestCase):
             CHECK(!t.known());
             t.onBlip(9600000); t.onBlip(10200000);                       // ordinary 30 deg gaps
             CHECK(!t.known());                                           // no false front from the lost stretch
+        """)
+
+    def test_full_gap_where_the_pair_gap_is_expected_marks_unknown(self):
+        # Just after a reversal there is no earlier gap to compare with, so the
+        # count is trusted; a 30 degree turn to "the pair's second magnet"
+        # shows the count is wrong.
+        run(r"""
+            DomeTracker t;
+            t.setCommand(0, 1, 100);                                    // 50 deg/s by default
+            t.onBlip(1000000); t.onBlip(2000000); t.onBlip(2100000);   // known at 5
+            t.setCommand(2120000, -1, 100);                             // back toward 5
+            t.onBlip(2140000);                                          // 5 again
+            CHECK_NEAR(t.angle(), 5.0, 0.01);
+            t.onBlip(2740000);                                          // 30 degrees later: not the 5 degree pair gap
+            CHECK(!t.known());
         """)
 
     def test_missing_short_gap_at_pair_marks_unknown(self):
