@@ -15,6 +15,10 @@
 #include "R2DomeMotion.h"
 #include "R2Attention.h"
 
+static_assert(r2::kClipBankSize == MP3_MAX_SOUNDS_PER_BANK && r2::kPhraseBase == MP3_PHRASE_BASE &&
+                  r2::kPhraseBlock == MP3_PHRASE_BLOCK,
+              "R2Logic.h's SD card layout must match MarcduinoSound.h");
+
 #define R2_IBUS_SERIAL Serial2
 #define R2_IBUS_RX_PIN 16
 #define R2_DOME_SERVO_PIN PIN_AUX2 // GPIO4, through the dome level shifter to ring CH6
@@ -33,8 +37,6 @@
 #define R2_RADIO_TIMEOUT_MS 300
 // Below the VESC's 10% deadband, so the wheels never move while this reads "not driving".
 #define R2_DRIVE_BAND_US 40
-// Same as DomeMotion's stick deadband.
-#define R2_STICK_BAND_US 80
 #define R2_VOLUME_SAVE_DELAY_MS 3000
 #define R2_SPEED_SAVE_INTERVAL_MS 300000
 // Longest the front holo lamp stays lit for one look.
@@ -202,7 +204,8 @@ private:
     {
         fDriving = r2::deflected(fIbus.channel(R2_CH_DRIVE_LEFT), R2_DRIVE_BAND_US) ||
                    r2::deflected(fIbus.channel(R2_CH_DRIVE_RIGHT), R2_DRIVE_BAND_US);
-        fStick = r2::deflected(fIbus.channel(R2_CH_DOME), R2_STICK_BAND_US);
+        // The planner's "stick in use" matches when DomeMotion passes the stick through.
+        fStick = r2::deflected(fIbus.channel(R2_CH_DOME), r2::DomeMotion::defaults().stickDeadbandUs);
         fLevel = r2::switchLevel(fIbus.channel(R2_CH_LEVEL));
         if (fPlaySwitch.update(r2::switchOn(fIbus.channel(R2_CH_PLAY_SOUND))))
             fSwbPressed = true;

@@ -196,8 +196,7 @@ private:
         float target;
         float cruise;
         float ease;
-        bool slowFinish;
-        bool isReturn;
+        bool isReturn; // a return to front: allowed at any level, finishes slowly
         bool started;
         uint32_t untilMs;
     };
@@ -237,7 +236,6 @@ private:
         s.target = 0.0f;
         s.cruise = 0.0f;
         s.ease = 0.0f;
-        s.slowFinish = false;
         s.isReturn = false;
         s.started = false;
         s.untilMs = 0;
@@ -267,13 +265,12 @@ private:
         push(s);
     }
 
-    void pushDome(float target, float cruise, float ease, bool slowFinish = false, bool isReturn = false)
+    void pushDome(float target, float cruise, float ease, bool isReturn = false)
     {
         Step s = makeStep(kStepDome);
         s.target = clampDeg(target);
         s.cruise = cruise;
         s.ease = ease;
-        s.slowFinish = slowFinish;
         s.isReturn = isReturn;
         push(s);
     }
@@ -284,7 +281,7 @@ private:
     {
         pushEye(kCueReturn, 0);
         if (withDome)
-            pushDome(0.0f, mood.domeCruiseDps, mood.domeEaseS, true, true);
+            pushDome(0.0f, mood.domeCruiseDps, mood.domeEaseS, true);
         fPhase = "returning";
     }
 
@@ -441,7 +438,7 @@ private:
             case kFaceFront:
                 break;
         }
-        pushDome(0.0f, mood.domeCruiseDps, mood.domeEaseS, true, true);
+        pushDome(0.0f, mood.domeCruiseDps, mood.domeEaseS, true);
     }
 
     // ---- running ----
@@ -519,7 +516,7 @@ private:
                 pop();
                 continue;
             }
-            out.dome = domeGoTo(s.target, s.cruise, s.ease, s.slowFinish);
+            out.dome = domeGoTo(s.target, s.cruise, s.ease, s.isReturn);
             if (!s.started)
             {
                 s.started = true;
